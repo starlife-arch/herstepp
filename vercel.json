@@ -1,25 +1,74 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    {
+      "source": "/api/firebase-config",
+      "destination": "/api/catalog?route=firebase-config"
+    },
+    {
+      "source": "/api/health",
+      "destination": "/api/catalog?route=health"
+    },
+    {
+      "source": "/api/auth/sync-profile",
+      "destination": "/api/users?route=auth/sync-profile"
+    },
+    {
+      "source": "/api/products",
+      "destination": "/api/catalog?route=products"
+    },
+    {
+      "source": "/api/products/:id",
+      "destination": "/api/catalog?route=product-detail&id=:id"
+    },
+    {
+      "source": "/api/categories",
+      "destination": "/api/catalog?route=categories"
+    },
+    {
+      "source": "/api/admin/products",
+      "destination": "/api/admin?route=products"
+    },
+    {
+      "source": "/api/admin/products/:id",
+      "destination": "/api/admin?route=product-update&id=:id"
+    },
+    {
+      "source": "/api/admin/products/:id/archive",
+      "destination": "/api/admin?route=product-archive&id=:id"
+    },
+    {
+      "source": "/api/admin/categories",
+      "destination": "/api/admin?route=categories"
+    },
+    {
+      "source": "/api/media/sign-upload",
+      "destination": "/api/admin?route=media/sign-upload"
+    },
+    {
+      "source": "/((?!api(?:/|$)).*)",
+      "destination": "/index.html"
+    }
   ],
   "headers": [
     {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store, must-revalidate" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
-      ]
-    },
-    {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Content-Type-Options", "value": "nosniff" },
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-XSS-Protection", "value": "1; mode=block" },
-        { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" }
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
       ]
     }
   ]

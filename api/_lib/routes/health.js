@@ -1,0 +1,27 @@
+import { methodNotAllowed } from '../http.js';
+
+const requiredEnvironmentVariables = [
+  'FIREBASE_API_KEY',
+  'FIREBASE_AUTH_DOMAIN',
+  'FIREBASE_PROJECT_ID',
+  'FIREBASE_STORAGE_BUCKET',
+  'FIREBASE_MESSAGING_SENDER_ID',
+  'FIREBASE_APP_ID',
+  'FIREBASE_ADMIN_PROJECT_ID',
+  'FIREBASE_ADMIN_CLIENT_EMAIL',
+  'FIREBASE_ADMIN_PRIVATE_KEY',
+  'CLOUDINARY_CLOUD_NAME',
+  'CLOUDINARY_API_KEY',
+  'CLOUDINARY_API_SECRET',
+  'PRINTPAY_API_KEY',
+  'PRINTPAY_API_BASE_URL',
+];
+
+export default function health(req, res) {
+  if (req.method !== 'GET') {
+    return methodNotAllowed(res, 'GET');
+  }
+
+  const missing = requiredEnvironmentVariables.filter((name) => !process.env[name]?.trim());
+  return res.status(200).json({ missing });
+}
