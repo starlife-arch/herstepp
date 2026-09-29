@@ -1,0 +1,233 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ──────────────────────────────────────────
+    // HELPER FUNCTIONS
+    // ──────────────────────────────────────────
+
+    // Check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Get current user's role
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    // Check if user is admin or super_admin
+    function isAdmin() {
+      return isAuthenticated() && getUserRole() in ['admin', 'super_admin'];
+    }
+
+    // Check if user is super_admin
+    function isSuperAdmin() {
+      return isAuthenticated() && getUserRole() == 'super_admin';
+    }
+
+    // Check if user owns the document
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // ──────────────────────────────────────────
+    // USERS COLLECTION
+    // ──────────────────────────────────────────
+    match /users/{userId} {
+      // Users can read their own profile
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Users can create their own profile on registration
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+
+      // Users can update their own profile (but not their role)
+      allow update: if isOwner(userId) && !request.resource.data.keys().hasAny(['role'])
+                    || isAdmin();
+
+      // Only super_admin can delete users or change roles
+      allow delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // PRODUCTS COLLECTION (Public read)
+    // ──────────────────────────────────────────
+    match /products/{productId} {
+      // Anyone can read products
+      allow read: if true;
+
+      // Only admins can write products
+      allow write: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // CATEGORIES COLLECTION (Public read)
+    // ──────────────────────────────────────────
+    match /categories/{categoryId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // ORDERS COLLECTION
+    // ──────────────────────────────────────────
+    match /orders/{orderId} {
+      // Customers can read their own orders
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
+                  || isAdmin();
+
+      // Customers can create orders (but server validates content)
+      allow create: if isAuthenticated()
+                    && request.resource.data.customerId == request.auth.uid;
+
+      // Only admins can update order status
+      allow update: if isAdmin();
+
+      // Only super_admin can delete orders
+      allow delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // PAYMENTS COLLECTION
+    // ──────────────────────────────────────────
+    match /payments/{paymentId} {
+      // Customers can read their own payments
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
+                  || isAdmin();
+
+      // Payments are created by server-side functions only
+      // (via Firebase Admin SDK, bypasses these rules)
+      allow create: if false;
+
+      // Only admins can update payments (e.g., mark as refunded)
+      allow update: if isAdmin();
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // SUPPORT TICKETS
+    // ──────────────────────────────────────────
+    match /supportTickets/{ticketId} {
+      // Customers can read their own tickets
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
+                  || isAdmin();
+
+      // Customers can create tickets
+      allow create: if isAuthenticated()
+                    && request.resource.data.customerId == request.auth.uid;
+
+      // Customers can update (add messages) to their own tickets
+      // Admins can update any ticket
+      allow update: if (isAuthenticated() && resource.data.customerId == request.auth.uid)
+                    || isAdmin();
+
+      // Only admins can delete tickets
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // SUPPORT MESSAGES (Subcollection)
+    // ──────────────────────────────────────────
+    match /supportTickets/{ticketId}/messages/{messageId} {
+      allow read: if isAuthenticated()
+                  && get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.customerId == request.auth.uid
+                  || isAdmin();
+
+      // Customers can add messages to their own tickets
+      allow create: if isAuthenticated()
+                    && get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.customerId == request.auth.uid
+                    || isAdmin();
+
+      allow update, delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // NOTIFICATIONS
+    // ──────────────────────────────────────────
+    match /notifications/{notificationId} {
+      // Users can read their own notifications
+      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid
+                  || isAdmin();
+
+      // Users can mark their notifications as read
+      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
+
+      // Server creates notifications
+      allow create: if false;
+
+      allow delete: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // PROMOTIONS & PROMO CODES (Public read)
+    // ──────────────────────────────────────────
+    match /promotions/{promoId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /promoCodes/{codeId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // DISCOUNT & BULK REQUESTS
+    // ──────────────────────────────────────────
+    match /discountRequests/{requestId} {
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
+                  || isAdmin();
+
+      allow create: if isAuthenticated()
+                    && request.resource.data.customerId == request.auth.uid;
+
+      allow update: if isAdmin();
+
+      allow delete: if isSuperAdmin();
+    }
+
+    match /bulkOrderRequests/{requestId} {
+      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
+                  || isAdmin();
+
+      allow create: if isAuthenticated()
+                    && request.resource.data.customerId == request.auth.uid;
+
+      allow update: if isAdmin();
+
+      allow delete: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // AUDIT LOGS (Admin only)
+    // ──────────────────────────────────────────
+    match /auditLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Server-side only via Admin SDK
+    }
+
+    // ──────────────────────────────────────────
+    // SETTINGS (Admin only)
+    // ──────────────────────────────────────────
+    match /settings/{settingId} {
+      allow read: if isAdmin();
+      allow write: if isSuperAdmin();
+    }
+
+    // ──────────────────────────────────────────
+    // INVENTORY LOGS (Admin only)
+    // ──────────────────────────────────────────
+    match /inventoryLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false; // Server-side only
+    }
+
+    // ──────────────────────────────────────────
+    // DENY EVERYTHING ELSE
+    // ──────────────────────────────────────────
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
