@@ -1,6 +1,2 @@
 import { dispatchRoute, lazyRoute } from './_lib/route-dispatch.js';
-
-export default (req, res) => dispatchRoute(req, res, {
-  'firebase-config': lazyRoute(() => import('./_lib/routes/firebase-config.js')),
-  health: lazyRoute(() => import('./_lib/routes/health.js')),
-});
+export default (req,res)=>dispatchRoute(req,res,{'firebase-config':lazyRoute(()=>import('./_lib/routes/firebase-config.js')),health:lazyRoute(()=>import('./_lib/routes/health.js')),products:lazyRoute(()=>import('./_lib/routes/catalog-products.js').then(m=>({default:m.listProducts}))), 'product-detail':lazyRoute(()=>import('./_lib/routes/catalog-products.js').then(m=>({default:m.productDetail}))),categories:lazyRoute(()=>import('./_lib/routes/catalog-products.js').then(m=>({default:m.listCategories})))});

@@ -13,6 +13,38 @@
       "destination": "/api/users?route=auth/sync-profile"
     },
     {
+      "source": "/api/products",
+      "destination": "/api/catalog?route=products"
+    },
+    {
+      "source": "/api/products/:id",
+      "destination": "/api/catalog?route=product-detail&id=:id"
+    },
+    {
+      "source": "/api/categories",
+      "destination": "/api/catalog?route=categories"
+    },
+    {
+      "source": "/api/admin/products",
+      "destination": "/api/admin?route=products"
+    },
+    {
+      "source": "/api/admin/products/:id",
+      "destination": "/api/admin?route=product-update&id=:id"
+    },
+    {
+      "source": "/api/admin/products/:id/archive",
+      "destination": "/api/admin?route=product-archive&id=:id"
+    },
+    {
+      "source": "/api/admin/categories",
+      "destination": "/api/admin?route=categories"
+    },
+    {
+      "source": "/api/media/sign-upload",
+      "destination": "/api/admin?route=media/sign-upload"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

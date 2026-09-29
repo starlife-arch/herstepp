@@ -1,3 +1,2 @@
-import { dispatchRoute } from './_lib/route-dispatch.js';
-
-export default (req, res) => dispatchRoute(req, res, {});
+import { dispatchRoute,lazyRoute } from './_lib/route-dispatch.js';
+export default (req,res)=>dispatchRoute(req,res,{products:lazyRoute(()=>import('./_lib/routes/admin-products.js').then(m=>({default:m.products}))), 'product-update':lazyRoute(()=>import('./_lib/routes/admin-products.js').then(m=>({default:m.productUpdate}))), 'product-archive':lazyRoute(()=>import('./_lib/routes/admin-products.js').then(m=>({default:m.productArchive}))), categories:lazyRoute(()=>import('./_lib/routes/admin-categories.js')), 'media/sign-upload':lazyRoute(()=>import('./_lib/routes/admin-media.js'))});
