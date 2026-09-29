@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import { Layout } from './components/Layout';
 import { Toast } from './components/ui';
@@ -39,6 +39,21 @@ function ToastContainer() {
   );
 }
 
+
+function RequireAuth({ children }: { children: React.ReactElement }) {
+  const { state } = useApp();
+  if (!state.authReady) return null;
+  return state.user ? children : <Navigate to="/login" replace />;
+}
+
+function RequireAdmin({ children }: { children: React.ReactElement }) {
+  const { state } = useApp();
+  if (!state.authReady) return null;
+  return state.user?.role === 'ADMIN' || state.user?.role === 'SUPER_ADMIN'
+    ? children
+    : <Navigate to="/login" replace />;
+}
+
 function AppRoutes() {
   const location = useLocation();
   const isAdmin = location.pathname.startsWith('/admin');
@@ -46,8 +61,8 @@ function AppRoutes() {
   if (isAdmin) {
     return (
       <Routes>
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/*" element={<AdminDashboard />} />
+        <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+        <Route path="/admin/*" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
       </Routes>
     );
   }
@@ -62,8 +77,8 @@ function AppRoutes() {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/dashboard" element={<CustomerDashboard />} />
-        <Route path="/dashboard/*" element={<CustomerDashboard />} />
+        <Route path="/dashboard" element={<RequireAuth><CustomerDashboard /></RequireAuth>} />
+        <Route path="/dashboard/*" element={<RequireAuth><CustomerDashboard /></RequireAuth>} />
         <Route path="/track" element={<OrderTracking />} />
         <Route path="/support" element={<Support />} />
         <Route path="/about" element={<About />} />
