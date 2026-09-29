@@ -1,233 +1,49 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ──────────────────────────────────────────
-    // HELPER FUNCTIONS
-    // ──────────────────────────────────────────
-
-    // Check if user is authenticated
-    function isAuthenticated() {
-      return request.auth != null;
-    }
-
-    // Get current user's role
-    function getUserRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
-    }
-
-    // Check if user is admin or super_admin
-    function isAdmin() {
-      return isAuthenticated() && getUserRole() in ['admin', 'super_admin'];
-    }
-
-    // Check if user is super_admin
-    function isSuperAdmin() {
-      return isAuthenticated() && getUserRole() == 'super_admin';
-    }
-
-    // Check if user owns the document
-    function isOwner(userId) {
-      return isAuthenticated() && request.auth.uid == userId;
-    }
-
-    // ──────────────────────────────────────────
-    // USERS COLLECTION
-    // ──────────────────────────────────────────
+    function signedIn() { return request.auth != null; }
+    function isOwner(userId) { return signedIn() && request.auth.uid == userId; }
+    function userData() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function isAdmin() { return signedIn() && userData().role in ['ADMIN', 'SUPER_ADMIN']; }
+    function isSuperAdmin() { return signedIn() && userData().role == 'SUPER_ADMIN'; }
     match /users/{userId} {
-      // Users can read their own profile
       allow read: if isOwner(userId) || isAdmin();
-
-      // Users can create their own profile on registration
-      allow create: if isAuthenticated() && request.auth.uid == userId;
-
-      // Users can update their own profile (but not their role)
-      allow update: if isOwner(userId) && !request.resource.data.keys().hasAny(['role'])
-                    || isAdmin();
-
-      // Only super_admin can delete users or change roles
-      allow delete: if isSuperAdmin();
+      allow create: if isOwner(userId) && request.resource.data.role == 'CUSTOMER' && request.resource.data.uid == request.auth.uid;
+      allow update: if isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.uid == resource.data.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'phoneNumber', 'deliveryDetails', 'marketingConsent', 'updatedAt']);
+      allow update: if isSuperAdmin();
+      allow delete: if false;
     }
-
-    // ──────────────────────────────────────────
-    // PRODUCTS COLLECTION (Public read)
-    // ──────────────────────────────────────────
-    match /products/{productId} {
-      // Anyone can read products
-      allow read: if true;
-
-      // Only admins can write products
-      allow write: if isAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // CATEGORIES COLLECTION (Public read)
-    // ──────────────────────────────────────────
-    match /categories/{categoryId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // ORDERS COLLECTION
-    // ──────────────────────────────────────────
-    match /orders/{orderId} {
-      // Customers can read their own orders
-      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
-                  || isAdmin();
-
-      // Customers can create orders (but server validates content)
-      allow create: if isAuthenticated()
-                    && request.resource.data.customerId == request.auth.uid;
-
-      // Only admins can update order status
-      allow update: if isAdmin();
-
-      // Only super_admin can delete orders
-      allow delete: if isSuperAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // PAYMENTS COLLECTION
-    // ──────────────────────────────────────────
-    match /payments/{paymentId} {
-      // Customers can read their own payments
-      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
-                  || isAdmin();
-
-      // Payments are created by server-side functions only
-      // (via Firebase Admin SDK, bypasses these rules)
-      allow create: if false;
-
-      // Only admins can update payments (e.g., mark as refunded)
-      allow update: if isAdmin();
-
-      allow delete: if isSuperAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // SUPPORT TICKETS
-    // ──────────────────────────────────────────
-    match /supportTickets/{ticketId} {
-      // Customers can read their own tickets
-      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
-                  || isAdmin();
-
-      // Customers can create tickets
-      allow create: if isAuthenticated()
-                    && request.resource.data.customerId == request.auth.uid;
-
-      // Customers can update (add messages) to their own tickets
-      // Admins can update any ticket
-      allow update: if (isAuthenticated() && resource.data.customerId == request.auth.uid)
-                    || isAdmin();
-
-      // Only admins can delete tickets
-      allow delete: if isAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // SUPPORT MESSAGES (Subcollection)
-    // ──────────────────────────────────────────
-    match /supportTickets/{ticketId}/messages/{messageId} {
-      allow read: if isAuthenticated()
-                  && get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.customerId == request.auth.uid
-                  || isAdmin();
-
-      // Customers can add messages to their own tickets
-      allow create: if isAuthenticated()
-                    && get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.customerId == request.auth.uid
-                    || isAdmin();
-
-      allow update, delete: if isAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // NOTIFICATIONS
-    // ──────────────────────────────────────────
+    match /products/{productId} { allow read: if resource.data.status == 'ACTIVE' || isAdmin(); allow write: if false; }
+    match /categories/{categoryId} { allow read: if true; allow write: if false; }
+    match /settings/announcement { allow read: if resource.data.enabled == true || isAdmin(); allow write: if false; }
+    match /settings/{settingId} { allow read, write: if isAdmin(); }
+    match /orders/{orderId} { allow read: if isOwner(resource.data.customerId) || isAdmin(); allow write: if false; }
+    match /orderItems/{itemId} { allow read: if isOwner(resource.data.customerId) || isAdmin(); allow write: if false; }
+    match /payments/{paymentId} { allow read: if isOwner(resource.data.customerId) || isAdmin(); allow write: if false; }
+    match /paymentTransactions/{transactionId} { allow read: if isAdmin(); allow write: if false; }
+    match /orderStatusHistory/{historyId} { allow read: if isOwner(resource.data.customerId) || isAdmin(); allow write: if false; }
+    match /inventoryLogs/{logId} { allow read: if isAdmin(); allow write: if false; }
+    match /auditLogs/{logId} { allow read: if isAdmin(); allow write: if false; }
+    match /promotions/{promotionId} { allow read: if (resource.data.active == true && resource.data.startsAt <= request.time && resource.data.endsAt >= request.time) || isAdmin(); allow write: if false; }
+    match /promoCodes/{codeId} { allow read, write: if false; }
+    match /promoCodeUsages/{usageId} { allow read, write: if false; }
     match /notifications/{notificationId} {
-      // Users can read their own notifications
-      allow read: if isAuthenticated() && resource.data.userId == request.auth.uid
-                  || isAdmin();
-
-      // Users can mark their notifications as read
-      allow update: if isAuthenticated() && resource.data.userId == request.auth.uid;
-
-      // Server creates notifications
-      allow create: if false;
-
-      allow delete: if isAdmin();
+      allow read: if isOwner(resource.data.customerId) || isAdmin();
+      allow update: if isOwner(resource.data.customerId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readAt']);
+      allow create, delete: if false;
     }
-
-    // ──────────────────────────────────────────
-    // PROMOTIONS & PROMO CODES (Public read)
-    // ──────────────────────────────────────────
-    match /promotions/{promoId} {
-      allow read: if true;
-      allow write: if isAdmin();
+    match /supportTickets/{ticketId} {
+      allow read: if isOwner(resource.data.customerId) || isAdmin();
+      allow create, update, delete: if false;
+      match /messages/{messageId} { allow read: if isOwner(get(/databases/$(database)/documents/supportTickets/$(ticketId)).data.customerId) || isAdmin(); allow write: if false; }
+      match /history/{historyId} { allow read: if isAdmin(); allow write: if false; }
+      match /internalNotes/{noteId} { allow read: if isAdmin(); allow write: if false; }
     }
-
-    match /promoCodes/{codeId} {
-      allow read: if true;
-      allow write: if isAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // DISCOUNT & BULK REQUESTS
-    // ──────────────────────────────────────────
-    match /discountRequests/{requestId} {
-      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
-                  || isAdmin();
-
-      allow create: if isAuthenticated()
-                    && request.resource.data.customerId == request.auth.uid;
-
-      allow update: if isAdmin();
-
-      allow delete: if isSuperAdmin();
-    }
-
-    match /bulkOrderRequests/{requestId} {
-      allow read: if isAuthenticated() && resource.data.customerId == request.auth.uid
-                  || isAdmin();
-
-      allow create: if isAuthenticated()
-                    && request.resource.data.customerId == request.auth.uid;
-
-      allow update: if isAdmin();
-
-      allow delete: if isSuperAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // AUDIT LOGS (Admin only)
-    // ──────────────────────────────────────────
-    match /auditLogs/{logId} {
-      allow read: if isAdmin();
-      allow write: if false; // Server-side only via Admin SDK
-    }
-
-    // ──────────────────────────────────────────
-    // SETTINGS (Admin only)
-    // ──────────────────────────────────────────
-    match /settings/{settingId} {
-      allow read: if isAdmin();
-      allow write: if isSuperAdmin();
-    }
-
-    // ──────────────────────────────────────────
-    // INVENTORY LOGS (Admin only)
-    // ──────────────────────────────────────────
-    match /inventoryLogs/{logId} {
-      allow read: if isAdmin();
-      allow write: if false; // Server-side only
-    }
-
-    // ──────────────────────────────────────────
-    // DENY EVERYTHING ELSE
-    // ──────────────────────────────────────────
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /supportMessages/{messageId} { allow read, write: if false; }
+    match /discountRequests/{requestId} { allow read: if isOwner(resource.data.customerId) || isAdmin(); allow write: if false; match /history/{historyId} { allow read: if isAdmin(); allow write: if false; } }
+    match /bulkOrderRequests/{requestId} { allow read: if isOwner(resource.data.customerId) || isAdmin(); allow write: if false; match /history/{historyId} { allow read: if isAdmin(); allow write: if false; } }
+    match /productRequests/{requestId} { allow read, write: if false; }
+    match /adminUsers/{adminId} { allow read: if isSuperAdmin(); allow write: if false; }
+    match /{document=**} { allow read, write: if false; }
   }
 }

@@ -1,18 +1,10 @@
 {
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/firebase-config", "destination": "/api/catalog?route=firebase-config" },
+    { "source": "/api/health", "destination": "/api/catalog?route=health" },
+    { "source": "/((?!api(?:/|$)).*)", "destination": "/index.html" }
   ],
   "headers": [
-    {
-      "source": "/api/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-store, must-revalidate" },
-        { "key": "Access-Control-Allow-Origin", "value": "*" },
-        { "key": "Access-Control-Allow-Methods", "value": "GET, POST, PUT, DELETE, OPTIONS" },
-        { "key": "Access-Control-Allow-Headers", "value": "Content-Type, Authorization" }
-      ]
-    },
     {
       "source": "/(.*)",
       "headers": [
