@@ -5,10 +5,8 @@ node_modules/
 
 # Environment variables (NEVER commit secrets)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
+!.env.example
 
 # Build output
 dist/
