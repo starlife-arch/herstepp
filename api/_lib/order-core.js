@@ -25,8 +25,6 @@ export const PAYMENT_STATUS = {
   REFUNDED: 'REFUNDED',
 };
 
-const STATUSES_LIKE = new Set(['string', 'number']);
-
 export function toIso(value) {
   if (!value) return null;
   if (typeof value === 'object' && typeof value.toDate === 'function') return value.toDate().toISOString();
@@ -558,17 +556,37 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
 // order restores reserved stock in the same transaction (new inventory arrays
 // plus inventoryLogs).
 // ---------------------------------------------------------------------------
-const TRANSITIONS = {
+// Single source of truth for order status transitions. Exported so the admin
+// frontend can render ONLY the allowed next statuses per order.
+export const ORDER_STATUSES = ['PENDING', 'PROCESSING', 'PROCESSED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
+
+export const ALLOWED_ORDER_TRANSITIONS = {
   PENDING: ['PROCESSING', 'CANCELLED'],
   PROCESSING: ['PROCESSED', 'CANCELLED'],
   PROCESSED: ['OUT_FOR_DELIVERY', 'CANCELLED'],
-  OUT_FOR_DELIVERY: ['DELIVERED'],
+  OUT_FOR_DELIVERY: ['DELIVERED', 'CANCELLED'],
+  DELIVERED: [],
+  CANCELLED: [],
 };
+
+const VALID_ORDER_STATUSES = new Set(ORDER_STATUSES);
+
+export function nextOrderStatuses(current) {
+  return ALLOWED_ORDER_TRANSITIONS[current] || [];
+}
+
+function humanStatus(s) {
+  return String(s || '')
+    .split('_')
+    .map(w => (w ? w[0] + w.slice(1).toLowerCase() : w))
+    .join(' ');
+}
 
 export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocumentId, orderStatus, note }) {
   if (typeof orderDocumentId !== 'string' || !orderDocumentId) throw clientError('orderDocumentId is required.');
-  if (typeof orderStatus !== 'string' || !TRANSITIONS[orderStatus] && !['CANCELLED'].includes(orderStatus)) throw clientError('A valid orderStatus is required.');
-  if (!STATUSES_LIKE.has(typeof orderStatus)) throw clientError('A valid orderStatus is required.');
+  if (typeof orderStatus !== 'string' || !VALID_ORDER_STATUSES.has(orderStatus)) {
+    throw clientError('A valid orderStatus is required.');
+  }
 
   return db.runTransaction(async tx => {
     const orderRef = db.collection('orders').doc(orderDocumentId);
@@ -576,8 +594,13 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
     if (!orderSnap.exists) throw clientError('Order not found.', 404);
     const order = orderSnap.data();
 
-    const allowed = TRANSITIONS[order.orderStatus] || [];
-    if (!allowed.includes(orderStatus)) throw clientError('That order status transition is not allowed.', 409);
+    const allowed = ALLOWED_ORDER_TRANSITIONS[order.orderStatus] || [];
+    if (!allowed.includes(orderStatus)) {
+      throw clientError(
+        `Cannot move an order from ${humanStatus(order.orderStatus)} to ${humanStatus(orderStatus)}.`,
+        409,
+      );
+    }
     if (orderStatus === 'PROCESSING' && order.paymentStatus !== 'PAID') throw clientError('Payment must be confirmed before processing.', 409);
 
     // Reads needed for a possible stock restore must happen before writes.
@@ -664,4 +687,143 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
 
     return { ok: true };
   });
+}
+
+// ---------------------------------------------------------------------------
+// Stale unpaid orders. No cron: called at the start of POST /api/orders/create
+// and GET /api/admin/orders. Any PENDING order older than 30 minutes that has
+// not been paid (paymentStatus PENDING/FAILED/CANCELLED/TIMEOUT) is CANCELLED,
+// its paymentStatus becomes TIMEOUT if still PENDING, and the reserved stock
+// is restored as a NEW inventory array plus inventoryLogs — in ONE transaction
+// per order. Max 20 orders per call.
+// ---------------------------------------------------------------------------
+export const STALE_ORDER_MS = 30 * 60_000;
+const UNPAID_PAYMENT_STATUSES = ['PENDING', 'FAILED', 'CANCELLED', 'TIMEOUT'];
+
+function msOf(value) {
+  if (!value) return null;
+  if (typeof value === 'object' && typeof value.toMillis === 'function') return value.toMillis();
+  if (typeof value === 'number') return value;
+  const parsed = Date.parse(String(value));
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
+  try {
+    const snap = await db.collection('orders')
+      .where('orderStatus', '==', 'PENDING')
+      .orderBy('createdAt', 'desc')
+      .limit(40)
+      .get();
+    const cutoff = now - STALE_ORDER_MS;
+    let expired = 0;
+    for (const doc of snap.docs) {
+      if (expired >= 20) break; // limit 20 per call
+      const o = doc.data() || {};
+      if (!UNPAID_PAYMENT_STATUSES.includes(o.paymentStatus)) continue;
+      const created = msOf(o.createdAt);
+      if (created == null || created > cutoff) continue;
+
+      await db.runTransaction(async tx => {
+        const orderRef = db.collection('orders').doc(doc.id);
+        const orderSnap = await tx.get(orderRef);
+        if (!orderSnap.exists) return;
+        const order = orderSnap.data();
+        // Re-check inside the transaction — it may have just been paid.
+        if (order.orderStatus !== 'PENDING' || !UNPAID_PAYMENT_STATUSES.includes(order.paymentStatus)) return;
+        const createdMs = msOf(order.createdAt);
+        if (createdMs == null || createdMs > cutoff) return;
+
+        // Reads before writes: products needed for the stock restore.
+        let restorePlan = [];
+        if (order.inventoryReserved === true) {
+          const byProduct = groupByProduct((order.items || []).map(i => ({ productId: i.productId, size: i.size, quantity: i.quantity })));
+          const refs = [...byProduct.keys()].map(id => db.collection('products').doc(id));
+          const snaps = refs.length ? await tx.getAll(...refs) : [];
+          for (let n = 0; n < snaps.length; n += 1) {
+            const s = snaps[n];
+            if (!s.exists) continue;
+            const data = s.data();
+            if (!Array.isArray(data.inventory)) {
+              console.error(`INVENTORY_NOT_ARRAY product=${refs[n].id} during stale expiry: needs repair`);
+              continue;
+            }
+            let inventory = data.inventory.map(i => ({ size: i.size, quantity: Number(i.quantity) || 0 }));
+            const changes = [];
+            for (const line of byProduct.get(refs[n].id)) {
+              const before = inventory.find(i => i.size === line.size)?.quantity ?? 0;
+              inventory = restoreInventory(inventory, line.size, line.quantity);
+              const after = inventory.find(i => i.size === line.size)?.quantity ?? 0;
+              changes.push({ ...line, previousQuantity: before, newQuantity: after });
+            }
+            restorePlan.push({ ref: s.ref, data, inventory, changes });
+          }
+        }
+
+        tx.update(orderRef, {
+          orderStatus: 'CANCELLED',
+          ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.TIMEOUT } : {}),
+          activePaymentId: null,
+          ...(restorePlan.length ? { inventoryReserved: false } : {}),
+          updatedAt: deps.serverTimestamp(),
+        });
+
+        for (const p of restorePlan) {
+          const derived = deriveStock(p.inventory);
+          tx.update(p.ref, {
+            inventory: p.inventory, // full ARRAY — never dotted paths
+            stockQuantity: derived.stockQuantity,
+            availableSizes: derived.availableSizes,
+            updatedAt: deps.serverTimestamp(),
+          });
+          for (const c of p.changes) {
+            tx.set(db.collection('inventoryLogs').doc(), {
+              productId: p.ref.id,
+              productName: p.data.name ?? null,
+              size: c.size,
+              previousQuantity: c.previousQuantity,
+              newQuantity: c.newQuantity,
+              reason: 'ORDER_EXPIRED_RESTORE',
+              orderId: order.orderId,
+              orderDocumentId: doc.id,
+              actorType: 'SYSTEM',
+              actorId: 'stale-order-expiry',
+              createdAt: deps.serverTimestamp(),
+            });
+          }
+        }
+
+        tx.set(db.collection('orderStatusHistory').doc(), {
+          orderId: order.orderId,
+          orderDocumentId: doc.id,
+          customerId: order.customerId,
+          eventType: 'ORDER_STATUS_CHANGED',
+          previousStatus: order.orderStatus,
+          newStatus: 'CANCELLED',
+          paymentStatus: order.paymentStatus === PAYMENT_STATUS.PENDING ? PAYMENT_STATUS.TIMEOUT : order.paymentStatus,
+          note: 'Order expired: no payment received within 30 minutes.',
+          source: 'SYSTEM',
+          createdAt: deps.serverTimestamp(),
+        });
+
+        tx.set(db.collection('notifications').doc(`${doc.id}-ORDER_CANCELLED`), {
+          customerId: order.customerId,
+          orderDocumentId: doc.id,
+          event: 'ORDER_STATUS_CHANGED',
+          title: 'Order expired',
+          body: `Your order ${order.orderId} was cancelled because we did not receive payment within 30 minutes. You can place it again any time.`,
+          readAt: null,
+          createdAt: deps.serverTimestamp(),
+        });
+
+        expired += 1;
+      });
+    }
+    return { expired };
+  } catch (error) {
+    // Best-effort housekeeping: a failure here must NEVER block order creation
+    // or the admin list. Log loudly and move on.
+    console.error('expireStaleOrders failed:', error?.message || error);
+    return { expired: 0, error: true };
+  }
 }
