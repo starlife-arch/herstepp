@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Badge, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 
 export default function ProductDetail() {
@@ -120,14 +120,14 @@ export default function ProductDetail() {
 
           {/* Price */}
           <div className="flex items-baseline gap-3 mb-6">
-            {product.salePrice != null ? (
+            {hasDiscount(product) ? (
               <>
-                <span className="text-3xl font-bold text-neutral-900">{formatCurrency(product.salePrice)}</span>
+                <span className="text-3xl font-bold text-neutral-900">{formatCurrency(effectivePrice(product))}</span>
                 <span className="text-lg text-neutral-400 line-through">{formatCurrency(product.price)}</span>
                 <Badge variant="danger">Sale</Badge>
               </>
             ) : (
-              <span className="text-3xl font-bold text-neutral-900">{formatCurrency(product.price)}</span>
+              <span className="text-3xl font-bold text-neutral-900">{formatCurrency(effectivePrice(product))}</span>
             )}
           </div>
 
