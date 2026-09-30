@@ -34,7 +34,9 @@ export async function requireUser(req) {
   }
 
   try {
-    return await adminAuth.verifyIdToken(token);
+    // email_verified / firebase.identities.email come from the verified token
+    // itself — order creation reads them instead of trusting any client field.
+    return await adminAuth.verifyIdToken(token, true);
   } catch {
     throw clientError('Authentication is required.', 401);
   }

@@ -1,0 +1,199 @@
+// Minimal in-memory fake of the firebase-admin Firestore surface used by
+// api/_lib/order-core.js. No network, no Firebase credentials — this lets
+// `node scripts/test-order-core.mjs` exercise the real transactional logic.
+//
+// It deliberately FAILS on dotted field paths (e.g. "inventory.0.quantity")
+// the way a strict reviewer would want: production code must always write
+// whole arrays/objects instead.
+
+class Query {
+  constructor(store, collection, conditions, orderField, orderDir, limitCount) {
+    this.store = store;
+    this.collection = collection;
+    this.conditions = conditions;
+    this.orderField = orderField;
+    this.orderDir = orderDir;
+    this.limitCount = limitCount;
+  }
+
+  where(field, op, value) {
+    if (field.includes('.')) throw new Error(`FakeFirestore forbids dotted query paths: ${field}`);
+    if (op !== '==') throw new Error(`FakeFirestore only supports == queries, got ${op}`);
+    return new Query(this.store, this.collection, [...this.conditions, [field, value]], this.orderField, this.orderDir, this.limitCount);
+  }
+
+  orderBy(field, dir = 'asc') {
+    return new Query(this.store, this.collection, this.conditions, field, dir, this.limitCount);
+  }
+
+  limit(n) {
+    return new Query(this.store, this.collection, this.conditions, this.orderField, this.orderDir, n);
+  }
+
+  _rows(merged) {
+    const docs = (merged || this.store.collections).get(this.collection) || new Map();
+    let entries = [...docs.entries()].filter(([, data]) =>
+      this.conditions.every(([field, value]) => data[field] === value)
+    );
+    if (this.orderField) {
+      const rank = (v) => (v && typeof v === 'object' && v.__serverTs ? v.n : v);
+      entries.sort((a, b) => {
+        const av = rank(a[1][this.orderField]);
+        const bv = rank(b[1][this.orderField]);
+        if (av < bv) return this.orderDir === 'desc' ? 1 : -1;
+        if (av > bv) return this.orderDir === 'desc' ? -1 : 1;
+        return 0;
+      });
+    }
+    if (this.limitCount != null) entries = entries.slice(0, this.limitCount);
+    return entries;
+  }
+
+  async get(merged) {
+    const entries = this._rows(merged);
+    const docs = entries.map(([id, data]) => makeDocSnap(this.store, this.collection, id, data));
+    const snapshot = { docs, empty: docs.length === 0, size: docs.length };
+    return snapshot;
+  }
+}
+
+// Refs carry their collection name so transaction reads can resolve them.
+function makeDocRef(store, collection, id) {
+  const fullId = `${collection}/${id}`;
+  return {
+    id,
+    path: fullId,
+    collectionName: collection,
+    async get() {
+      const docs = store.collections.get(collection) || new Map();
+      return makeDocSnap(store, collection, id, docs.get(id));
+    },
+    set: async (value, options) => applyWrite(store, { type: 'set', collection, id, value: deepClone(value), options }),
+    update: async (value) => applyWrite(store, { type: 'update', collection, id, value: deepClone(value) }),
+  };
+}
+
+function deepClone(value) {
+  return structuredClone(value);
+}
+
+function makeDocSnap(store, collection, id, dataOrNull) {
+  const exists = dataOrNull !== undefined && dataOrNull !== null;
+  const data = exists ? deepClone(dataOrNull) : undefined;
+  return {
+    exists,
+    id,
+    ref: makeDocRef(store, collection, id),
+    data: () => (exists ? deepClone(data) : undefined),
+  };
+}
+
+async function applyWrite(store, op) {
+  if (!store.collections.has(op.collection)) store.collections.set(op.collection, new Map());
+  const docs = store.collections.get(op.collection);
+  if (op.type === 'set') {
+    const existing = docs.get(op.id) || {};
+    docs.set(op.id, op.options?.merge ? { ...existing, ...op.value } : op.value);
+  } else {
+    if (!docs.has(op.id)) throw new Error(`FakeFirestore: cannot update missing doc ${op.collection}/${op.id}`);
+    docs.set(op.id, { ...docs.get(op.id), ...op.value });
+  }
+}
+
+function validateWritePaths(value, context) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    for (const key of Object.keys(value)) {
+      if (key.includes('.')) {
+        throw new Error(`Dotted field path in ${context}: "${key}" — inventory must be written as a whole array.`);
+      }
+    }
+  }
+}
+
+export function createFakeDb() {
+  const store = { collections: new Map() };
+  let autoId = 0;
+  let serverTsCounter = 0;
+
+  const db = {
+    collection(name) {
+      return {
+        doc(explicitId) {
+          const id = explicitId ?? `gen-${(autoId += 1)}`;
+          return makeDocRef(store, name, id);
+        },
+        add(value) {
+          const id = `gen-${(autoId += 1)}`;
+          if (!store.collections.has(name)) store.collections.set(name, new Map());
+          store.collections.get(name).set(id, deepClone(value));
+          return Promise.resolve(makeDocRef(store, name, id));
+        },
+        where: (field, op, value) => new Query(store, name, [[field, value]], null, null, null).where(field, op, value),
+        orderBy: (field, dir) => new Query(store, name, [], field, dir, null),
+        limit: (n) => new Query(store, name, [], null, null, n),
+        get: () => new Query(store, name, [], null, null, null).get(),
+      };
+    },
+    doc(path) {
+      const [name, id] = path.split('/');
+      return makeDocRef(store, name, id);
+    },
+    // Transaction: buffers writes and applies them atomically at commit.
+    // Reads inside the callback see buffered writes (latest-write-wins),
+    // which matches how the route code plans reads-then-writes.
+    runTransaction(asyncFn) {
+      const buffer = [];
+      const tx = {
+        async get(refOrQuery) {
+          const merged = mergedDocs(store, buffer);
+          if (refOrQuery instanceof Query) return refOrQuery.get(merged);
+          const collection = refOrQuery.collectionName ?? refOrQuery.path.split('/')[0];
+          const docs = merged.get(collection) || new Map();
+          return makeDocSnap(store, collection, refOrQuery.id, docs.get(refOrQuery.id));
+        },
+        getAll(...refs) {
+          return Promise.all(refs.map(r => tx.get(r)));
+        },
+        set(ref, value, options) {
+          validateWritePaths(value, `set ${ref.path}`);
+          buffer.push({ type: 'set', collection: ref.path.split('/')[0], id: ref.id, value: deepClone(value), options });
+        },
+        update(ref, value) {
+          validateWritePaths(value, `update ${ref.path}`);
+          buffer.push({ type: 'update', collection: ref.path.split('/')[0], id: ref.id, value: deepClone(value) });
+        },
+      };
+      return Promise.resolve(asyncFn(tx)).then(async (result) => {
+        for (const op of buffer) await applyWrite(store, op);
+        return result;
+      });
+    },
+    // Test helpers -----------------------------------------------------
+    __store: store,
+    __seed(collectionName, id, data) {
+      if (!store.collections.has(collectionName)) store.collections.set(collectionName, new Map());
+      store.collections.get(collectionName).set(id, deepClone(data));
+    },
+    __doc(collectionName, id) {
+      return (store.collections.get(collectionName) || new Map()).get(id);
+    },
+    __list(collectionName) {
+      return [...(store.collections.get(collectionName) || new Map()).entries()].map(([id, data]) => ({ id, data: deepClone(data) }));
+    },
+    __serverTimestamp: () => ({ __serverTs: true, n: (serverTsCounter += 1) }),
+  };
+  return db;
+}
+
+function mergedDocs(store, buffer) {
+  const clone = new Map();
+  for (const [name, docs] of store.collections) clone.set(name, new Map(docs));
+  for (const op of buffer) {
+    if (!clone.has(op.collection)) clone.set(op.collection, new Map());
+    const docs = clone.get(op.collection);
+    if (op.type === 'set') docs.set(op.id, op.options?.merge ? { ...(docs.get(op.id) || {}), ...op.value } : op.value);
+    else docs.set(op.id, { ...(docs.get(op.id) || {}), ...op.value });
+  }
+  return clone;
+}
+

@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, SlidersHorizontal } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, effectivePrice } from '../context/AppContext';
 import { Card, Skeleton, Button, EmptyState } from '../components/ui';
 import { ProductCard } from './Home';
 
@@ -44,7 +44,7 @@ export default function Shop() {
     if (priceRange) {
       const [min, max] = priceRange.split('-').map(Number);
       result = result.filter(p => {
-        const price = p.salePrice ?? p.price;
+        const price = effectivePrice(p);
         return price >= min && (!max || price <= max);
       });
     }
@@ -55,8 +55,8 @@ export default function Shop() {
     }
 
     switch (sortBy) {
-      case 'price_low': result.sort((a, b) => (a.salePrice ?? a.price) - (b.salePrice ?? b.price)); break;
-      case 'price_high': result.sort((a, b) => (b.salePrice ?? b.price) - (a.salePrice ?? a.price)); break;
+      case 'price_low': result.sort((a, b) => effectivePrice(a) - effectivePrice(b)); break;
+      case 'price_high': result.sort((a, b) => effectivePrice(b) - effectivePrice(a)); break;
       case 'popular': result.sort((a, b) => (b.bestseller ? 1 : 0) - (a.bestseller ? 1 : 0)); break;
       case 'newest': result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); break;
     }
