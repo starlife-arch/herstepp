@@ -1,14 +1,72 @@
-import React, { useState } from 'react';
+// Admin panel — REAL data only. No mock imports: products come from
+// GET /api/admin/products, categories from GET /api/categories, customers from
+// GET /api/admin/customers and orders/payments/overview from
+// GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, ChevronRight, Search, Filter } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { products } from '../data/mockData';
-import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState, Input } from '../components/ui';
+import { apiFetch } from '../lib/api';
+import { productImageUrl, handleImageError } from '../lib/productImage';
+import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
+
+const SIZES = Array.from({ length: 16 }, (_, i) => String(30 + i)); // "30".."45"
+const ORDER_STATUSES = ['PENDING', 'PROCESSING', 'PROCESSED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
+
+type Async<T> = { loading: boolean; error: string | null; data: T | null };
+
+function useAdminData<T>(path: string): Async<T> & { reload: () => void } {
+  const [state, setState] = useState<Async<T>>({ loading: true, error: null, data: null });
+  const load = useCallback(async () => {
+    setState(s => ({ ...s, loading: true, error: null }));
+    try {
+      const data = await apiFetch(path);
+      setState({ loading: false, error: null, data });
+    } catch (err: any) {
+      setState({ loading: false, error: err?.message || 'Could not load data.', data: null });
+    }
+  }, [path]);
+  useEffect(() => { load(); }, [load]);
+  return { ...state, reload: load };
+}
+
+function LoadingCard() {
+  return <Card className="p-8 text-center text-sm text-neutral-500 animate-pulse">Loading…</Card>;
+}
+
+function ErrorCard({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <Card className="p-6 text-center space-y-3">
+      <p className="text-sm text-red-600">{message}</p>
+      {onRetry && <Button variant="outline" size="sm" onClick={onRetry}>Retry</Button>}
+    </Card>
+  );
+}
+
+function ComingSoon({ title }: { title: string }) {
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      <h1 className="text-2xl font-bold text-neutral-900">{title}</h1>
+      <Card className="p-10 text-center">
+        <div className="w-14 h-14 mx-auto mb-4 rounded-full bg-neutral-100 flex items-center justify-center">
+          <Settings className="w-6 h-6 text-neutral-400" />
+        </div>
+        <h3 className="font-semibold text-neutral-900">Coming soon</h3>
+        <p className="text-sm text-neutral-500 mt-1 max-w-md mx-auto">
+          This section is part of Phase 2 and has no backend yet. Nothing here is fake or hardcoded.
+        </p>
+      </Card>
+    </div>
+  );
+}
 
 export default function AdminDashboard() {
   const { state, logout } = useApp();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('overview');
+
+  const ordersRes = useAdminData<any[]>('/api/admin/orders');
+  const orders = useMemo(() => (Array.isArray(ordersRes.data) ? ordersRes.data : []), [ordersRes.data]);
 
   if (!state.user || (state.user.role !== 'ADMIN' && state.user.role !== 'SUPER_ADMIN')) {
     navigate('/login');
@@ -55,6 +113,9 @@ export default function AdminDashboard() {
           ))}
         </nav>
         <div className="p-3 border-t border-neutral-200">
+          <Link to="/" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50">
+            <LayoutDashboard className="w-4 h-4" /> View Store
+          </Link>
           <button
             onClick={async () => { await logout(); navigate('/'); }}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"
@@ -83,400 +144,691 @@ export default function AdminDashboard() {
       {/* Main Content */}
       <main className="flex-1 lg:ml-64 pt-16 lg:pt-0">
         <div className="p-4 sm:p-6 lg:p-8">
-          {activeSection === 'overview' && <AdminOverview orders={state.orders} />}
-          {activeSection === 'orders' && <AdminOrders orders={state.orders} />}
+          {activeSection === 'overview' && <AdminOverview res={ordersRes} orders={orders} />}
+          {activeSection === 'orders' && <AdminOrders res={ordersRes} orders={orders} />}
           {activeSection === 'products' && <AdminProducts />}
           {activeSection === 'customers' && <AdminCustomers />}
-          {activeSection === 'payments' && <AdminPayments orders={state.orders} />}
-          {activeSection === 'support' && <AdminSupport tickets={state.tickets} />}
-          {activeSection === 'promotions' && <AdminPromotions />}
-          {activeSection === 'notifications' && <AdminNotifications />}
-          {activeSection === 'settings' && <AdminSettings />}
+          {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} />}
+          {activeSection === 'support' && <ComingSoon title="Support" />}
+          {activeSection === 'promotions' && <ComingSoon title="Promotions" />}
+          {activeSection === 'notifications' && <ComingSoon title="Notifications" />}
+          {activeSection === 'settings' && <ComingSoon title="Settings" />}
         </div>
       </main>
     </div>
   );
 }
 
-function AdminOverview({ orders }: { orders: any[] }) {
-  const todaySales = orders.filter(o => o.paymentStatus === 'paid').reduce((s, o) => s + o.total, 0);
-  const pendingOrders = orders.filter(o => o.orderStatus === 'pending').length;
-  const processingOrders = orders.filter(o => o.orderStatus === 'processing').length;
+// ---------------------------------------------------------------------------
+// Overview — real numbers from /api/admin/orders (+ low stock from the admin
+// products API). No fake trends.
+// ---------------------------------------------------------------------------
+function AdminOverview({ res, orders }: { res: ReturnType<typeof useAdminData<any[]>>; orders: any[] }) {
+  const productsRes = useAdminData<any[]>('/api/admin/products');
+  const paid = orders.filter(o => o.paymentStatus === 'PAID');
+  const revenue = paid.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+  const pending = orders.filter(o => o.orderStatus === 'PENDING').length;
+  const processing = orders.filter(o => o.orderStatus === 'PROCESSING').length;
+
+  const lowStock = ((productsRes.data as any[]) || [])
+    .filter(p => p.status === 'ACTIVE')
+    .map(p => {
+      const inventory = Array.isArray(p.inventory) ? p.inventory : [];
+      const total = Number(p.stockQuantity) || inventory.reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0);
+      return { ...p, total };
+    })
+    .filter(p => p.total <= 3)
+    .slice(0, 5);
 
   return (
     <div className="space-y-6 animate-fadeIn">
       <div>
         <h1 className="text-2xl font-bold text-neutral-900">Dashboard</h1>
-        <p className="text-sm text-neutral-500">Welcome back. Here's what's happening today.</p>
+        <p className="text-sm text-neutral-500">Live data from the store.</p>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Today's Sales" value={formatCurrency(todaySales)} icon={TrendingUp} trend="+12%" />
-        <StatCard title="Total Orders" value={orders.length.toString()} icon={ShoppingBag} />
-        <StatCard title="Pending" value={pendingOrders.toString()} icon={AlertTriangle} variant="warning" />
-        <StatCard title="Processing" value={processingOrders.toString()} icon={Package} variant="info" />
-      </div>
+      {res.loading && <LoadingCard />}
+      {res.error && !res.loading && <ErrorCard message={res.error} onRetry={res.reload} />}
 
-      {/* Recent Orders */}
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-neutral-900">Recent Orders</h3>
-          <Link to="#" className="text-sm text-neutral-600 hover:text-neutral-900">View all</Link>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-neutral-200">
-              <tr>
-                <th className="text-left py-3 px-2 font-medium text-neutral-600">Order</th>
-                <th className="text-left py-3 px-2 font-medium text-neutral-600">Customer</th>
-                <th className="text-left py-3 px-2 font-medium text-neutral-600 hidden sm:table-cell">Date</th>
-                <th className="text-left py-3 px-2 font-medium text-neutral-600">Amount</th>
-                <th className="text-left py-3 px-2 font-medium text-neutral-600">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {orders.slice(0, 5).map(order => (
-                <tr key={order.id} className="hover:bg-neutral-50">
-                  <td className="py-3 px-2 font-medium">{order.orderId}</td>
-                  <td className="py-3 px-2 text-neutral-600">{order.customerName}</td>
-                  <td className="py-3 px-2 text-neutral-500 hidden sm:table-cell">{formatDate(order.createdAt)}</td>
-                  <td className="py-3 px-2">{formatCurrency(order.total)}</td>
-                  <td className="py-3 px-2"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {!res.loading && !res.error && (
+        <>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <StatCard title="Paid Revenue" value={formatCurrency(revenue)} icon={TrendingUp} />
+            <StatCard title="Total Orders" value={String(orders.length)} icon={ShoppingBag} />
+            <StatCard title="Pending" value={String(pending)} icon={AlertTriangle} variant="warning" />
+            <StatCard title="Processing" value={String(processing)} icon={Package} variant="info" />
+          </div>
 
-      {/* Low Stock Alert */}
-      <Card className="p-6">
-        <h3 className="font-semibold text-neutral-900 mb-4">Low Stock Alerts</h3>
-        <div className="space-y-3">
-          {products.filter(p => p.sizes.some(s => s.quantity <= 1 && s.quantity > 0)).slice(0, 4).map(p => (
-            <div key={p.id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
-              <div>
-                <p className="text-sm font-medium text-neutral-900">{p.name}</p>
-                <p className="text-xs text-neutral-500">{p.sku}</p>
-              </div>
-              <Badge variant="warning">Low Stock</Badge>
+          <Card className="p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-neutral-900">Recent Orders</h3>
+              <button onClick={() => res.reload()} className="text-sm text-neutral-600 hover:text-neutral-900">Refresh</button>
             </div>
-          ))}
-        </div>
-      </Card>
+            {orders.length === 0 ? (
+              <EmptyState title="No orders yet" description="New orders will appear here." />
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-neutral-200">
+                    <tr>
+                      <th className="text-left py-3 px-2 font-medium text-neutral-600">Order</th>
+                      <th className="text-left py-3 px-2 font-medium text-neutral-600">Customer</th>
+                      <th className="text-left py-3 px-2 font-medium text-neutral-600 hidden sm:table-cell">Date</th>
+                      <th className="text-left py-3 px-2 font-medium text-neutral-600">Amount</th>
+                      <th className="text-left py-3 px-2 font-medium text-neutral-600">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-100">
+                    {orders.slice(0, 5).map(order => (
+                      <tr key={order.id} className="hover:bg-neutral-50">
+                        <td className="py-3 px-2 font-medium">{order.orderId}</td>
+                        <td className="py-3 px-2 text-neutral-600">{order.customerName}</td>
+                        <td className="py-3 px-2 text-neutral-500 hidden sm:table-cell">{formatDate(order.createdAt)}</td>
+                        <td className="py-3 px-2">{formatCurrency(order.total)}</td>
+                        <td className="py-3 px-2"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+
+          <Card className="p-6">
+            <h3 className="font-semibold text-neutral-900 mb-4">Low Stock Alerts</h3>
+            {lowStock.length === 0 ? (
+              <p className="text-sm text-neutral-500">No active product is low on stock.</p>
+            ) : (
+              <div className="space-y-3">
+                {lowStock.map(p => (
+                  <div key={p.id} className="flex items-center justify-between p-3 bg-amber-50 rounded-lg">
+                    <div>
+                      <p className="text-sm font-medium text-neutral-900">{p.name}</p>
+                      <p className="text-xs text-neutral-500">{p.sku} · {p.total} left</p>
+                    </div>
+                    <Badge variant="warning">Low Stock</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
     </div>
   );
 }
 
-function AdminOrders({ orders }: { orders: any[] }) {
+// ---------------------------------------------------------------------------
+// Orders — GET /api/admin/orders, status change via PATCH /api/admin/orders.
+// ---------------------------------------------------------------------------
+function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[]>>; orders: any[] }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const filtered = orders.filter(o => {
-    if (search && !o.orderId.toLowerCase().includes(search.toLowerCase()) && !o.customerName.toLowerCase().includes(search.toLowerCase())) return false;
-    if (statusFilter && o.orderStatus !== statusFilter) return false;
-    return true;
+    const text = `${o.orderId} ${o.customerName || ''} ${o.customerEmail || ''}`.toLowerCase();
+    return (!search || text.includes(search.toLowerCase())) && (!statusFilter || o.orderStatus === statusFilter);
   });
+
+  async function changeStatus(order: any, orderStatus: string) {
+    setBusyId(order.id);
+    setActionError(null);
+    try {
+      await apiFetch('/api/admin/orders', {
+        method: 'PATCH',
+        body: JSON.stringify({ orderDocumentId: order.id, orderStatus, note: '' }),
+      });
+      res.reload();
+    } catch (err: any) {
+      setActionError(err?.message || 'Could not update the order.');
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <div className="space-y-6 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900">Orders</h1>
-
       <div className="flex flex-col sm:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-neutral-400" />
-          <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search orders..." className="w-full pl-10 pr-4 py-2.5 border border-neutral-300 rounded-lg text-sm" />
-        </div>
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2.5 border border-neutral-300 rounded-lg text-sm bg-white">
-          <option value="">All Status</option>
-          <option value="pending">Pending</option>
-          <option value="processing">Processing</option>
-          <option value="processed">Processed</option>
-          <option value="out_for_delivery">Out for Delivery</option>
-          <option value="delivered">Delivered</option>
-          <option value="cancelled">Cancelled</option>
+        <Input placeholder="Search orders…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1" />
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white">
+          <option value="">All statuses</option>
+          {ORDER_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
         </select>
       </div>
-
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-neutral-50 border-b border-neutral-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Order ID</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Date</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Amount</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Payment</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {filtered.map(order => (
-                <tr key={order.id} className="hover:bg-neutral-50">
-                  <td className="px-4 py-3 font-medium">{order.orderId}</td>
-                  <td className="px-4 py-3">
-                    <p className="text-neutral-900">{order.customerName}</p>
-                    <p className="text-xs text-neutral-500">{order.customerPhone}</p>
-                  </td>
-                  <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{formatDate(order.createdAt)}</td>
-                  <td className="px-4 py-3 font-medium">{formatCurrency(order.total)}</td>
-                  <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
-                  <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
-                  <td className="px-4 py-3">
-                    <button className="text-sm text-neutral-600 hover:text-neutral-900 font-medium">View</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {actionError && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{actionError}</div>}
+      {res.loading && <LoadingCard />}
+      {res.error && !res.loading && <ErrorCard message={res.error} onRetry={res.reload} />}
+      {!res.loading && !res.error && (
+        <Card className="overflow-hidden">
+          {filtered.length === 0 ? (
+            <EmptyState title="No orders found" description="Orders will appear here once customers check out." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50 border-b border-neutral-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Order</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Date</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Total</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Payment</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
+                    <th className="text-right px-4 py-3 font-medium text-neutral-600">Change</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {filtered.map(order => (
+                    <tr key={order.id} className="hover:bg-neutral-50">
+                      <td className="px-4 py-3 font-medium">{order.orderId}</td>
+                      <td className="px-4 py-3 text-neutral-600">
+                        {order.customerName}
+                        <p className="text-xs text-neutral-400">{order.customerPhone}</p>
+                      </td>
+                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{formatDate(order.createdAt)}</td>
+                      <td className="px-4 py-3 font-medium">{formatCurrency(order.total)}</td>
+                      <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
+                      <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <select
+                          value=""
+                          disabled={busyId === order.id}
+                          onChange={e => e.target.value && changeStatus(order, e.target.value)}
+                          className="border border-neutral-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50"
+                        >
+                          <option value="">{busyId === order.id ? 'Saving…' : 'Update status'}</option>
+                          {ORDER_STATUSES.filter(s => s !== order.orderStatus).map(s => (
+                            <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Products — GET /api/admin/products (ALL statuses) with category names from
+// GET /api/categories, plus a working Add/Edit form and Archive button.
+// ---------------------------------------------------------------------------
+type ImageAsset = { url: string; publicId: string; resourceType: 'image' };
+
+function emptyForm() {
+  return {
+    name: '',
+    description: '',
+    categoryId: '',
+    sku: '',
+    price: '',
+    salePrice: '',
+    quantities: {} as Record<string, string>, // size -> qty string
+    images: [] as ImageAsset[],
+    video: null as { url: string; publicId: string; resourceType: 'video' } | null,
+    status: 'DRAFT',
+    featured: false,
+    bestseller: false,
+    newArrival: false,
+  };
+}
+
 function AdminProducts() {
+  const productsRes = useAdminData<any[]>('/api/admin/products');
+  const categoriesRes = useAdminData<any[]>('/api/categories');
+  const categories = useMemo(() => (Array.isArray(categoriesRes.data) ? categoriesRes.data : []), [categoriesRes.data]);
+  const categoryName = useCallback(
+    (id: string) => categories.find(c => c.id === id)?.name || id || '—',
+    [categories],
+  );
+  const [editing, setEditing] = useState<null | { id: string | null }>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+
+  async function archive(id: string) {
+    if (!window.confirm('Archive this product? It disappears from the shop.')) return;
+    setBusyId(id);
+    setListError(null);
+    try {
+      await apiFetch(`/api/admin/products/${id}/archive`, { method: 'POST' });
+      productsRes.reload();
+    } catch (err: any) {
+      setListError(err?.message || 'Could not archive the product.');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div className="space-y-6 animate-fadeIn">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-neutral-900">Products</h1>
-        <Button>Add Product</Button>
+        <Button onClick={() => setEditing({ id: null })}>Add Product</Button>
       </div>
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-neutral-50 border-b border-neutral-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Product</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">SKU</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Category</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Price</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Stock</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {products.map(p => {
-                const totalStock = p.sizes.reduce((s, sz) => s + sz.quantity, 0);
-                return (
-                  <tr key={p.id} className="hover:bg-neutral-50">
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <img src={p.images[0]} alt="" className="w-10 h-10 rounded-lg object-cover bg-neutral-100" />
-                        <div>
-                          <p className="font-medium text-neutral-900">{p.name}</p>
-                          <div className="flex gap-1 mt-0.5">
-                            {p.isFeatured && <span className="text-xs text-neutral-500">Featured</span>}
-                            {p.isBestseller && <span className="text-xs text-neutral-500">Bestseller</span>}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-neutral-500 font-mono text-xs hidden sm:table-cell">{p.sku}</td>
-                    <td className="px-4 py-3 text-neutral-600">{p.category}</td>
-                    <td className="px-4 py-3">
-                      {p.salePrice ? (
-                        <div>
-                          <span className="font-medium">{formatCurrency(p.salePrice)}</span>
-                          <span className="text-xs text-neutral-400 line-through ml-1">{formatCurrency(p.price)}</span>
-                        </div>
-                      ) : formatCurrency(p.price)}
-                    </td>
-                    <td className="px-4 py-3 hidden md:table-cell">
-                      <span className={totalStock <= 3 ? 'text-amber-600 font-medium' : 'text-neutral-900'}>{totalStock}</span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={p.status === 'active' ? 'success' : 'default'}>{p.status}</Badge>
-                    </td>
+      {listError && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{listError}</div>}
+      {productsRes.loading && <LoadingCard />}
+      {productsRes.error && !productsRes.loading && <ErrorCard message={productsRes.error} onRetry={productsRes.reload} />}
+      {!productsRes.loading && !productsRes.error && (
+        <Card className="overflow-hidden">
+          {(productsRes.data || []).length === 0 ? (
+            <EmptyState title="No products yet" description="Create your first product to fill the shop." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50 border-b border-neutral-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Product</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">SKU</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Category</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Price</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Stock</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
+                    <th className="text-right px-4 py-3 font-medium text-neutral-600">Actions</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {(productsRes.data || []).map((p: any) => {
+                    const inventory = Array.isArray(p.inventory) ? p.inventory : [];
+                    const totalStock = Number(p.stockQuantity ?? inventory.reduce((s: number, i: any) => s + (Number(i.quantity) || 0), 0));
+                    const discounted = p.salePrice != null && p.salePrice > 0 && p.salePrice < p.price;
+                    return (
+                      <tr key={p.id} className="hover:bg-neutral-50">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <img src={productImageUrl(p)} onError={handleImageError} alt="" className="w-10 h-10 rounded-lg object-cover bg-neutral-100" />
+                            <div>
+                              <p className="font-medium text-neutral-900">{p.name}</p>
+                              <div className="flex gap-2 mt-0.5">
+                                {p.featured && <span className="text-[10px] uppercase text-neutral-500">Featured</span>}
+                                {p.bestseller && <span className="text-[10px] uppercase text-neutral-500">Bestseller</span>}
+                                {p.newArrival && <span className="text-[10px] uppercase text-neutral-500">New</span>}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-neutral-500 font-mono text-xs hidden sm:table-cell">{p.sku}</td>
+                        <td className="px-4 py-3 text-neutral-600">{categoryName(p.categoryId)}</td>
+                        <td className="px-4 py-3">
+                          {discounted ? (
+                            <div>
+                              <span className="font-medium">{formatCurrency(p.salePrice)}</span>
+                              <span className="text-xs text-neutral-400 line-through ml-1">{formatCurrency(p.price)}</span>
+                            </div>
+                          ) : formatCurrency(p.price)}
+                        </td>
+                        <td className="px-4 py-3 hidden md:table-cell">
+                          <span className={totalStock <= 3 ? 'text-amber-600 font-medium' : 'text-neutral-900'}>{totalStock}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={p.status === 'ACTIVE' ? 'success' : p.status === 'ARCHIVED' ? 'danger' : 'default'}>{p.status}</Badge>
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          <Button variant="ghost" size="sm" onClick={() => setEditing({ id: p.id })}>Edit</Button>
+                          <Button variant="ghost" size="sm" disabled={busyId === p.id} onClick={() => archive(p.id)}>
+                            {busyId === p.id ? '…' : 'Archive'}
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+      {editing && (
+        <ProductFormModal
+          editId={editing.id}
+          product={(productsRes.data || []).find((p: any) => p.id === editing.id) || null}
+          categories={categories}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); productsRes.reload(); }}
+        />
+      )}
     </div>
   );
 }
 
-function AdminCustomers() {
-  const customers = [
-    { id: 'user-1', name: 'Jane Wanjiku', email: 'jane@example.com', phone: '+254712345678', orders: 5, totalSpent: 4500, joined: '2026-01-15' },
-    { id: 'user-2', name: 'Mary Akinyi', email: 'mary@example.com', phone: '+254723456789', orders: 3, totalSpent: 2800, joined: '2026-02-01' },
-    { id: 'user-3', name: 'Grace Muthoni', email: 'grace@example.com', phone: '+254734567890', orders: 8, totalSpent: 7200, joined: '2026-01-05' },
-  ];
+// Client-side mirror of validateProduct in api/_lib/routes/admin-products.js.
+function validateProductForm(form: ReturnType<typeof emptyForm>): string | null {
+  if (!form.name.trim() || form.name.trim().length > 160) return 'Enter a product name of 160 characters or fewer.';
+  if (form.description.length > 4000) return 'Description must be 4,000 characters or fewer.';
+  if (!form.categoryId) return 'Select a category.';
+  if (!/^[A-Z0-9_-]{1,80}$/.test(form.sku)) return 'SKU must be uppercase letters, numbers, - or _ (max 80).';
+  const price = Number(form.price);
+  if (!Number.isInteger(price) || price < 0) return 'Price must be a non-negative whole number.';
+  if (form.salePrice !== '') {
+    const salePrice = Number(form.salePrice);
+    if (!Number.isInteger(salePrice) || salePrice >= price) return 'Sale price must be a whole number lower than the price.';
+  }
+  const inventory = Object.entries(form.quantities)
+    .filter(([size, q]) => SIZES.includes(size) && q !== '')
+    .map(([size, q]) => ({ size, quantity: Number(q) }))
+    .filter(i => Number.isInteger(i.quantity) && i.quantity >= 0);
+  if (inventory.length < 1) return 'Add stock for at least one size.';
+  if (form.images.length < 1 || form.images.length > 8) return 'Provide between one and eight images.';
+  if (!['DRAFT', 'ACTIVE', 'ARCHIVED'].includes(form.status)) return 'Product status is invalid.';
+  return null;
+}
 
+function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
+  editId: string | null;
+  product: any;
+  categories: any[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [form, setForm] = useState<ReturnType<typeof emptyForm>>(() => {
+    if (!product) return emptyForm();
+    const quantities: Record<string, string> = {};
+    (Array.isArray(product.inventory) ? product.inventory : []).forEach((i: any) => { quantities[String(i.size)] = String(i.quantity ?? 0); });
+    return {
+      name: product.name || '',
+      description: product.description || '',
+      categoryId: product.categoryId || '',
+      sku: product.sku || '',
+      price: String(product.price ?? ''),
+      salePrice: product.salePrice == null ? '' : String(product.salePrice),
+      quantities,
+      images: Array.isArray(product.images) ? product.images : [],
+      video: product.video || null,
+      status: product.status || 'DRAFT',
+      featured: !!product.featured,
+      bestseller: !!product.bestseller,
+      newArrival: !!product.newArrival,
+    };
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  async function uploadFiles(files: FileList, kind: 'image' | 'video') {
+    setUploading(true);
+    setError(null);
+    try {
+      for (const file of Array.from(files)) {
+        const sign = await apiFetch('/api/media/sign-upload', {
+          method: 'POST',
+          body: JSON.stringify({ resourceType: kind, fileName: file.name, bytes: file.size, purpose: 'products' }),
+        });
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('api_key', sign.apiKey);
+        fd.append('timestamp', String(sign.timestamp));
+        fd.append('signature', sign.signature);
+        fd.append('folder', sign.folder);
+        fd.append('public_id', sign.publicId);
+        const endpoint = `https://api.cloudinary.com/v1_1/${sign.cloudName}/${kind}/upload`;
+        const uploaded = await fetch(endpoint, { method: 'POST', body: fd }).then(async r => {
+          const text = await r.text();
+          let json: any = {};
+          try { json = JSON.parse(text); } catch { /* non-JSON error page */ }
+          if (!r.ok) throw new Error(json?.error?.message || 'The upload failed.');
+          return json;
+        });
+        const asset = { url: uploaded.secure_url, publicId: uploaded.public_id, resourceType: kind };
+        if (kind === 'image') setForm(f => ({ ...f, images: [...f.images, asset].slice(0, 8) }));
+        else setForm(f => ({ ...f, video: asset as any }));
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Upload failed.');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function save() {
+    const clientError = validateProductForm(form);
+    if (clientError) { setError(clientError); return; }
+    const inventory = Object.entries(form.quantities)
+      .filter(([size, q]) => SIZES.includes(size) && q !== '')
+      .map(([size, q]) => ({ size, quantity: Number(q) }))
+      .filter(i => Number.isInteger(i.quantity) && i.quantity >= 0);
+    const payload: Record<string, any> = {
+      name: form.name.trim(),
+      description: form.description,
+      categoryId: form.categoryId,
+      sku: form.sku.toUpperCase(),
+      price: Number(form.price),
+      salePrice: form.salePrice === '' ? null : Number(form.salePrice),
+      inventory,
+      images: form.images,
+      video: form.video,
+      status: form.status,
+      featured: form.featured,
+      bestseller: form.bestseller,
+      newArrival: form.newArrival,
+    };
+    setSaving(true);
+    setError(null);
+    try {
+      if (editId) await apiFetch(`/api/admin/products/${editId}`, { method: 'PUT', body: JSON.stringify(payload) });
+      else await apiFetch('/api/admin/products', { method: 'POST', body: JSON.stringify(payload) });
+      onSaved();
+    } catch (err: any) {
+      setError(err?.message || 'The server rejected the product.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center overflow-y-auto p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl my-8" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-neutral-200 sticky top-0 bg-white rounded-t-xl">
+          <h2 className="font-semibold text-neutral-900">{editId ? 'Edit Product' : 'Add Product'}</h2>
+          <button onClick={onClose} aria-label="Close" className="p-1 rounded hover:bg-neutral-100"><X className="w-5 h-5 text-neutral-500" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          {error && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input label="Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <Input label="SKU (auto-uppercased)" value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value.toUpperCase() }))} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">Description</label>
+            <textarea rows={3} value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">Category</label>
+              <select value={form.categoryId} onChange={e => setForm(f => ({ ...f, categoryId: e.target.value }))}
+                className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white">
+                <option value="">Select…</option>
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <Input label="Price (KSh)" type="number" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} />
+            <Input label="Sale price (optional, lower than price)" type="number" value={form.salePrice} onChange={e => setForm(f => ({ ...f, salePrice: e.target.value }))} />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-2">Sizes &amp; stock (30–45)</label>
+            <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+              {SIZES.map(size => (
+                <div key={size} className="flex flex-col items-center gap-1">
+                  <span className="text-xs text-neutral-500">{size}</span>
+                  <input
+                    inputMode="numeric"
+                    placeholder="0"
+                    value={form.quantities[size] ?? ''}
+                    onChange={e => setForm(f => ({ ...f, quantities: { ...f.quantities, [size]: e.target.value.replace(/[^\d]/g, '') } }))}
+                    className="w-full border border-neutral-200 rounded-lg px-1 py-1.5 text-sm text-center"
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-neutral-700">Images ({form.images.length}/8)</label>
+              <label className={`inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-neutral-200 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : 'hover:bg-neutral-50'}`}>
+                <Upload className="w-4 h-4" /> Upload image
+                <input type="file" accept="image/*" multiple className="hidden" onChange={e => e.target.files && uploadFiles(e.target.files, 'image')} />
+              </label>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {form.images.map((img, idx) => (
+                <div key={img.publicId || idx} className="relative">
+                  <img src={img.url} onError={handleImageError} alt="" className="w-16 h-16 rounded-lg object-cover bg-neutral-100" />
+                  <button
+                    onClick={() => setForm(f => ({ ...f, images: f.images.filter((_, n) => n !== idx) }))}
+                    className="absolute -top-1.5 -right-1.5 bg-neutral-900 text-white rounded-full p-0.5" aria-label="Remove image"
+                  ><X className="w-3 h-3" /></button>
+                </div>
+              ))}
+              {form.images.length === 0 && <p className="text-xs text-neutral-400">At least one image is required.</p>}
+            </div>
+          </div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-neutral-700">Video (optional)</label>
+              <label className={`inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg border border-neutral-200 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : 'hover:bg-neutral-50'}`}>
+                <Upload className="w-4 h-4" /> Upload video
+                <input type="file" accept="video/*" className="hidden" onChange={e => e.target.files && uploadFiles(e.target.files, 'video')} />
+              </label>
+            </div>
+            {form.video ? (
+              <div className="flex items-center gap-2 text-xs text-neutral-600">
+                <video src={form.video.url} className="w-24 h-16 rounded object-cover bg-neutral-100" controls={false} />
+                <button onClick={() => setForm(f => ({ ...f, video: null }))} className="text-red-600">Remove</button>
+              </div>
+            ) : <p className="text-xs text-neutral-400">No video uploaded.</p>}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 items-end">
+            <div>
+              <label className="block text-sm font-medium text-neutral-700 mb-1">Status</label>
+              <select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}
+                className="w-full border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white">
+                {['DRAFT', 'ACTIVE', 'ARCHIVED'].map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            {([['featured', 'Featured'], ['bestseller', 'Bestseller'], ['newArrival', 'New arrival']] as const).map(([key, label]) => (
+              <label key={key} className="flex items-center gap-2 text-sm text-neutral-700 pb-2">
+                <input type="checkbox" checked={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.checked }))} />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="flex justify-end gap-3 px-6 py-4 border-t border-neutral-200 sticky bottom-0 bg-white rounded-b-xl">
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={save} disabled={saving || uploading}>{saving ? 'Saving…' : editId ? 'Save changes' : 'Create product'}</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Customers — GET /api/admin/customers (real users + PAID-order stats).
+// ---------------------------------------------------------------------------
+function AdminCustomers() {
+  const res = useAdminData<any[]>('/api/admin/customers');
+  const rows = Array.isArray(res.data) ? res.data : [];
   return (
     <div className="space-y-6 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900">Customers</h1>
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-neutral-50 border-b border-neutral-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Phone</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Orders</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Total Spent</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Joined</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {customers.map(c => (
-                <tr key={c.id} className="hover:bg-neutral-50">
-                  <td className="px-4 py-3">
-                    <p className="font-medium text-neutral-900">{c.name}</p>
-                    <p className="text-xs text-neutral-500">{c.email}</p>
-                  </td>
-                  <td className="px-4 py-3 text-neutral-600 hidden sm:table-cell">{c.phone}</td>
-                  <td className="px-4 py-3">{c.orders}</td>
-                  <td className="px-4 py-3 font-medium">{formatCurrency(c.totalSpent)}</td>
-                  <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{formatDate(c.joined)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {res.loading && <LoadingCard />}
+      {res.error && !res.loading && <ErrorCard message={res.error} onRetry={res.reload} />}
+      {!res.loading && !res.error && (
+        <Card className="overflow-hidden">
+          {rows.length === 0 ? (
+            <EmptyState title="No customers yet" description="Registered customers will appear here." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50 border-b border-neutral-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Phone</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Role</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Paid Orders</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Total Spent</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Joined</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {rows.map(c => (
+                    <tr key={c.uid} className="hover:bg-neutral-50">
+                      <td className="px-4 py-3">
+                        <p className="font-medium text-neutral-900">{c.displayName || '—'}</p>
+                        <p className="text-xs text-neutral-500">{c.email || 'no email'}</p>
+                      </td>
+                      <td className="px-4 py-3 text-neutral-600 hidden sm:table-cell">{c.phoneNumber || '—'}</td>
+                      <td className="px-4 py-3"><Badge variant={c.role === 'CUSTOMER' ? 'default' : 'info'}>{c.role}</Badge></td>
+                      <td className="px-4 py-3">{c.orderCount}</td>
+                      <td className="px-4 py-3 font-medium">{formatCurrency(c.totalSpent)}</td>
+                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{c.createdAt ? formatDate(c.createdAt) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
 
-function AdminPayments({ orders }: { orders: any[] }) {
+// ---------------------------------------------------------------------------
+// Payments — derived from GET /api/admin/orders (paymentStatus + reference).
+// ---------------------------------------------------------------------------
+function AdminPayments({ res, orders }: { res: ReturnType<typeof useAdminData<any[]>>; orders: any[] }) {
   return (
     <div className="space-y-6 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900">Payments</h1>
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-neutral-50 border-b border-neutral-200">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Order</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Amount</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Method</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
-                <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Date</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-neutral-100">
-              {orders.map(order => (
-                <tr key={order.id} className="hover:bg-neutral-50">
-                  <td className="px-4 py-3 font-medium">{order.orderId}</td>
-                  <td className="px-4 py-3 text-neutral-600">{order.customerName}</td>
-                  <td className="px-4 py-3 font-medium">{formatCurrency(order.total)}</td>
-                  <td className="px-4 py-3 text-neutral-500">M-Pesa</td>
-                  <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
-                  <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{formatDate(order.createdAt)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function AdminSupport({ tickets }: { tickets: any[] }) {
-  return (
-    <div className="space-y-6 animate-fadeIn">
-      <h1 className="text-2xl font-bold text-neutral-900">Support Tickets</h1>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <StatCard title="Open" value={tickets.filter(t => t.status === 'open').length.toString()} />
-        <StatCard title="In Progress" value={tickets.filter(t => t.status === 'in_progress').length.toString()} />
-        <StatCard title="Resolved" value={tickets.filter(t => t.status === 'resolved').length.toString()} />
-        <StatCard title="Closed" value={tickets.filter(t => t.status === 'closed').length.toString()} />
-      </div>
-      <div className="space-y-3">
-        {tickets.map(ticket => (
-          <Card key={ticket.id} className="p-4">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs font-mono text-neutral-500">{ticket.ticketId}</span>
-                  <Badge variant={getStatusBadge(ticket.status).variant}>{getStatusBadge(ticket.status).label}</Badge>
-                </div>
-                <p className="font-medium text-sm text-neutral-900">{ticket.subject}</p>
-                <p className="text-xs text-neutral-500 mt-1">{ticket.customerName} | {ticket.category}</p>
-              </div>
-              <Button variant="ghost" size="sm">Open</Button>
+      {res.loading && <LoadingCard />}
+      {res.error && !res.loading && <ErrorCard message={res.error} onRetry={res.reload} />}
+      {!res.loading && !res.error && (
+        <Card className="overflow-hidden">
+          {orders.length === 0 ? (
+            <EmptyState title="No payments yet" description="M-Pesa payments will appear here." />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50 border-b border-neutral-200">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Order</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Amount</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Method</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Reference</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                  {orders.map(order => (
+                    <tr key={order.id} className="hover:bg-neutral-50">
+                      <td className="px-4 py-3 font-medium">{order.orderId}</td>
+                      <td className="px-4 py-3 text-neutral-600">{order.customerName}</td>
+                      <td className="px-4 py-3 font-medium">{formatCurrency(order.total)}</td>
+                      <td className="px-4 py-3 text-neutral-500">M-Pesa</td>
+                      <td className="px-4 py-3 text-neutral-500 font-mono text-xs">{order.paymentReference || '—'}</td>
+                      <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
+                      <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{formatDate(order.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AdminPromotions() {
-  const promos = [
-    { id: '1', name: 'Welcome Discount', code: 'HERSTEP10', type: '10% off', usage: '23/100', active: true },
-    { id: '2', name: 'Summer Sale', code: 'SUMMER100', type: 'KSh 100 off', usage: '8/50', active: true },
-  ];
-  return (
-    <div className="space-y-6 animate-fadeIn">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-neutral-900">Promotions</h1>
-        <Button>Create Promotion</Button>
-      </div>
-      <div className="space-y-3">
-        {promos.map(p => (
-          <Card key={p.id} className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-medium text-neutral-900">{p.name}</p>
-                <p className="text-xs text-neutral-500 mt-0.5">Code: {p.code} | {p.type} | Used: {p.usage}</p>
-              </div>
-              <Badge variant={p.active ? 'success' : 'default'}>{p.active ? 'Active' : 'Inactive'}</Badge>
-            </div>
-          </Card>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function AdminNotifications() {
-  return (
-    <div className="space-y-6 animate-fadeIn">
-      <h1 className="text-2xl font-bold text-neutral-900">Notifications</h1>
-      <Card className="p-6">
-        <EmptyState title="No new notifications" description="All caught up. Notifications will appear here." />
-      </Card>
-    </div>
-  );
-}
-
-function AdminSettings() {
-  return (
-    <div className="space-y-6 animate-fadeIn">
-      <h1 className="text-2xl font-bold text-neutral-900">Settings</h1>
-      <Card className="p-6">
-        <div className="space-y-6">
-          <div>
-            <h3 className="font-semibold text-neutral-900 mb-4">Business Information</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input label="Business Name" defaultValue="HerStep Collection" />
-              <Input label="Phone" defaultValue="+254 799 021 089" />
-              <Input label="WhatsApp" defaultValue="+254 106 624 924" />
-              <Input label="Email" defaultValue="herstepcollection@gmail.com" />
-            </div>
-          </div>
-          <div>
-            <h3 className="font-semibold text-neutral-900 mb-4">Delivery Settings</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input label="Juja Delivery Fee" defaultValue="100" type="number" />
-              <Input label="Nearby Areas Fee" defaultValue="150" type="number" />
-              <Input label="Nairobi Delivery Fee" defaultValue="250" type="number" />
-            </div>
-          </div>
-          <Button>Save Settings</Button>
-        </div>
-      </Card>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
