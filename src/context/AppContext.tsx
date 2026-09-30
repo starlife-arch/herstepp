@@ -96,6 +96,26 @@ function readStoredCart(products: Product[]): CartItem[] {
   }
 }
 
+// Sale prices are integer KES or null. Anything that is not a positive integer
+// lower than the list price counts as "no sale" (mirrors unitPrice() in api/_lib/order-core.js).
+export function normaliseSalePrice(salePrice: unknown, price: number): number | null {
+  const sale = Number(salePrice);
+  return Number.isInteger(sale) && sale > 0 && sale < price ? sale : null;
+}
+
+// The single effective-price rule used by every page (Home, Shop, ProductDetail,
+// Cart, Checkout, Admin): the sale price only applies when it is a positive
+// integer lower than the list price; otherwise the list price is shown.
+export function effectivePrice(p: { price: number; salePrice?: number | null }): number {
+  return p.salePrice != null && p.salePrice > 0 && p.salePrice < p.price ? p.salePrice : p.price;
+}
+
+// True only when the product genuinely has a discounted price — controls the
+// sale badge and the struck-through list price everywhere.
+export function hasDiscount(p: { price: number; salePrice?: number | null }): boolean {
+  return p.salePrice != null && p.salePrice > 0 && p.salePrice < p.price;
+}
+
 // Never assume Firestore array shapes: a damaged product (inventory/images/availableSizes stored
 // as an object instead of an array) must not crash the storefront.
 export function normaliseProduct(raw: any): Product | null {
@@ -115,7 +135,10 @@ export function normaliseProduct(raw: any): Product | null {
     video: raw.video && typeof raw.video.url === 'string' ? raw.video : null,
     availableSizes,
     price: Number.isFinite(Number(raw.price)) ? Number(raw.price) : 0,
-    salePrice: Number.isFinite(Number(raw.salePrice)) ? Number(raw.salePrice) : null,
+    // NOTE: Number(null) === 0, so a bare isFinite check would turn a missing
+    // sale price into 0 and make every product show "KSh 0". salePrice stays
+    // null unless raw.salePrice is a POSITIVE INTEGER strictly lower than price.
+    salePrice: normaliseSalePrice(raw.salePrice, Number.isFinite(Number(raw.price)) ? Number(raw.price) : 0),
     stockQuantity: Number.isFinite(Number(raw.stockQuantity)) ? Number(raw.stockQuantity) : inventory.reduce((n, i) => n + i.quantity, 0),
     status: raw.status === 'ACTIVE' || raw.status === 'DRAFT' || raw.status === 'ARCHIVED' ? raw.status : 'DRAFT',
     featured: Boolean(raw.featured),

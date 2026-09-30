@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Truck, Shield, Clock, MapPin, Star, Sparkles } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 import type { Product } from '../types';
 
@@ -216,7 +216,7 @@ export function ProductCard({ product }: { product: Product }) {
               <span className="bg-white text-neutral-900 px-3 py-1 rounded-full text-xs font-bold">SOLD OUT</span>
             </div>
           )}
-          {product.salePrice != null && !isSoldOut && (
+          {hasDiscount(product) && !isSoldOut && (
             <div className="absolute top-2 left-2">
               <span className="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-medium">Sale</span>
             </div>
@@ -231,13 +231,13 @@ export function ProductCard({ product }: { product: Product }) {
           {categoryName && <p className="text-xs text-neutral-500 mb-1">{categoryName}</p>}
           <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-2 line-clamp-2">{product.name}</h3>
           <div className="flex items-center gap-2 mb-2">
-            {product.salePrice != null ? (
+            {hasDiscount(product) ? (
               <>
-                <span className="font-semibold text-neutral-900 text-sm">{formatCurrency(product.salePrice)}</span>
+                <span className="font-semibold text-neutral-900 text-sm">{formatCurrency(effectivePrice(product))}</span>
                 <span className="text-xs text-neutral-400 line-through">{formatCurrency(product.price)}</span>
               </>
             ) : (
-              <span className="font-semibold text-neutral-900 text-sm">{formatCurrency(product.price)}</span>
+              <span className="font-semibold text-neutral-900 text-sm">{formatCurrency(effectivePrice(product))}</span>
             )}
           </div>
           {!isSoldOut && availableSizes.length > 0 && (
