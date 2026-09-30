@@ -6,11 +6,11 @@ import { products } from '../data/mockData';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState, Input } from '../components/ui';
 
 export default function AdminDashboard() {
-  const { state, dispatch } = useApp();
+  const { state, logout } = useApp();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('overview');
 
-  if (!state.user || state.user.role === 'customer') {
+  if (!state.user || (state.user.role !== 'ADMIN' && state.user.role !== 'SUPER_ADMIN')) {
     navigate('/login');
     return null;
   }
@@ -56,7 +56,7 @@ export default function AdminDashboard() {
         </nav>
         <div className="p-3 border-t border-neutral-200">
           <button
-            onClick={() => { dispatch({ type: 'SET_USER', payload: null }); navigate('/'); }}
+            onClick={async () => { await logout(); navigate('/'); }}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"
           >
             <LogOut className="w-4 h-4" />

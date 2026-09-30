@@ -5,7 +5,7 @@ import { useApp } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 
 export default function CustomerDashboard() {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, logout } = useApp();
   const navigate = useNavigate();
   const location = useLocation();
   const [activeTab, setActiveTab] = useState('overview');
@@ -60,7 +60,7 @@ export default function CustomerDashboard() {
               ))}
               <hr className="my-2 border-neutral-100" />
               <button
-                onClick={() => { dispatch({ type: 'SET_USER', payload: null }); navigate('/'); }}
+                onClick={async () => { await logout(); navigate('/'); }}
                 className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"
               >
                 <LogOut className="w-4 h-4" />
@@ -219,7 +219,7 @@ function SupportTab() {
 }
 
 function NotificationsTab() {
-  const { state, dispatch } = useApp();
+  const { state, dispatch, logout } = useApp();
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-neutral-900">Notifications</h2>
