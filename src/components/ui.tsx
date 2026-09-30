@@ -182,26 +182,31 @@ export function Pagination({ page, totalPages, onPageChange }: { page: number; t
   );
 }
 
-// Status Badge helper
-export function getStatusBadge(status: string): { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' } {
+// Status Badge helper. The API stores statuses in UPPERCASE (PENDING, PAID, OUT_FOR_DELIVERY…);
+// we normalise before lookup so both cases render a friendly label.
+export function getStatusBadge(status?: string | null): { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' } {
   const map: Record<string, { label: string; variant: 'default' | 'success' | 'warning' | 'danger' | 'info' }> = {
-    pending: { label: 'Pending', variant: 'warning' },
-    processing: { label: 'Processing', variant: 'info' },
-    processed: { label: 'Processed', variant: 'info' },
-    out_for_delivery: { label: 'Out for Delivery', variant: 'info' },
-    delivered: { label: 'Delivered', variant: 'success' },
-    cancelled: { label: 'Cancelled', variant: 'danger' },
-    paid: { label: 'Paid', variant: 'success' },
-    failed: { label: 'Failed', variant: 'danger' },
-    timeout: { label: 'Timeout', variant: 'warning' },
-    refunded: { label: 'Refunded', variant: 'warning' },
-    open: { label: 'Open', variant: 'warning' },
-    in_progress: { label: 'In Progress', variant: 'info' },
-    waiting_customer: { label: 'Waiting', variant: 'warning' },
-    resolved: { label: 'Resolved', variant: 'success' },
-    closed: { label: 'Closed', variant: 'default' },
+    PENDING: { label: 'Pending', variant: 'warning' },
+    PROCESSING: { label: 'Processing', variant: 'info' },
+    PROCESSED: { label: 'Processed', variant: 'info' },
+    OUT_FOR_DELIVERY: { label: 'Out for Delivery', variant: 'info' },
+    DELIVERED: { label: 'Delivered', variant: 'success' },
+    CANCELLED: { label: 'Cancelled', variant: 'danger' },
+    PAID: { label: 'Paid', variant: 'success' },
+    FAILED: { label: 'Failed', variant: 'danger' },
+    TIMEOUT: { label: 'Timeout', variant: 'warning' },
+    REFUNDED: { label: 'Refunded', variant: 'warning' },
+    DRAFT: { label: 'Draft', variant: 'default' },
+    ACTIVE: { label: 'Active', variant: 'success' },
+    ARCHIVED: { label: 'Archived', variant: 'default' },
+    OPEN: { label: 'Open', variant: 'warning' },
+    IN_PROGRESS: { label: 'In Progress', variant: 'info' },
+    WAITING_CUSTOMER: { label: 'Waiting', variant: 'warning' },
+    RESOLVED: { label: 'Resolved', variant: 'success' },
+    CLOSED: { label: 'Closed', variant: 'default' },
   };
-  return map[status] || { label: status, variant: 'default' };
+  const key = String(status ?? '').toUpperCase();
+  return map[key] || { label: key || 'Unknown', variant: 'default' };
 }
 
 // Format currency

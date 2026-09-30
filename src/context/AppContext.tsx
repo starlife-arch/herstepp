@@ -5,12 +5,50 @@ import { getFirebase } from '../lib/firebase';
 import { apiFetch } from '../lib/api';
 import { Product, CartItem, User, Notification } from '../types';
 
+export interface ServerOrder {
+  id: string;
+  orderId?: string;
+  customerId?: string;
+  customerEmail?: string;
+  items?: any[];
+  subtotal?: number;
+  deliveryFee?: number;
+  discount?: number;
+  total?: number;
+  currency?: string;
+  paymentStatus?: string;
+  orderStatus?: string;
+  delivery?: any;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ServerPayment {
+  id: string;
+  orderId?: string;
+  amount?: number;
+  currency?: string;
+  method?: string;
+  status?: string;
+  receiptNumber?: string | null;
+  transactionReference?: string | null;
+  failureReason?: string | null;
+  createdAt?: string | null;
+  [key: string]: unknown;
+}
+
 interface AppState {
   user: User | null;
   cart: CartItem[];
   products: Product[];
   categories: { id: string; name: string }[];
   notifications: Notification[];
+  // Real server data (GET /api/dashboard). Never mock data. Safe defaults keep pages from crashing.
+  orders: ServerOrder[];
+  payments: ServerPayment[];
+  dashboardLoading: boolean;
+  dashboardError: string | null;
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   authReady: boolean;
   catalogLoading: boolean;
@@ -22,6 +60,8 @@ type Action =
   | { type: 'SET_AUTH_READY'; payload: boolean }
   | { type: 'SET_CATALOG'; payload: { products: Product[]; categories: { id: string; name: string }[] } }
   | { type: 'SET_CATALOG_STATUS'; payload: { loading: boolean; error: string | null } }
+  | { type: 'SET_DASHBOARD'; payload: { orders: ServerOrder[]; payments: ServerPayment[]; notifications: Notification[] } }
+  | { type: 'SET_DASHBOARD_STATUS'; payload: { loading: boolean; error: string | null } }
   | { type: 'ADD_TO_CART'; payload: CartItem }
   | { type: 'UPDATE_CART_QUANTITY'; payload: { productId: string; size: string; quantity: number } }
   | { type: 'REMOVE_FROM_CART'; payload: { productId: string; size: string } }
@@ -30,8 +70,14 @@ type Action =
   | { type: 'MARK_NOTIFICATION_READ'; payload: string }
   | { type: 'SET_TOAST'; payload: { message: string; type: 'success' | 'error' | 'info' } | null };
 
-// Bumped to v2: the old key held carts built from mock product ids that do not exist in Firestore.
-const CART_STORAGE_KEY = 'herstep-cart-v2';
+// Bumped to v3: v2 could still hold carts built from mock product ids that do not exist in Firestore.
+const CART_STORAGE_KEY = 'herstep-cart-v3';
+try {
+  localStorage.removeItem('herstep-cart');
+  localStorage.removeItem('herstep-cart-v2');
+} catch {
+  /* storage unavailable */
+}
 
 function readStoredCart(products: Product[]): CartItem[] {
   try {
@@ -43,11 +89,58 @@ function readStoredCart(products: Product[]): CartItem[] {
     return parsed.filter((item: any) => {
       const product = products.find(p => p.id === item?.product?.id);
       if (!product || product.status !== 'ACTIVE') return false;
-      return product.inventory.some(i => i.size === item.size && i.quantity > 0);
+      return Array.isArray(product.inventory) && product.inventory.some(i => i.size === item.size && i.quantity > 0);
     }) as CartItem[];
   } catch {
     return [];
   }
+}
+
+// Never assume Firestore array shapes: a damaged product (inventory/images/availableSizes stored
+// as an object instead of an array) must not crash the storefront.
+export function normaliseProduct(raw: any): Product | null {
+  if (!raw || typeof raw !== 'object' || typeof raw.id !== 'string' || !raw.id) return null;
+  const inventory = Array.isArray(raw.inventory)
+    ? raw.inventory.filter((i: any) => i && typeof i.size === 'string' && Number.isFinite(Number(i.quantity)))
+        .map((i: any) => ({ size: i.size, quantity: Math.max(0, Math.trunc(Number(i.quantity))) }))
+    : [];
+  const images = Array.isArray(raw.images)
+    ? raw.images.filter((img: any) => img && typeof img.url === 'string')
+    : [];
+  const availableSizes = Array.isArray(raw.availableSizes) ? raw.availableSizes.filter((s: any) => typeof s === 'string') : [];
+  return {
+    ...raw,
+    inventory,
+    images,
+    video: raw.video && typeof raw.video.url === 'string' ? raw.video : null,
+    availableSizes,
+    price: Number.isFinite(Number(raw.price)) ? Number(raw.price) : 0,
+    salePrice: Number.isFinite(Number(raw.salePrice)) ? Number(raw.salePrice) : null,
+    stockQuantity: Number.isFinite(Number(raw.stockQuantity)) ? Number(raw.stockQuantity) : inventory.reduce((n, i) => n + i.quantity, 0),
+    status: raw.status === 'ACTIVE' || raw.status === 'DRAFT' || raw.status === 'ARCHIVED' ? raw.status : 'DRAFT',
+    featured: Boolean(raw.featured),
+    bestseller: Boolean(raw.bestseller),
+    newArrival: Boolean(raw.newArrival),
+    name: typeof raw.name === 'string' ? raw.name : 'Unnamed product',
+    description: typeof raw.description === 'string' ? raw.description : '',
+    categoryId: typeof raw.categoryId === 'string' ? raw.categoryId : '',
+    sku: typeof raw.sku === 'string' ? raw.sku : '',
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : new Date().toISOString(),
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : new Date().toISOString(),
+  };
+}
+
+export function mapNotification(n: any): Notification {
+  return {
+    id: String(n?.id ?? ''),
+    userId: typeof n?.customerId === 'string' ? n.customerId : '',
+    title: typeof n?.title === 'string' ? n.title : 'Update',
+    message: typeof n?.body === 'string' ? n.body : '',
+    type: 'order',
+    read: Boolean(n?.readAt),
+    createdAt: n?.createdAt || new Date().toISOString(),
+    link: n?.orderDocumentId ? `/track?orderDocumentId=${encodeURIComponent(n.orderDocumentId)}` : undefined,
+  };
 }
 
 const initialState: AppState = {
@@ -56,6 +149,10 @@ const initialState: AppState = {
   products: [],
   categories: [],
   notifications: [],
+  orders: [],
+  payments: [],
+  dashboardLoading: false,
+  dashboardError: null,
   toast: null,
   authReady: false,
   catalogLoading: true,
@@ -81,6 +178,17 @@ function appReducer(state: AppState, action: Action): AppState {
     }
     case 'SET_CATALOG_STATUS':
       return { ...state, catalogLoading: action.payload.loading, catalogError: action.payload.error };
+    case 'SET_DASHBOARD':
+      return {
+        ...state,
+        orders: Array.isArray(action.payload.orders) ? action.payload.orders : [],
+        payments: Array.isArray(action.payload.payments) ? action.payload.payments : [],
+        notifications: Array.isArray(action.payload.notifications) ? action.payload.notifications : [],
+        dashboardLoading: false,
+        dashboardError: null,
+      };
+    case 'SET_DASHBOARD_STATUS':
+      return { ...state, dashboardLoading: action.payload.loading, dashboardError: action.payload.error };
     case 'ADD_TO_CART': {
       const payload = clampQuantity(action.payload);
       const existing = state.cart.find(i => i.product.id === payload.product.id && i.size === payload.size);
@@ -140,6 +248,7 @@ const AppContext = createContext<{
   dispatch: React.Dispatch<Action>;
   logout: () => Promise<void>;
   reloadCatalog: () => Promise<void>;
+  reloadDashboard: () => Promise<void>;
 } | null>(null);
 
 function timestampToIso(value: unknown) {
@@ -159,16 +268,43 @@ export function AppProvider({ children }: { children: ReactNode }) {
   stateRef.current = state;
 
   // Load the real catalogue from the server (public endpoints, no sample data).
+  // Products whose inventory/images/availableSizes are not arrays (damaged docs) are dropped here
+  // so a bad document can never crash a page; the API logs their ids for repair.
   const loadCatalog = async () => {
     dispatch({ type: 'SET_CATALOG_STATUS', payload: { loading: true, error: null } });
     try {
-      const [products, categories] = await Promise.all([
-        apiFetch('/api/products') as Promise<Product[]>,
+      const [rawProducts, categories] = await Promise.all([
+        apiFetch('/api/products') as Promise<any[]>,
         apiFetch('/api/categories') as Promise<{ id: string; name: string }[]>,
       ]);
-      dispatch({ type: 'SET_CATALOG', payload: { products: Array.isArray(products) ? products : [], categories: Array.isArray(categories) ? categories : [] } });
+      const products = (Array.isArray(rawProducts) ? rawProducts : [])
+        .map(normaliseProduct)
+        .filter((p): p is Product => p !== null);
+      dispatch({ type: 'SET_CATALOG', payload: { products, categories: Array.isArray(categories) ? categories : [] } });
     } catch (error) {
       dispatch({ type: 'SET_CATALOG_STATUS', payload: { loading: false, error: error instanceof Error ? error.message : 'We could not load the catalogue.' } });
+    }
+  };
+
+  // Real customer dashboard data (GET /api/dashboard) — orders, payments and notifications.
+  const loadDashboard = async () => {
+    if (!stateRef.current.user) {
+      dispatch({ type: 'SET_DASHBOARD', payload: { orders: [], payments: [], notifications: [] } });
+      return;
+    }
+    dispatch({ type: 'SET_DASHBOARD_STATUS', payload: { loading: true, error: null } });
+    try {
+      const data = await apiFetch('/api/dashboard') as any;
+      dispatch({
+        type: 'SET_DASHBOARD',
+        payload: {
+          orders: Array.isArray(data?.orders) ? data.orders : [],
+          payments: Array.isArray(data?.payments) ? data.payments : [],
+          notifications: Array.isArray(data?.notifications) ? data.notifications.map(mapNotification) : [],
+        },
+      });
+    } catch (error) {
+      dispatch({ type: 'SET_DASHBOARD_STATUS', payload: { loading: false, error: error instanceof Error ? error.message : 'We could not load your account.' } });
     }
   };
 
@@ -222,27 +358,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
               },
             });
           }
-          // Real notifications only (GET /api/notifications).
-          try {
-            const rows = await apiFetch('/api/notifications') as any[];
-            if (active && Array.isArray(rows)) {
-              dispatch({
-                type: 'SET_NOTIFICATIONS',
-                payload: rows.map(n => ({
-                  id: n.id,
-                  userId: n.customerId,
-                  title: typeof n.title === 'string' ? n.title : 'Update',
-                  message: typeof n.body === 'string' ? n.body : '',
-                  type: 'order',
-                  read: Boolean(n.readAt),
-                  createdAt: n.createdAt || new Date().toISOString(),
-                  link: n.orderDocumentId ? `/track?orderDocumentId=${n.orderDocumentId}` : undefined,
-                })),
-              });
-            }
-          } catch {
-            if (active) dispatch({ type: 'SET_NOTIFICATIONS', payload: [] });
-          }
+          // Real orders, payments and notifications (GET /api/dashboard).
+          void loadDashboard();
         } catch {
           if (active) dispatch({ type: 'SET_USER', payload: null });
         } finally {
@@ -257,15 +374,17 @@ export function AppProvider({ children }: { children: ReactNode }) {
       active = false;
       unsubscribe?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const logout = async () => {
     const { auth } = await getFirebase();
     await signOut(auth);
+    dispatch({ type: 'SET_DASHBOARD', payload: { orders: [], payments: [], notifications: [] } });
   };
 
   return (
-    <AppContext.Provider value={{ state, dispatch, logout, reloadCatalog: loadCatalog }}>
+    <AppContext.Provider value={{ state, dispatch, logout, reloadCatalog: loadCatalog, reloadDashboard: loadDashboard }}>
       {children}
     </AppContext.Provider>
   );
