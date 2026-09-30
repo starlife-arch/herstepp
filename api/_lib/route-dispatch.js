@@ -12,6 +12,11 @@ export async function dispatchRoute(req, res, routes) {
     return res.status(404).json({ error: 'Endpoint not found.' });
   }
 
+  // sendError logs the route name with every 5xx — make it available.
+  try {
+    if (res.locals) res.locals.route = requestedRoute;
+  } catch { /* some minimal res objects have no locals */ }
+
   try {
     const module = await route.load();
     if (typeof module.default !== 'function') {

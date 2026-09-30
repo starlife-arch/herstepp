@@ -157,13 +157,20 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
 
   const method = delivery?.deliveryMethod === 'COLLECTION' ? 'COLLECTION' : 'DELIVERY';
   const fullName = typeof delivery?.fullName === 'string' ? delivery.fullName.trim() : '';
-  const phone = typeof deps.normalizePhone === 'function' ? deps.normalizePhone(delivery?.phone) : String(delivery?.phone ?? '');
-  const emailValue = typeof delivery?.email === 'string' ? delivery.email.trim().toLowerCase() : '';
+  // normalizePhone throws a clear human message for anything that is not a
+  // valid Kenyan number — every validation failure must be readable.
+  const phone = deps.normalizePhone(delivery?.phone);
+  // The email is NEVER required from the client: it comes from the verified
+  // auth token (u.email) or the users/{uid} doc (read inside the transaction).
+  const submittedEmail = typeof delivery?.email === 'string' ? delivery.email.trim().toLowerCase() : '';
   if (!fullName) throw clientError('Full name is required.');
-  if (!emailValue) throw clientError('Email address is required.');
   const location = method === 'COLLECTION' ? LOCATION : (typeof delivery?.location === 'string' ? delivery.location.trim() : '');
   if (method === 'DELIVERY' && !location) throw clientError('A delivery location is required.');
-  const instructions = typeof delivery?.notes === 'string' ? delivery.notes.trim().slice(0, 500) : '';
+  // Contract field is `instructions`; accept `notes` as a fallback.
+  const instructions = [delivery?.instructions, delivery?.notes]
+    .find(v => typeof v === 'string' && v.trim())
+    ?.trim()
+    .slice(0, 500) ?? '';
 
   const settings = await loadCheckoutSettings(db);
   if (method === 'COLLECTION' && settings.collectionEnabled === false) throw clientError('Collection is currently unavailable. Please choose delivery.');
@@ -210,6 +217,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
           productId,
           name: data.name,
           sku: data.sku,
+          categoryId: data.categoryId ?? null,
           size: line.size,
           quantity: line.quantity,
           unitPrice: price,
@@ -234,17 +242,23 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       customerId: uid,
       customerName: fullName || userData.displayName || '',
       customerPhone: phone,
-      customerEmail: emailValue || userData.email || '',
+      // Email never comes from the client payload: verified token first, then
+      // the users/{uid} doc. (delivery.email is NOT required any more.)
+      customerEmail: email || userData.email || submittedEmail || '',
       items,
       subtotal,
       deliveryFee,
       discount,
       total,
       currency: 'KES',
+      // Exactly the AGENTS.md contract shape — payments/stk/initiate reads
+      // order.delivery.phone from here.
       delivery: {
+        fullName,
+        phone,
         deliveryMethod: method,
         location: method === 'COLLECTION' ? LOCATION : location,
-        notes: instructions,
+        instructions,
       },
       paymentStatus: PAYMENT_STATUS.PENDING,
       paymentId: null,

@@ -37,13 +37,16 @@ export async function create(req, res) {
   const u = await requireUser(req);
   rateLimitOrders(u.uid);
   const { cart, delivery } = req.body || {};
+  // Email comes from the VERIFIED TOKEN only — the client never has to send
+  // delivery.email (that was the "Email address is required." 400 bug).
+  const tokenEmail = typeof u.email === 'string' ? u.email.trim().toLowerCase() : '';
   const result = await createOrderCore(adminDb, {
     serverTimestamp: () => FieldValue.serverTimestamp(),
     normalizePhone: normalizeKenyanPhone,
     constants: { LOCATION },
   }, {
     uid: u.uid,
-    email: u.email,
+    email: tokenEmail,
     emailVerified: u.email_verified === true,
     cart,
     delivery,
