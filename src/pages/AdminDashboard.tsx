@@ -10,6 +10,14 @@ import { apiFetch } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
 
+// formatCurrency/formatDate accept Firestore Timestamps and strings too; keep a
+// local wrapper so the admin tables never crash on odd shapes (safe defaults).
+const money = (amount: any) => formatCurrency(Number(amount) || 0);
+const day = (d: any) => {
+  const iso = typeof d === 'string' ? d : d?.toDate?.()?.toISOString?.() ?? null;
+  return iso ? formatDate(iso) : '—';
+};
+
 const SIZES = Array.from({ length: 16 }, (_, i) => String(30 + i)); // "30".."45"
 const ORDER_STATUSES = ['PENDING', 'PROCESSING', 'PROCESSED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
 
@@ -193,7 +201,7 @@ function AdminOverview({ res, orders }: { res: ReturnType<typeof useAdminData<an
       {!res.loading && !res.error && (
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard title="Paid Revenue" value={formatCurrency(revenue)} icon={TrendingUp} />
+            <StatCard title="Paid Revenue" value={money(revenue)} icon={TrendingUp} />
             <StatCard title="Total Orders" value={String(orders.length)} icon={ShoppingBag} />
             <StatCard title="Pending" value={String(pending)} icon={AlertTriangle} variant="warning" />
             <StatCard title="Processing" value={String(processing)} icon={Package} variant="info" />
@@ -223,8 +231,8 @@ function AdminOverview({ res, orders }: { res: ReturnType<typeof useAdminData<an
                       <tr key={order.id} className="hover:bg-neutral-50">
                         <td className="py-3 px-2 font-medium">{order.orderId}</td>
                         <td className="py-3 px-2 text-neutral-600">{order.customerName}</td>
-                        <td className="py-3 px-2 text-neutral-500 hidden sm:table-cell">{formatDate(order.createdAt)}</td>
-                        <td className="py-3 px-2">{formatCurrency(order.total)}</td>
+                        <td className="py-3 px-2 text-neutral-500 hidden sm:table-cell">{day(order.createdAt)}</td>
+                        <td className="py-3 px-2">{money(order.total)}</td>
                         <td className="py-3 px-2"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
                       </tr>
                     ))}
@@ -327,8 +335,8 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[
                         {order.customerName}
                         <p className="text-xs text-neutral-400">{order.customerPhone}</p>
                       </td>
-                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{formatDate(order.createdAt)}</td>
-                      <td className="px-4 py-3 font-medium">{formatCurrency(order.total)}</td>
+                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{day(order.createdAt)}</td>
+                      <td className="px-4 py-3 font-medium">{money(order.total)}</td>
                       <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
                       <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
@@ -458,10 +466,10 @@ function AdminProducts() {
                         <td className="px-4 py-3">
                           {discounted ? (
                             <div>
-                              <span className="font-medium">{formatCurrency(p.salePrice)}</span>
-                              <span className="text-xs text-neutral-400 line-through ml-1">{formatCurrency(p.price)}</span>
+                              <span className="font-medium">{money(p.salePrice)}</span>
+                              <span className="text-xs text-neutral-400 line-through ml-1">{money(p.price)}</span>
                             </div>
-                          ) : formatCurrency(p.price)}
+                          ) : money(p.price)}
                         </td>
                         <td className="px-4 py-3 hidden md:table-cell">
                           <span className={totalStock <= 3 ? 'text-amber-600 font-medium' : 'text-neutral-900'}>{totalStock}</span>
@@ -574,8 +582,8 @@ function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
           if (!r.ok) throw new Error(json?.error?.message || 'The upload failed.');
           return json;
         });
-        const asset = { url: uploaded.secure_url, publicId: uploaded.public_id, resourceType: kind };
-        if (kind === 'image') setForm(f => ({ ...f, images: [...f.images, asset].slice(0, 8) }));
+        const asset = { url: String(uploaded.secure_url), publicId: String(uploaded.public_id), resourceType: kind };
+        if (kind === 'image') setForm(f => ({ ...f, images: [...f.images, { ...asset, resourceType: 'image' as const }].slice(0, 8) }));
         else setForm(f => ({ ...f, video: asset as any }));
       }
     } catch (err: any) {
@@ -770,8 +778,8 @@ function AdminCustomers() {
                       <td className="px-4 py-3 text-neutral-600 hidden sm:table-cell">{c.phoneNumber || '—'}</td>
                       <td className="px-4 py-3"><Badge variant={c.role === 'CUSTOMER' ? 'default' : 'info'}>{c.role}</Badge></td>
                       <td className="px-4 py-3">{c.orderCount}</td>
-                      <td className="px-4 py-3 font-medium">{formatCurrency(c.totalSpent)}</td>
-                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{c.createdAt ? formatDate(c.createdAt) : '—'}</td>
+                      <td className="px-4 py-3 font-medium">{money(c.totalSpent)}</td>
+                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{day(c.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -816,11 +824,11 @@ function AdminPayments({ res, orders }: { res: ReturnType<typeof useAdminData<an
                     <tr key={order.id} className="hover:bg-neutral-50">
                       <td className="px-4 py-3 font-medium">{order.orderId}</td>
                       <td className="px-4 py-3 text-neutral-600">{order.customerName}</td>
-                      <td className="px-4 py-3 font-medium">{formatCurrency(order.total)}</td>
+                      <td className="px-4 py-3 font-medium">{money(order.total)}</td>
                       <td className="px-4 py-3 text-neutral-500">M-Pesa</td>
                       <td className="px-4 py-3 text-neutral-500 font-mono text-xs">{order.paymentReference || '—'}</td>
                       <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
-                      <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{formatDate(order.createdAt)}</td>
+                      <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{day(order.createdAt)}</td>
                     </tr>
                   ))}
                 </tbody>
