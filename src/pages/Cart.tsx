@@ -2,15 +2,14 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Minus, Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, formatCurrency, EmptyState } from '../components/ui';
+import { productImageUrl, handleImageError } from '../lib/productImage';
 
 export default function Cart() {
   const { state, dispatch } = useApp();
 
-  const subtotal = state.cart.reduce((sum, item) => {
-    const price = item.product.salePrice ?? item.product.price;
-    return sum + price * item.quantity;
-  }, 0);
+  const subtotal = state.cart.reduce((sum, item) => sum + effectivePrice(item.product) * item.quantity, 0);
 
   // Delivery fees are never computed here: they come from the server
   // (GET /api/checkout/config and the total returned by POST /api/orders/create).
@@ -39,14 +38,16 @@ export default function Cart() {
         {/* Cart Items */}
         <div className="lg:col-span-2 space-y-4">
           {state.cart.map(item => {
-            const price = item.product.salePrice ?? item.product.price;
-            const stock = item.product.inventory.find(s => s.size === item.size)?.quantity ?? 0;
+            const price = effectivePrice(item.product);
+            const inventory = Array.isArray(item.product.inventory) ? item.product.inventory : [];
+            const stock = inventory.find(s => s.size === item.size)?.quantity ?? 0;
             return (
               <Card key={`${item.product.id}-${item.size}`} className="p-4">
                 <div className="flex gap-4">
                   <img
-                    src={item.product.images[0]?.url}
+                    src={productImageUrl(item.product)}
                     alt={item.product.name}
+                    onError={handleImageError}
                     className="w-20 h-20 sm:w-24 sm:h-24 rounded-lg object-cover bg-neutral-100"
                   />
                   <div className="flex-1 min-w-0">
@@ -88,7 +89,12 @@ export default function Cart() {
                         </button>
                         <span className="text-xs text-neutral-400 ml-1">{stock} in stock</span>
                       </div>
-                      <span className="font-semibold text-neutral-900">{formatCurrency(price * item.quantity)}</span>
+                      <span className="font-semibold text-neutral-900">
+                        {formatCurrency(price * item.quantity)}
+                        {hasDiscount(item.product) && (
+                          <span className="ml-2 text-xs text-neutral-400 line-through">{formatCurrency(item.product.price * item.quantity)}</span>
+                        )}
+                      </span>
                     </div>
                   </div>
                 </div>
