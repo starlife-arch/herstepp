@@ -16,7 +16,7 @@ export const PLACEHOLDER_IMAGE =
       `</svg>`
   );
 
-type LooseProduct = Partial<Product> & Record<string, unknown>;
+type LooseProduct = Partial<Product> | Record<string, any>;
 
 export function productImageUrl(p?: LooseProduct | null): string {
   const first = Array.isArray(p?.images) ? (p!.images as unknown[])[0] : undefined;
