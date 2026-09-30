@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 
 export default function CustomerDashboard() {
@@ -15,9 +15,12 @@ export default function CustomerDashboard() {
     return null;
   }
 
-  const userOrders = state.orders.filter(o => o.customerId === state.user?.id || o.customerId === 'user-1');
-  const pendingOrders = userOrders.filter(o => o.orderStatus === 'pending' || o.orderStatus === 'processing');
-  const completedOrders = userOrders.filter(o => o.orderStatus === 'delivered');
+  // GET /api/dashboard already returns ONLY this customer's orders (server
+  // filters by the verified uid) — no client-side uid matching, no mock ids.
+  const userOrders = Array.isArray(state.orders) ? state.orders : [];
+  const up = (s: unknown) => String(s ?? '').toUpperCase();
+  const pendingOrders = userOrders.filter(o => ['PENDING', 'PROCESSING'].includes(up(o.orderStatus)));
+  const completedOrders = userOrders.filter(o => up(o.orderStatus) === 'DELIVERED');
   const unreadNotifs = state.notifications.filter(n => !n.read);
 
   const tabs = [
@@ -165,7 +168,9 @@ function OrdersTab({ orders }: any) {
 }
 
 function PaymentsTab({ orders }: any) {
-  const paidOrders = orders.filter((o: any) => o.paymentStatus === 'paid');
+  // Statuses are UPPERCASE on the server; compare case-insensitively so a
+  // PAID order is never shown as "Pending".
+  const paidOrders = orders.filter((o: any) => String(o.paymentStatus ?? '').toUpperCase() === 'PAID');
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-neutral-900">Payment History</h2>
@@ -235,7 +240,7 @@ function NotificationsTab() {
                   <p className="text-xs text-neutral-500 mt-0.5">{n.message}</p>
                   <p className="text-xs text-neutral-400 mt-1">{formatDateTime(n.createdAt)}</p>
                 </div>
-                {!n.read && <button onClick={() => dispatch({ type: 'MARK_NOTIFICATION_READ', payload: n.id })} className="text-xs text-neutral-500 hover:text-neutral-900">Mark read</button>}
+                {!n.read && <button onClick={() => { dispatch({ type: 'MARK_NOTIFICATION_READ', payload: n.id }); void markNotificationReadOnServer(n.id); }} className="text-xs text-neutral-500 hover:text-neutral-900">Mark read</button>}
               </div>
             </Card>
           ))}
