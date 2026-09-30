@@ -1,11 +1,14 @@
 import React, { useState, useMemo } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
-import { Search, SlidersHorizontal, X, ChevronDown } from 'lucide-react';
-import { products, categories } from '../data/mockData';
-import { Card, Badge, formatCurrency, Button } from '../components/ui';
+import { useSearchParams } from 'react-router-dom';
+import { Search, SlidersHorizontal } from 'lucide-react';
+import { useApp } from '../context/AppContext';
+import { Card, Skeleton, Button, EmptyState } from '../components/ui';
+import { ProductCard } from './Home';
 
 export default function Shop() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
+  const { state, reloadCatalog } = useApp();
+  const { products, categories, catalogLoading, catalogError } = state;
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get('category') || '');
   const [selectedSize, setSelectedSize] = useState('');
@@ -14,42 +17,63 @@ export default function Shop() {
   const [showFilters, setShowFilters] = useState(false);
   const [availability, setAvailability] = useState('');
 
+  // Every EU size the catalogue actually carries, derived from products.inventory (strings "30".."45").
+  const allSizes = useMemo(() => {
+    const sizes = new Set<string>();
+    products.forEach(p => p.inventory.forEach(i => sizes.add(i.size)));
+    return Array.from(sizes).sort((a, b) => Number(a) - Number(b));
+  }, [products]);
+
   const filteredProducts = useMemo(() => {
     let result = [...products];
 
     if (search) {
       const q = search.toLowerCase();
-      result = result.filter(p => p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q));
+      result = result.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        p.sku.toLowerCase().includes(q) ||
+        (categories.find(c => c.id === p.categoryId)?.name || '').toLowerCase().includes(q)
+      );
     }
     if (selectedCategory) {
-      result = result.filter(p => p.category.toLowerCase().replace(/\s+/g, '-') === selectedCategory || p.category === selectedCategory);
+      result = result.filter(p => p.categoryId === selectedCategory);
     }
     if (selectedSize) {
-      result = result.filter(p => p.sizes.some(s => s.size === parseInt(selectedSize) && s.quantity > 0));
+      result = result.filter(p => p.inventory.some(s => s.size === selectedSize && s.quantity > 0));
     }
     if (priceRange) {
       const [min, max] = priceRange.split('-').map(Number);
       result = result.filter(p => {
-        const price = p.salePrice || p.price;
+        const price = p.salePrice ?? p.price;
         return price >= min && (!max || price <= max);
       });
     }
     if (availability === 'in_stock') {
-      result = result.filter(p => p.sizes.some(s => s.quantity > 0));
+      result = result.filter(p => p.stockQuantity > 0);
     } else if (availability === 'sold_out') {
-      result = result.filter(p => !p.sizes.some(s => s.quantity > 0));
+      result = result.filter(p => p.stockQuantity === 0);
     }
 
     switch (sortBy) {
-      case 'price_low': result.sort((a, b) => (a.salePrice || a.price) - (b.salePrice || b.price)); break;
-      case 'price_high': result.sort((a, b) => (b.salePrice || b.price) - (a.salePrice || a.price)); break;
-      case 'popular': result.sort((a, b) => (b.isBestseller ? 1 : 0) - (a.isBestseller ? 1 : 0)); break;
+      case 'price_low': result.sort((a, b) => (a.salePrice ?? a.price) - (b.salePrice ?? b.price)); break;
+      case 'price_high': result.sort((a, b) => (b.salePrice ?? b.price) - (a.salePrice ?? a.price)); break;
+      case 'popular': result.sort((a, b) => (b.bestseller ? 1 : 0) - (a.bestseller ? 1 : 0)); break;
       case 'newest': result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); break;
     }
     return result;
-  }, [search, selectedCategory, selectedSize, priceRange, sortBy, availability]);
+  }, [products, categories, search, selectedCategory, selectedSize, priceRange, sortBy, availability]);
 
-  const allSizes = [36, 37, 38, 39, 40, 41];
+  if (catalogError) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16">
+        <EmptyState
+          title="We couldn't load the shop"
+          description={catalogError}
+          action={<Button onClick={() => void reloadCatalog()}>Try again</Button>}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 animate-fadeIn">
@@ -100,7 +124,7 @@ export default function Shop() {
               <label className="block text-xs font-medium text-neutral-600 mb-1.5">Category</label>
               <select value={selectedCategory} onChange={e => setSelectedCategory(e.target.value)} className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm bg-white">
                 <option value="">All Categories</option>
-                {categories.map(c => <option key={c.id} value={c.slug}>{c.name}</option>)}
+                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
             <div>
@@ -138,10 +162,25 @@ export default function Shop() {
       )}
 
       {/* Results count */}
-      <p className="text-sm text-neutral-500 mb-4">{filteredProducts.length} product{filteredProducts.length !== 1 ? 's' : ''} found</p>
+      <p className="text-sm text-neutral-500 mb-4">
+        {catalogLoading ? 'Loading products…' : `${filteredProducts.length} product${filteredProducts.length !== 1 ? 's' : ''} found`}
+      </p>
 
       {/* Product Grid */}
-      {filteredProducts.length === 0 ? (
+      {catalogLoading ? (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Card key={i} className="overflow-hidden">
+              <div className="aspect-square bg-neutral-100" />
+              <div className="p-3 sm:p-4 space-y-2">
+                <Skeleton className="h-3 w-1/2" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-1/3" />
+              </div>
+            </Card>
+          ))}
+        </div>
+      ) : filteredProducts.length === 0 ? (
         <div className="text-center py-16">
           <p className="text-neutral-500 text-lg mb-2">No products found</p>
           <p className="text-neutral-400 text-sm">Try adjusting your filters or search terms</p>
@@ -154,47 +193,5 @@ export default function Shop() {
         </div>
       )}
     </div>
-  );
-}
-
-function ProductCard({ product }: { product: any }) {
-  const totalStock = product.sizes.reduce((sum: number, s: any) => sum + s.quantity, 0);
-  const isSoldOut = totalStock === 0;
-  const availableSizes = product.sizes.filter((s: any) => s.quantity > 0).map((s: any) => s.size);
-
-  return (
-    <Link to={`/product/${product.slug}`} className="group">
-      <Card hover className="overflow-hidden">
-        <div className="relative aspect-square bg-neutral-100 overflow-hidden">
-          <img src={product.images[0]} alt={product.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
-          {isSoldOut && (
-            <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
-              <span className="bg-white text-neutral-900 px-3 py-1 rounded-full text-xs font-bold">SOLD OUT</span>
-            </div>
-          )}
-          {product.salePrice && !isSoldOut && (
-            <div className="absolute top-2 left-2"><span className="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-medium">Sale</span></div>
-          )}
-          {product.isNewArrival && !isSoldOut && (
-            <div className="absolute top-2 right-2"><span className="bg-neutral-900 text-white px-2 py-0.5 rounded text-xs font-medium">New</span></div>
-          )}
-        </div>
-        <div className="p-3 sm:p-4">
-          <p className="text-xs text-neutral-500 mb-1">{product.category}</p>
-          <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-2 line-clamp-2">{product.name}</h3>
-          <div className="flex items-center gap-2 mb-2">
-            {product.salePrice ? (
-              <>
-                <span className="font-semibold text-neutral-900 text-sm">{formatCurrency(product.salePrice)}</span>
-                <span className="text-xs text-neutral-400 line-through">{formatCurrency(product.price)}</span>
-              </>
-            ) : (
-              <span className="font-semibold text-neutral-900 text-sm">{formatCurrency(product.price)}</span>
-            )}
-          </div>
-          {!isSoldOut && <p className="text-xs text-neutral-400">Sizes: {availableSizes.join(', ')}</p>}
-        </div>
-      </Card>
-    </Link>
   );
 }

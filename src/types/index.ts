@@ -1,38 +1,50 @@
+// Mirrors the Firestore products/{id} contract in AGENTS.md (written by /api, read-only in the browser).
 export interface Product {
-  id: string;
+  id: string;                 // real Firestore document id (used in /product/:id)
   name: string;
-  slug: string;
   description: string;
-  category: string;
-  sku: string;
-  price: number;
-  salePrice?: number;
-  images: string[];
-  video?: string;
-  sizes: SizeInventory[];
-  status: 'active' | 'draft' | 'archived';
-  isFeatured: boolean;
-  isBestseller: boolean;
-  isNewArrival: boolean;
+  categoryId: string;
+  sku: string;                // UPPERCASE
+  price: number;              // integer KES
+  salePrice: number | null;   // integer KES or null, always < price
+  inventory: SizeInventory[]; // every size from "30".."45", unique strings
+  images: ProductImage[];     // 1 to 8
+  video: ProductVideo | null;
+  status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED';
+  featured: boolean;
+  bestseller: boolean;
+  newArrival: boolean;
+  stockQuantity: number;      // derived, server-written
+  availableSizes: string[];   // derived, server-written (sizes with quantity > 0)
   createdAt: string;
   updatedAt: string;
 }
 
 export interface SizeInventory {
-  size: number;
+  size: string;   // "30".."45"
   quantity: number;
+}
+
+export interface ProductImage {
+  url: string;
+  publicId: string;
+  resourceType: 'image';
+}
+
+export interface ProductVideo {
+  url: string;
+  publicId: string;
+  resourceType: 'video';
 }
 
 export interface Category {
   id: string;
   name: string;
-  slug: string;
-  productCount: number;
 }
 
 export interface CartItem {
   product: Product;
-  size: number;
+  size: string;   // matches products.inventory[].size
   quantity: number;
 }
 
