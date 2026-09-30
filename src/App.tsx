@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Routes, Route, useLocation } from 'react-route
 import { AppProvider, useApp } from './context/AppContext';
 import { Layout } from './components/Layout';
 import { Toast } from './components/ui';
+import ErrorBoundary from './components/ErrorBoundary';
 
 // Pages
 import Home from './pages/Home';
@@ -61,8 +62,8 @@ function AppRoutes() {
   if (isAdmin) {
     return (
       <Routes>
-        <Route path="/admin" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
-        <Route path="/admin/*" element={<RequireAdmin><AdminDashboard /></RequireAdmin>} />
+        <Route path="/admin" element={<Wrap><RequireAdmin><AdminDashboard /></RequireAdmin></Wrap>} />
+        <Route path="/admin/*" element={<Wrap><RequireAdmin><AdminDashboard /></RequireAdmin></Wrap>} />
       </Routes>
     );
   }
@@ -70,24 +71,30 @@ function AppRoutes() {
   return (
     <Layout>
       <Routes>
-        <Route path="/" element={<Home />} />
-        <Route path="/shop" element={<Shop />} />
-        <Route path="/product/:id" element={<ProductDetail />} />
-        <Route path="/cart" element={<Cart />} />
-        <Route path="/checkout" element={<Checkout />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/dashboard" element={<RequireAuth><CustomerDashboard /></RequireAuth>} />
-        <Route path="/dashboard/*" element={<RequireAuth><CustomerDashboard /></RequireAuth>} />
-        <Route path="/track" element={<OrderTracking />} />
-        <Route path="/support" element={<Support />} />
-        <Route path="/about" element={<About />} />
-        <Route path="/contact" element={<Contact />} />
-        <Route path="/privacy" element={<PrivacyPolicy />} />
-        <Route path="/terms" element={<TermsOfService />} />
+        <Route path="/" element={<Wrap><Home /></Wrap>} />
+        <Route path="/shop" element={<Wrap><Shop /></Wrap>} />
+        <Route path="/product/:id" element={<Wrap><ProductDetail /></Wrap>} />
+        <Route path="/cart" element={<Wrap><Cart /></Wrap>} />
+        <Route path="/checkout" element={<Wrap><Checkout /></Wrap>} />
+        <Route path="/login" element={<Wrap><Login /></Wrap>} />
+        <Route path="/register" element={<Wrap><Register /></Wrap>} />
+        <Route path="/dashboard" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} />
+        <Route path="/dashboard/*" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} />
+        <Route path="/track" element={<Wrap><OrderTracking /></Wrap>} />
+        <Route path="/support" element={<Wrap><Support /></Wrap>} />
+        <Route path="/about" element={<Wrap><About /></Wrap>} />
+        <Route path="/contact" element={<Wrap><Contact /></Wrap>} />
+        <Route path="/privacy" element={<Wrap><PrivacyPolicy /></Wrap>} />
+        <Route path="/terms" element={<Wrap><TermsOfService /></Wrap>} />
       </Routes>
     </Layout>
   );
+}
+
+// Each route is wrapped in its own boundary, so one broken page shows a
+// friendly message instead of white-screening the whole app.
+function Wrap({ children }: { children: React.ReactNode }) {
+  return <ErrorBoundary>{children}</ErrorBoundary>;
 }
 
 export default function App() {
