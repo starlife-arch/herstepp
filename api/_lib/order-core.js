@@ -240,6 +240,8 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
     tx.set(orderRef, {
       orderId,
       customerId: uid,
+      // NEVER fall back to the uid — admins and customers must always see a
+      // human name. OrderTracking self-heals legacy docs with an empty name.
       customerName: fullName || userData.displayName || '',
       customerPhone: phone,
       // Email never comes from the client payload: verified token first, then
@@ -392,6 +394,14 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const paymentRef = paymentsSnap.docs[0].ref;
     const paymentSnap = await tx.get(paymentRef);
     const payment = paymentSnap.data();
+
+    // Idempotency safety net: a terminal payment never changes again. If the
+    // same truth arrives through another event id (e.g. webhook + poll race),
+    // do nothing instead of double-restoring stock or double-writing history.
+    const TERMINAL_STATUSES = ['PAID', 'FAILED', 'CANCELLED', 'TIMEOUT', 'REFUNDED'];
+    if (TERMINAL_STATUSES.includes(payment.status)) {
+      return { duplicate: true, status: payment.status };
+    }
 
     const orderRef = db.collection('orders').doc(payment.orderDocumentId);
     const orderSnap = await tx.get(orderRef);

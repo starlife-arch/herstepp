@@ -5,6 +5,16 @@ import { getFirebase } from '../lib/firebase';
 import { apiFetch } from '../lib/api';
 import { Product, CartItem, User, Notification } from '../types';
 
+// Persist a "read" flag on the server so refreshing does not bring old
+// notifications back as unread. Best-effort: never crash the UI on failure.
+export async function markNotificationReadOnServer(id: string) {
+  try {
+    await apiFetch(`/api/notifications/${encodeURIComponent(id)}`, { method: 'PATCH' });
+  } catch {
+    /* ignore — local state already updated */
+  }
+}
+
 export interface ServerOrder {
   id: string;
   orderId?: string;

@@ -44,8 +44,36 @@ export async function initiate(req, res) {
     throw clientError('Order id is invalid.');
   }
 
+  // ---- Reconcile FIRST (OUTSIDE any transaction — provider HTTP calls must
+  // never run inside one): if a previous attempt is still marked PENDING but
+  // the provider already says it died (webhook lost, browser closed), apply
+  // the truth now so the order leaves "Pending" and Try again starts a fresh
+  // push instead of reusing a dead prompt. Best-effort — never blocks.
+  try {
+    const pre = await adminDb.collection('orders').doc(orderDocId).get();
+    const preActive = pre.exists ? pre.data()?.activePaymentId : null;
+    if (typeof preActive === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(preActive)) {
+      const pSnap = await adminDb.collection('payments').doc(preActive).get();
+      if (pSnap.exists && pSnap.data().status === PAYMENT_STATUS.PENDING && pSnap.data().providerReference) {
+        const result = await getMpesaProvider().checkStatus(pSnap.data().providerReference);
+        if (result.status !== PAYMENT_STATUS.PENDING) {
+          await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+            providerReference: pSnap.data().providerReference,
+            status: result.status,
+            amount: result.amount ?? pSnap.data().amount,
+            transactionReference: result.transactionReference,
+            eventId: `pre-initiate:${pSnap.data().providerReference}:${result.status}`,
+            source: 'PRINTPAY',
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error('payments.initiate reconcile failed:', error?.message || error);
+  }
+
   // ---- Transaction: create OR reuse the PENDING payment + set activePaymentId.
-  // The provider call happens strictly OUTSIDE this transaction.
+  // The provider STK push itself happens strictly OUTSIDE this transaction.
   const plan = await adminDb.runTransaction(async tx => {
     const orderRef = adminDb.collection('orders').doc(orderDocId);
     const orderSnap = await tx.get(orderRef);
