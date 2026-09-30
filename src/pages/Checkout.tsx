@@ -268,7 +268,7 @@ export default function Checkout() {
         )}
         <div className="flex flex-col gap-3">
           <Link to="/dashboard/orders"><Button>View My Orders</Button></Link>
-          <Link to="/track"><Button variant="outline">Track This Order</Button></Link>
+          <Link to={`/track?order=${encodeURIComponent(paidInfo.orderId)}`}><Button variant="outline">Track This Order</Button></Link>
           <Link to="/shop"><Button variant="outline">Continue Shopping</Button></Link>
         </div>
       </div>

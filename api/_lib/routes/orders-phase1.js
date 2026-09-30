@@ -11,32 +11,93 @@ import { adminOrderTransitionCore } from '../order-core.js';
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
 
+const ORDER_NUMBER_RE = /^HS-\d{4}-\d{6}$/i;
+const RECEIPT_RE = /^HSP-[A-Z0-9]+$/i;
+
+// Accept ANY of: ?orderId=HS-YYYY-NNNNNN | ?order=<same> | ?orderDocumentId=<doc id>
+// | ?receipt=HSP-... (resolved through payments.receiptNumber). Owner only.
 export async function track(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
   const u = await requireUser(req);
-  const rawId = Array.isArray(req.query.orderDocumentId) ? req.query.orderDocumentId[0] : req.query.orderDocumentId;
-  const orderIdHint = Array.isArray(req.query.orderId) ? req.query.orderId[0] : req.query.orderId;
+  const qv = k => (Array.isArray(req.query[k]) ? req.query[k][0] : req.query[k]);
+  const rawDocId = qv('orderDocumentId');
+  const numberInput = String(qv('orderId') || qv('order') || '').trim();
+  const receiptInput = String(qv('receipt') || '').trim();
 
   let docSnap = null;
-  if (typeof rawId === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(rawId)) {
-    const direct = await adminDb.collection('orders').doc(rawId).get();
+  // 1) Direct document id (internal use only — never shown to a user).
+  if (typeof rawDocId === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(rawDocId)) {
+    const direct = await adminDb.collection('orders').doc(rawDocId).get();
     if (direct.exists) docSnap = direct;
   }
-  if (!docSnap && typeof orderIdHint === 'string' && /^HS-\d{4}-\d{6}$/.test(orderIdHint.trim())) {
-    const byNumber = await adminDb.collection('orders').where('orderId', '==', orderIdHint.trim()).limit(1).get();
+  // 2) Human order number HS-YYYY-NNNNNN.
+  if (!docSnap && ORDER_NUMBER_RE.test(numberInput)) {
+    const byNumber = await adminDb.collection('orders').where('orderId', '==', numberInput.toUpperCase()).limit(1).get();
     if (!byNumber.empty) docSnap = byNumber.docs[0];
   }
-  if (!docSnap) throw clientError('Order not found.', 404);
+  // 3) Free-form input from the tracking page: could be a number, a receipt,
+  //    or a document id typed by mistake — try each in turn.
+  if (!docSnap && numberInput) {
+    if (RECEIPT_RE.test(numberInput)) {
+      const pay = await adminDb.collection('payments').where('receiptNumber', '==', numberInput.toUpperCase()).limit(1).get();
+      if (!pay.empty) {
+        const pid = pay.docs[0].data().orderDocumentId;
+        if (typeof pid === 'string' && pid) {
+          const s = await adminDb.collection('orders').doc(pid).get();
+          if (s.exists) docSnap = s;
+        }
+      }
+    } else if (/^[A-Za-z0-9_-]{8,80}$/.test(numberInput)) {
+      const direct = await adminDb.collection('orders').doc(numberInput).get();
+      if (direct.exists) docSnap = direct;
+    }
+  }
+  // 4) Explicit ?receipt=HSP-...
+  if (!docSnap && RECEIPT_RE.test(receiptInput)) {
+    const pay = await adminDb.collection('payments').where('receiptNumber', '==', receiptInput.toUpperCase()).limit(1).get();
+    if (!pay.empty) {
+      const pid = pay.docs[0].data().orderDocumentId;
+      if (typeof pid === 'string' && pid) {
+        const s = await adminDb.collection('orders').doc(pid).get();
+        if (s.exists) docSnap = s;
+      }
+    }
+  }
+  if (!docSnap) throw clientError('We couldn\'t find that order on your account', 404);
   const d = docSnap.data();
-  if (d.customerId !== u.uid) throw clientError('Forbidden.', 403);
+  // Owner only — and we report "not found" rather than leaking existence.
+  if (d.customerId !== u.uid) throw clientError('We couldn\'t find that order on your account', 404);
 
   const h = await adminDb.collection('orderStatusHistory').where('orderDocumentId', '==', docSnap.id).orderBy('createdAt').get();
+
+  // Receipt number: prefer the payment stored on the order, then look up by
+  // the order's human id. Only ever surfaces for a PAID payment.
+  let receiptNumber = d.receiptNumber ?? null;
+  if (!receiptNumber) {
+    try {
+      const payQ = await adminDb.collection('payments').where('orderId', '==', d.orderId).orderBy('createdAt', 'desc').limit(5).get();
+      for (const p of payQ.docs) {
+        const pd = p.data();
+        if (pd.status === 'PAID' && typeof pd.receiptNumber === 'string' && pd.receiptNumber) {
+          receiptNumber = pd.receiptNumber;
+          break;
+        }
+      }
+    } catch (err) {
+      console.error(`[track] payments lookup failed for ${d.orderId}: ${err?.message || err}`);
+    }
+  }
+
   return res.json({
     order: {
       id: docSnap.id,
       orderId: d.orderId,
       orderStatus: d.orderStatus,
       paymentStatus: d.paymentStatus,
+      // Names everywhere — never a uid. Legacy docs without a stored name
+      // fall back to the delivery name on the order itself.
+      customerName: d.customerName || d.delivery?.fullName || '',
+      receiptNumber,
       subtotal: Number(d.subtotal) || 0,
       deliveryFee: Number(d.deliveryFee) || 0,
       discount: Number(d.discount) || 0,

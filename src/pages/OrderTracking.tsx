@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { Search, Package, Check, Truck, Clock, MapPin } from 'lucide-react';
 import { Card, Button, Badge, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { apiFetch } from '../lib/api';
+import { useApp } from '../context/AppContext';
 
 // Real data only: GET /api/orders/track (server-verified, owner-only).
 // No state.orders lookup — the page never crashes when data is missing.
@@ -11,6 +12,8 @@ type TrackOrder = {
   orderId: string;
   orderStatus: string;
   paymentStatus: string;
+  customerName?: string;
+  receiptNumber?: string | null;
   subtotal: number;
   deliveryFee: number;
   discount: number;
@@ -25,31 +28,38 @@ const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function OrderTracking() {
   const [searchParams] = useSearchParams();
-  const initial = searchParams.get('orderId') || '';
+  const { state } = useApp();
+  // One input accepts an order number (HS-...) OR a receipt number (HSP-...).
+  const initial = searchParams.get('order') || searchParams.get('orderId') || searchParams.get('receipt') || '';
   const [searchId, setSearchId] = useState(initial);
   const [order, setOrder] = useState<TrackOrder | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function fetchOrder(id: string) {
     if (!id.trim()) return;
     setLoading(true);
     setError(null);
+    setNotFound(false);
     setSearched(true);
     try {
-      const data = await apiFetch(`/api/orders/track?orderId=${encodeURIComponent(id.trim())}`);
+      const data = await apiFetch(`/api/orders/track?order=${encodeURIComponent(id.trim())}`);
       setOrder(data?.order ?? null);
     } catch (err: any) {
       setOrder(null);
-      // 404 = "not found" message; anything else = visible error card.
-      setError(err?.message || 'We could not load this order.');
+      const msg = String(err?.message || '');
+      // The server answers 404 "We couldn't find that order on your account"
+      // both for unknown numbers and for orders owned by someone else.
+      if (msg.includes("couldn't find") || err?.status === 404) setNotFound(true);
+      else setError(msg || 'We could not load this order.');
     } finally {
       setLoading(false);
     }
   }
 
-  // Auto-search when arriving with ?orderId=... (e.g. after checkout).
+  // Auto-search when arriving with ?order=... / ?orderId=... / ?receipt=...
   useEffect(() => {
     if (initial.trim()) void fetchOrder(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -71,7 +81,7 @@ export default function OrderTracking() {
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900 mb-2">Track Your Order</h1>
-      <p className="text-neutral-500 text-sm mb-8">Enter your order ID to check the status of your order.</p>
+      <p className="text-neutral-500 text-sm mb-8">Enter your order number (HS-...) or receipt number (HSP-...) to check the status of your order.</p>
 
       {/* Search */}
       <form
@@ -88,7 +98,7 @@ export default function OrderTracking() {
               type="text"
               value={searchId}
               onChange={e => setSearchId(e.target.value)}
-              placeholder="Enter order ID (e.g., HS-2026-000001)"
+              placeholder="Order or receipt number (e.g., HS-2026-000001)"
               className="w-full pl-10 pr-4 py-3 border border-neutral-300 rounded-xl text-sm focus:border-neutral-900"
             />
           </div>
@@ -98,22 +108,39 @@ export default function OrderTracking() {
 
       {loading && <Card className="p-8 text-center text-sm text-neutral-500 animate-pulse">Loading your order…</Card>}
 
-      {!loading && searched && error && (
+      {!loading && notFound && (
         <Card className="p-8 space-y-4 text-center">
-          <EmptyState title="Order not found" description={error.includes('not found') || error.includes('Not signed') ? error : 'We could not find an order with that ID. Please check and try again.'} />
-          <p className="text-xs text-neutral-500">You must be signed in with the account that placed the order.</p>
-          <Link to="/login"><Button variant="outline" size="sm">Sign in</Button></Link>
+          <EmptyState
+            title="Order not found"
+            description={
+              state.user
+                ? "We couldn't find that order on your account. Check the number you entered — orders belong to the account that placed them."
+                : 'Sign in with the account that placed the order, then try again.'
+            }
+          />
+          {!state.user && (
+            <Link to="/login"><Button variant="outline" size="sm">Sign in</Button></Link>
+          )}
         </Card>
       )}
 
-      {!loading && !error && order && (
+      {!loading && !notFound && searched && error && (
+        <Card className="p-6 border-red-200 bg-red-50">
+          <p className="font-semibold text-red-700 mb-1">We could not load this order</p>
+          <p className="text-sm text-red-600 mb-3">{error}</p>
+          <Button size="sm" variant="outline" onClick={() => void fetchOrder(searchId)}>Retry</Button>
+        </Card>
+      )}
+
+      {!loading && !error && !notFound && order && (
         <div className="space-y-6 animate-fadeIn">
           {/* Order Header */}
           <Card className="p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
               <div>
-                <p className="text-sm text-neutral-500">Order ID</p>
+                <p className="text-sm text-neutral-500">Order Number</p>
                 <p className="text-xl font-bold text-neutral-900">{order.orderId}</p>
+                {order.customerName && <p className="text-xs text-neutral-500 mt-1">Placed by {order.customerName}</p>}
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant={getStatusBadge(order.paymentStatus).variant}>Payment: {getStatusBadge(order.paymentStatus).label}</Badge>
@@ -137,7 +164,26 @@ export default function OrderTracking() {
                 <p className="text-neutral-500">Location</p>
                 <p className="font-medium">{order.delivery?.location || '—'}</p>
               </div>
+              {order.receiptNumber && (
+                <div>
+                  <p className="text-neutral-500">Receipt</p>
+                  <p className="font-medium">{order.receiptNumber}</p>
+                </div>
+              )}
             </div>
+            {order.delivery?.phone && (
+              <div className="mt-3 text-sm">
+                <span className="text-neutral-500">Phone: </span>
+                <span className="font-medium">{order.delivery.phone}</span>
+                {order.delivery.fullName && <span className="text-neutral-500"> · {order.delivery.fullName}</span>}
+              </div>
+            )}
+            {order.delivery?.instructions && (
+              <div className="mt-2 p-3 bg-neutral-50 rounded-lg text-sm">
+                <p className="text-xs text-neutral-500 mb-0.5">Delivery instructions</p>
+                <p className="text-neutral-900">{order.delivery.instructions}</p>
+              </div>
+            )}
           </Card>
 
           {/* Timeline */}

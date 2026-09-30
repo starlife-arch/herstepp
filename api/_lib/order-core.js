@@ -465,6 +465,9 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       orderUpdate.paymentStatus = PAYMENT_STATUS.PAID;
       orderUpdate.paymentId = paymentRef.id;
       orderUpdate.paymentReference = transactionReference || providerReference;
+      // Denormalise the receipt onto the order so /api/orders/track and the
+      // dashboard can show it without a second payments query.
+      orderUpdate.receiptNumber = receiptNumberFor(paymentRef.id);
     } else {
       orderUpdate.paymentStatus = status;
       // Customer may retry: drop the pointer to the dead payment attempt.
