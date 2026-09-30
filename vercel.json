@@ -65,6 +65,22 @@
       "destination": "/api/admin?route=orders"
     },
     {
+      "source": "/api/orders/create",
+      "destination": "/api/orders?route=create"
+    },
+    {
+      "source": "/api/checkout/config",
+      "destination": "/api/orders?route=config"
+    },
+    {
+      "source": "/api/payments/stk/initiate",
+      "destination": "/api/payments?route=stk/initiate"
+    },
+    {
+      "source": "/api/payments/status",
+      "destination": "/api/payments?route=status"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

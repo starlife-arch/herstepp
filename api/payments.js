@@ -1,3 +1,1 @@
-import { dispatchRoute } from './_lib/route-dispatch.js';
-
-export default (req, res) => dispatchRoute(req, res, {});
+import{dispatchRoute,lazyRoute}from'./_lib/route-dispatch.js';export default(req,res)=>dispatchRoute(req,res,{'stk/initiate':lazyRoute(()=>import('./_lib/routes/payments.js').then(m=>({default:m.initiate}))),status:lazyRoute(()=>import('./_lib/routes/payments.js').then(m=>({default:m.status})))});
