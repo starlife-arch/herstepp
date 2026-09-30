@@ -45,6 +45,26 @@
       "destination": "/api/admin?route=media/sign-upload"
     },
     {
+      "source": "/api/orders/track",
+      "destination": "/api/orders?route=track"
+    },
+    {
+      "source": "/api/dashboard",
+      "destination": "/api/users?route=dashboard"
+    },
+    {
+      "source": "/api/notifications",
+      "destination": "/api/users?route=notifications"
+    },
+    {
+      "source": "/api/notifications/:id",
+      "destination": "/api/users?route=notifications&id=:id"
+    },
+    {
+      "source": "/api/admin/orders",
+      "destination": "/api/admin?route=orders"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

@@ -1,5 +1,1 @@
-import { dispatchRoute, lazyRoute } from './_lib/route-dispatch.js';
-
-export default (req, res) => dispatchRoute(req, res, {
-  'auth/sync-profile': lazyRoute(() => import('./_lib/routes/sync-profile.js')),
-});
+import {dispatchRoute,lazyRoute}from'./_lib/route-dispatch.js';export default(req,res)=>dispatchRoute(req,res,{'auth/sync-profile':lazyRoute(()=>import('./_lib/routes/sync-profile.js')),dashboard:lazyRoute(()=>import('./_lib/routes/dashboard.js').then(m=>({default:m.dashboard}))),notifications:lazyRoute(()=>import('./_lib/routes/dashboard.js').then(m=>({default:m.notifications})))});
