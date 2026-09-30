@@ -1,0 +1,1 @@
+import {dispatchRoute,lazyRoute}from'./_lib/route-dispatch.js';export default(req,res)=>dispatchRoute(req,res,{track:lazyRoute(()=>import('./_lib/routes/orders-phase1.js').then(m=>({default:m.track})))});

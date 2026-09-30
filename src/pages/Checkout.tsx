@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { ArrowLeft, CreditCard, MapPin, Store, Loader2, Check } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Button, Card, Input, formatCurrency } from '../components/ui';
+import { apiFetch } from '../lib/api';
 
 export default function Checkout() {
   const { state, dispatch } = useApp();
@@ -38,44 +39,16 @@ export default function Checkout() {
     if (validate()) setStep('review');
   };
 
-  const handlePay = () => {
+  const handlePay = async () => {
     setStep('processing');
-    // Simulate STK Push process
-    setTimeout(() => {
-      const orderId = `HS-2026-${String(Math.floor(Math.random() * 999999)).padStart(6, '0')}`;
-      const order = {
-        id: `order-${Date.now()}`,
-        orderId,
-        customerId: state.user?.id || 'guest',
-        customerName: form.fullName,
-        customerPhone: form.phone,
-        customerEmail: form.email,
-        items: state.cart.map(item => ({
-          productId: item.product.id,
-          productName: item.product.name,
-          productImage: item.product.images[0],
-          size: item.size,
-          quantity: item.quantity,
-          unitPrice: item.product.salePrice || item.product.price,
-          total: (item.product.salePrice || item.product.price) * item.quantity,
-        })),
-        subtotal,
-        deliveryFee,
-        discount: 0,
-        total,
-        deliveryMethod: form.deliveryMethod,
-        deliveryLocation: form.deliveryMethod === 'collection' ? 'Jerry House, near Juja Posta' : form.deliveryLocation,
-        deliveryInstructions: form.instructions,
-        paymentStatus: 'paid' as const,
-        orderStatus: 'pending' as const,
-        statusHistory: [{ previousStatus: 'pending', newStatus: 'pending', timestamp: new Date().toISOString() }],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      dispatch({ type: 'ADD_ORDER', payload: order });
-      dispatch({ type: 'CLEAR_CART' });
-      setStep('success');
-    }, 3000);
+    try {
+      const created = await apiFetch('/api/orders/create', { method: 'POST', body: JSON.stringify({ cart: state.cart.map(item => ({ productId: item.product.id, size: String(item.size), quantity: item.quantity })), delivery: { fullName: form.fullName, phone: form.phone, deliveryMethod: form.deliveryMethod.toUpperCase(), location: form.deliveryLocation, instructions: form.instructions } }) });
+      const attempt = await apiFetch('/api/payments/stk/initiate', { method: 'POST', body: JSON.stringify({ orderDocumentId: created.order.id }) });
+      const paymentId = attempt.payment.id;
+      const started = Date.now();
+      const poll = async () => { const status = await apiFetch(`/api/payments/status?paymentId=${encodeURIComponent(paymentId)}`); if (status.payment.status === 'PAID') { dispatch({ type: 'CLEAR_CART' }); setStep('success'); return; } if (Date.now() - started < 90000 && status.payment.status === 'PENDING') setTimeout(poll, 4000); };
+      await poll();
+    } catch (error) { setErrors({ payment: error instanceof Error ? error.message : 'Payment could not be started.' }); setStep('review'); }
   };
 
   if (state.cart.length === 0 && step !== 'success') {
