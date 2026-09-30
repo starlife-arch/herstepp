@@ -6,7 +6,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { adminOrderTransitionCore } from '../order-core.js';
+import { adminOrderTransitionCore, expireStaleOrders } from '../order-core.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
@@ -122,26 +122,74 @@ export async function track(req, res) {
 export async function adminOrders(req, res) {
   const a = await requireAdmin(req);
   if (req.method === 'GET') {
+    // Housekeeping first: stale unpaid orders leave the list as CANCELLED and
+    // their reserved stock is restored (best-effort, never throws).
+    await expireStaleOrders(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() });
     let q = adminDb.collection('orders');
     const statusFilter = Array.isArray(req.query.orderStatus) ? req.query.orderStatus[0] : req.query.orderStatus;
     if (typeof statusFilter === 'string' && statusFilter) q = q.where('orderStatus', '==', statusFilter);
     const s = await q.orderBy('createdAt', 'desc').limit(200).get();
-    return res.json(rows(s).map(o => ({
+    const list = rows(s);
+
+    // Batched lookups so each row carries receiptNumber + failureReason and a
+    // full status-history timeline. Each lookup is best-effort: on failure the
+    // field stays null/[] instead of emptying the whole page.
+    const docIds = list.map(o => o.id);
+    const paymentsByOrder = new Map();
+    const historyByOrder = new Map();
+    try {
+      const paySnap = await adminDb.collection('payments').where('orderDocumentId', 'in', docIds.slice(0, 100)).get();
+      for (const p of paySnap.docs) {
+        const d = p.data();
+        const key = d.orderDocumentId;
+        const prev = paymentsByOrder.get(key);
+        const rank = st => (st === 'PAID' ? 3 : st === 'PENDING' ? 2 : 1);
+        if (!prev || rank(d.status) >= rank(prev.status)) paymentsByOrder.set(key, d);
+      }
+    } catch (error) { console.error('[adminOrders] payments lookup failed:', error?.message || error); }
+    try {
+      const histSnap = await adminDb.collection('orderStatusHistory').where('orderDocumentId', 'in', docIds.slice(0, 100)).orderBy('createdAt', 'asc').get();
+      for (const h of histSnap.docs) {
+        const d = h.data();
+        const key = d.orderDocumentId;
+        if (!historyByOrder.has(key)) historyByOrder.set(key, []);
+        historyByOrder.get(key).push({ ...d, createdAt: iso(d.createdAt) });
+      }
+    } catch (error) { console.error('[adminOrders] history lookup failed:', error?.message || error); }
+
+    return res.json(list.map(o => ({
       id: o.id,
       orderId: o.orderId ?? o.id,
       customerName: o.customerName ?? '',
       customerPhone: o.customerPhone ?? o.delivery?.phone ?? '',
       customerEmail: o.customerEmail ?? '',
-      items: Array.isArray(o.items) ? o.items : [],
+      delivery: {
+        fullName: o.delivery?.fullName ?? '',
+        phone: o.delivery?.phone ?? '',
+        deliveryMethod: o.delivery?.deliveryMethod ?? '',
+        location: o.delivery?.location ?? '',
+        instructions: o.delivery?.instructions ?? o.notes ?? '',
+      },
+      items: (Array.isArray(o.items) ? o.items : []).map(i => ({
+        name: i.name ?? '',
+        size: String(i.size ?? ''),
+        quantity: Number(i.quantity) || 0,
+        unitPrice: Number(i.unitPrice) || 0,
+        lineTotal: Number(i.lineTotal) || 0,
+        imageUrl: typeof i.imageUrl === 'string' ? i.imageUrl : null,
+      })),
       subtotal: Number(o.subtotal) || 0,
       deliveryFee: Number(o.deliveryFee) || 0,
+      discount: Number(o.discount) || 0,
       total: Number(o.total) || 0,
       currency: o.currency || 'KES',
       paymentStatus: o.paymentStatus ?? null,
       orderStatus: o.orderStatus ?? null,
       paymentReference: o.paymentReference ?? null,
       paymentId: o.paymentId ?? null,
-      delivery: o.delivery ?? null,
+      receiptNumber: o.receiptNumber ?? paymentsByOrder.get(o.id)?.receiptNumber ?? null,
+      failureReason: paymentsByOrder.get(o.id)?.failureReason ?? null,
+      history: historyByOrder.get(o.id) ?? [],
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
     })));
