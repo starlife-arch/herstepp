@@ -139,7 +139,7 @@ export function normaliseProduct(raw: any): Product | null {
     // sale price into 0 and make every product show "KSh 0". salePrice stays
     // null unless raw.salePrice is a POSITIVE INTEGER strictly lower than price.
     salePrice: normaliseSalePrice(raw.salePrice, Number.isFinite(Number(raw.price)) ? Number(raw.price) : 0),
-    stockQuantity: Number.isFinite(Number(raw.stockQuantity)) ? Number(raw.stockQuantity) : inventory.reduce((n, i) => n + i.quantity, 0),
+    stockQuantity: Number.isFinite(Number(raw.stockQuantity)) ? Number(raw.stockQuantity) : inventory.reduce((n: number, i: { quantity: number }) => n + i.quantity, 0),
     status: raw.status === 'ACTIVE' || raw.status === 'DRAFT' || raw.status === 'ARCHIVED' ? raw.status : 'DRAFT',
     featured: Boolean(raw.featured),
     bestseller: Boolean(raw.bestseller),
