@@ -1,17 +1,44 @@
 import React, { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ShoppingBag, Heart, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
-import { products } from '../data/mockData';
+import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Button, Card, Badge, formatCurrency } from '../components/ui';
+import { Button, Card, Badge, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 
 export default function ProductDetail() {
-  const { slug } = useParams();
-  const { state, dispatch } = useApp();
-  const product = products.find(p => p.slug === slug);
-  const [selectedSize, setSelectedSize] = useState<number | null>(null);
+  const { id } = useParams();
+  const { state, dispatch, reloadCatalog } = useApp();
+  const { products, catalogLoading, catalogError } = state;
+  const product = products.find(p => p.id === id);
+  // Only sizes with quantity > 0 are selectable.
+  const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
+
+  if (catalogError) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16">
+        <EmptyState
+          title="We couldn't load this product"
+          description={catalogError}
+          action={<Button onClick={() => void reloadCatalog()}>Try again</Button>}
+        />
+      </div>
+    );
+  }
+
+  if (catalogLoading) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-1 lg:grid-cols-2 gap-8 animate-fadeIn">
+        <Skeleton className="aspect-square rounded-2xl" />
+        <div className="space-y-4">
+          <Skeleton className="h-4 w-1/3" />
+          <Skeleton className="h-8 w-3/4" />
+          <Skeleton className="h-6 w-1/4" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      </div>
+    );
+  }
 
   if (!product) {
     return (
@@ -23,16 +50,23 @@ export default function ProductDetail() {
     );
   }
 
-  const totalStock = product.sizes.reduce((sum, s) => sum + s.quantity, 0);
+  const totalStock = product.stockQuantity;
   const isSoldOut = totalStock === 0;
-  const selectedSizeData = product.sizes.find(s => s.size === selectedSize);
-  const canAddToCart = selectedSize && selectedSizeData && selectedSizeData.quantity >= quantity;
+  const selectedSizeData = selectedSize ? product.inventory.find(s => s.size === selectedSize) : undefined;
+  const maxQuantity = selectedSizeData?.quantity ?? 0;
+  const canAddToCart = Boolean(selectedSize && selectedSizeData && selectedSizeData.quantity >= quantity && quantity >= 1);
+
+  const handleSelectSize = (size: string) => {
+    setSelectedSize(size);
+    const stock = product.inventory.find(s => s.size === size)?.quantity ?? 1;
+    setQuantity(Math.min(quantity, Math.max(stock, 1)));
+  };
 
   const handleAddToCart = () => {
-    if (!canAddToCart) return;
+    if (!canAddToCart || !selectedSize) return;
     dispatch({
       type: 'ADD_TO_CART',
-      payload: { product, size: selectedSize!, quantity },
+      payload: { product, size: selectedSize, quantity },
     });
     dispatch({ type: 'SET_TOAST', payload: { message: 'Added to cart', type: 'success' } });
   };
@@ -53,7 +87,7 @@ export default function ProductDetail() {
         <div>
           <div className="aspect-square bg-neutral-100 rounded-2xl overflow-hidden mb-4">
             <img
-              src={product.images[selectedImage]}
+              src={product.images[selectedImage]?.url}
               alt={product.name}
               className="w-full h-full object-cover"
             />
@@ -62,28 +96,31 @@ export default function ProductDetail() {
             <div className="grid grid-cols-4 gap-3">
               {product.images.map((img, i) => (
                 <button
-                  key={i}
+                  key={img.publicId || i}
                   onClick={() => setSelectedImage(i)}
                   className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${selectedImage === i ? 'border-neutral-900' : 'border-transparent hover:border-neutral-300'}`}
                 >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
+                  <img src={img.url} alt="" className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>
+          )}
+          {product.video && (
+            <video src={product.video.url} controls className="mt-4 w-full rounded-2xl bg-neutral-100" />
           )}
         </div>
 
         {/* Product Info */}
         <div>
           <div className="mb-4">
-            <p className="text-sm text-neutral-500 mb-1">{product.category}</p>
+            <p className="text-sm text-neutral-500 mb-1">{state.categories.find(c => c.id === product.categoryId)?.name}</p>
             <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1>
             <p className="text-sm text-neutral-400">SKU: {product.sku}</p>
           </div>
 
           {/* Price */}
           <div className="flex items-baseline gap-3 mb-6">
-            {product.salePrice ? (
+            {product.salePrice != null ? (
               <>
                 <span className="text-3xl font-bold text-neutral-900">{formatCurrency(product.salePrice)}</span>
                 <span className="text-lg text-neutral-400 line-through">{formatCurrency(product.price)}</span>
@@ -104,12 +141,12 @@ export default function ProductDetail() {
               {isSoldOut && <Badge variant="danger">Sold Out</Badge>}
             </div>
             <div className="grid grid-cols-6 gap-2">
-              {product.sizes.map(s => {
+              {product.inventory.map(s => {
                 const unavailable = s.quantity === 0;
                 return (
                   <button
                     key={s.size}
-                    onClick={() => !unavailable && setSelectedSize(s.size)}
+                    onClick={() => !unavailable && handleSelectSize(s.size)}
                     disabled={unavailable}
                     className={`py-3 rounded-lg text-sm font-medium border transition-all ${
                       selectedSize === s.size
@@ -131,8 +168,8 @@ export default function ProductDetail() {
             )}
           </div>
 
-          {/* Quantity */}
-          {!isSoldOut && (
+          {/* Quantity — capped by the selected size's stock */}
+          {!isSoldOut && selectedSize && (
             <div className="mb-8">
               <label className="text-sm font-medium text-neutral-900 mb-3 block">Quantity</label>
               <div className="flex items-center gap-3">
@@ -144,11 +181,13 @@ export default function ProductDetail() {
                 </button>
                 <span className="w-12 text-center font-medium">{quantity}</span>
                 <button
-                  onClick={() => setQuantity(Math.min(selectedSizeData?.quantity || 1, quantity + 1))}
-                  className="w-10 h-10 border border-neutral-300 rounded-lg flex items-center justify-center hover:bg-neutral-50"
+                  onClick={() => setQuantity(Math.min(maxQuantity || 1, quantity + 1))}
+                  disabled={quantity >= maxQuantity}
+                  className="w-10 h-10 border border-neutral-300 rounded-lg flex items-center justify-center hover:bg-neutral-50 disabled:opacity-40"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
+                <span className="text-xs text-neutral-500">Max {maxQuantity} for size {selectedSize}</span>
               </div>
             </div>
           )}
@@ -172,7 +211,7 @@ export default function ProductDetail() {
               <Truck className="w-5 h-5 text-neutral-500 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-neutral-900">Delivery Information</p>
-                <p className="text-xs text-neutral-500 mt-1">Same-day delivery available in Juja Town. Collection available at our store.</p>
+                <p className="text-xs text-neutral-500 mt-1">Delivery availability and fees are shown at checkout. Collection at our store is always free.</p>
               </div>
             </div>
           </Card>

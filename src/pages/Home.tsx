@@ -1,13 +1,28 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Truck, Shield, Clock, MapPin, Star, Sparkles } from 'lucide-react';
-import { products, categories } from '../data/mockData';
-import { Button, Card, formatCurrency } from '../components/ui';
+import { useApp } from '../context/AppContext';
+import { Button, Card, Skeleton, EmptyState, formatCurrency } from '../components/ui';
+import type { Product } from '../types';
 
 export default function Home() {
-  const featured = products.filter(p => p.isFeatured);
-  const newArrivals = products.filter(p => p.isNewArrival);
-  const bestsellers = products.filter(p => p.isBestseller);
+  const { state, reloadCatalog } = useApp();
+  const { products, categories, catalogLoading, catalogError } = state;
+  const featured = products.filter(p => p.featured);
+  const newArrivals = products.filter(p => p.newArrival);
+  const bestsellers = products.filter(p => p.bestseller);
+
+  if (catalogError) {
+    return (
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16">
+        <EmptyState
+          title="We couldn't load the collection"
+          description={catalogError}
+          action={<Button onClick={() => void reloadCatalog()}>Try again</Button>}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="animate-fadeIn">
@@ -40,18 +55,7 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Promo Banner */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
-        <div className="bg-neutral-100 border border-neutral-200 rounded-xl px-5 py-4 flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div>
-            <p className="font-semibold text-neutral-900 text-sm">Use code HERSTEP10 for 10% off your first order</p>
-            <p className="text-xs text-neutral-500 mt-0.5">Minimum order KSh 500. Valid until December 2026.</p>
-          </div>
-          <Link to="/shop">
-            <Button variant="outline" size="sm">Shop Now</Button>
-          </Link>
-        </div>
-      </section>
+      {/* Promo banner hidden until Phase 2 — promotions have no backend yet. */}
 
       {/* Categories */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16">
@@ -62,14 +66,18 @@ export default function Home() {
           </Link>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-          {categories.slice(0, 8).map(cat => (
-            <Link key={cat.id} to={`/shop?category=${cat.slug}`} className="group">
-              <Card hover className="p-5 text-center">
-                <p className="font-medium text-neutral-900 group-hover:text-neutral-700 text-sm">{cat.name}</p>
-                <p className="text-xs text-neutral-500 mt-1">{cat.productCount} products</p>
-              </Card>
-            </Link>
-          ))}
+          {catalogLoading
+            ? Array.from({ length: 8 }).map((_, i) => (
+                <Card key={i} className="p-5 text-center"><Skeleton className="h-4 w-3/4 mx-auto" /></Card>
+              ))
+            : categories.slice(0, 8).map(cat => (
+                <Link key={cat.id} to={`/shop?category=${cat.id}`} className="group">
+                  <Card hover className="p-5 text-center">
+                    <p className="font-medium text-neutral-900 group-hover:text-neutral-700 text-sm">{cat.name}</p>
+                    <p className="text-xs text-neutral-500 mt-1">{products.filter(p => p.categoryId === cat.id).length} products</p>
+                  </Card>
+                </Link>
+              ))}
         </div>
       </section>
 
@@ -81,11 +89,7 @@ export default function Home() {
             View all <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {featured.map(product => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        <ProductGrid loading={catalogLoading} products={featured} />
       </section>
 
       {/* New Arrivals */}
@@ -99,11 +103,7 @@ export default function Home() {
             View all <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {newArrivals.map(product => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        <ProductGrid loading={catalogLoading} products={newArrivals} />
       </section>
 
       {/* Why Shop With Us */}
@@ -140,11 +140,7 @@ export default function Home() {
             View all <ArrowRight className="w-4 h-4" />
           </Link>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-          {bestsellers.map(product => (
-            <ProductCard key={product.id} product={product} />
-          ))}
-        </div>
+        <ProductGrid loading={catalogLoading} products={bestsellers} />
       </section>
 
       {/* Store Info */}
@@ -168,17 +164,49 @@ export default function Home() {
   );
 }
 
-function ProductCard({ product }: { product: any }) {
-  const totalStock = product.sizes.reduce((sum: number, s: any) => sum + s.quantity, 0);
-  const isSoldOut = totalStock === 0;
-  const availableSizes = product.sizes.filter((s: any) => s.quantity > 0).map((s: any) => s.size);
+function ProductGrid({ products, loading }: { products: Product[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        {Array.from({ length: 4 }).map((_, i) => <ProductSkeleton key={i} />)}
+      </div>
+    );
+  }
+  if (products.length === 0) {
+    return <p className="text-sm text-neutral-500 py-6">Nothing here yet — check back soon.</p>;
+  }
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+      {products.map(product => <ProductCard key={product.id} product={product} />)}
+    </div>
+  );
+}
+
+function ProductSkeleton() {
+  return (
+    <Card className="overflow-hidden">
+      <div className="aspect-square bg-neutral-100" />
+      <div className="p-3 sm:p-4 space-y-2">
+        <Skeleton className="h-3 w-1/2" />
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-4 w-1/3" />
+      </div>
+    </Card>
+  );
+}
+
+export function ProductCard({ product }: { product: Product }) {
+  const { state } = useApp();
+  const categoryName = state.categories.find(c => c.id === product.categoryId)?.name;
+  const isSoldOut = product.stockQuantity === 0;
+  const availableSizes = product.inventory.filter(s => s.quantity > 0).map(s => s.size);
 
   return (
-    <Link to={`/product/${product.slug}`} className="group">
+    <Link to={`/product/${product.id}`} className="group">
       <Card hover className="overflow-hidden">
         <div className="relative aspect-square bg-neutral-100 overflow-hidden">
           <img
-            src={product.images[0]}
+            src={product.images[0]?.url}
             alt={product.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
@@ -188,22 +216,22 @@ function ProductCard({ product }: { product: any }) {
               <span className="bg-white text-neutral-900 px-3 py-1 rounded-full text-xs font-bold">SOLD OUT</span>
             </div>
           )}
-          {product.salePrice && !isSoldOut && (
+          {product.salePrice != null && !isSoldOut && (
             <div className="absolute top-2 left-2">
               <span className="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-medium">Sale</span>
             </div>
           )}
-          {product.isNewArrival && !isSoldOut && (
+          {product.newArrival && !isSoldOut && (
             <div className="absolute top-2 right-2">
               <span className="bg-neutral-900 text-white px-2 py-0.5 rounded text-xs font-medium">New</span>
             </div>
           )}
         </div>
         <div className="p-3 sm:p-4">
-          <p className="text-xs text-neutral-500 mb-1">{product.category}</p>
+          {categoryName && <p className="text-xs text-neutral-500 mb-1">{categoryName}</p>}
           <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-2 line-clamp-2">{product.name}</h3>
           <div className="flex items-center gap-2 mb-2">
-            {product.salePrice ? (
+            {product.salePrice != null ? (
               <>
                 <span className="font-semibold text-neutral-900 text-sm">{formatCurrency(product.salePrice)}</span>
                 <span className="text-xs text-neutral-400 line-through">{formatCurrency(product.price)}</span>
