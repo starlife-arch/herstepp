@@ -40,6 +40,11 @@ export function createPrintPayProvider({ apiKey = process.env.PRINTPAY_API_KEY, 
     if (code === '0' || text === 'SUCCESS') return 'PAID';
     if (code === '1032' || text === 'CANCELLED' || text === 'CANCELLED BY USER' || text.includes('USER CANCEL')) return 'CANCELLED';
     if (code === '1037' || text === 'TIMEOUT' || text === 'EXPIRED') return 'TIMEOUT';
+    // PrintPay keeps answering "pending" for a checkout the customer never
+    // finished. Once M-Pesa itself says the STK push expired, the payment is
+    // DEAD — map it to TIMEOUT immediately instead of leaving the order stuck
+    // in PENDING until our 30-minute window elapses.
+    if (text.includes('STK_PUSH_EXPIRED') || text.includes('PUSH EXPIRE') || code === '1036') return 'TIMEOUT';
     if (text === 'PENDING' || text === '' || code === '') return 'PENDING';
     return 'FAILED';
   }
