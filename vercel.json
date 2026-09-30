@@ -81,6 +81,18 @@
       "destination": "/api/payments?route=status"
     },
     {
+      "source": "/api/payments/mpesa/callback",
+      "destination": "/api/payments?route=mpesa/callback"
+    },
+    {
+      "source": "/api/payments/receipt",
+      "destination": "/api/payments?route=receipt"
+    },
+    {
+      "source": "/api/admin/customers",
+      "destination": "/api/admin?route=customers"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

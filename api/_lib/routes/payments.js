@@ -65,7 +65,11 @@ export async function initiate(req, res) {
         if (order.activePaymentId !== existing.id) {
           tx.update(orderRef, { activePaymentId: existing.id, updatedAt: FieldValue.serverTimestamp() });
         }
-        return { paymentRef: existing.ref, data, sendStk: false };
+        // Reusing a fresh PENDING payment: send the STK push ONLY when it has
+        // no providerReference yet (a previous attempt died before PrintPay
+        // answered). Once a providerReference exists we NEVER push twice —
+        // the customer just confirms that same prompt or waits for timeout.
+        return { paymentRef: existing.ref, data, sendStk: !data.providerReference };
       }
       // Stale attempt (>30 min): abandon it so a new one can start.
       tx.update(existing.ref, { status: PAYMENT_STATUS.TIMEOUT, failureReason: 'Attempt expired after 30 minutes', completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
