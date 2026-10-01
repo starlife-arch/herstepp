@@ -4,9 +4,11 @@
 // reserved stock (NEW inventory arrays + inventoryLogs) inside ONE
 // transaction — never via dotted paths.
 import { FieldValue } from 'firebase-admin/firestore';
+import { waitUntil } from '@vercel/functions';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
+import { deliverEmailAfterCommit } from '../notify.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
@@ -237,11 +239,16 @@ export async function adminOrders(req, res) {
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
   const { orderDocumentId, orderStatus, note } = req.body || {};
-  await adminOrderTransitionCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+  const result = await adminOrderTransitionCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
     actorUid: a.uid,
     orderDocumentId,
     orderStatus,
     note,
   });
+  // POST-COMMIT EMAIL FLUSH: the transition queued a status email inside its
+  // transaction; now actually send it (best-effort, kept alive by waitUntil —
+  // without this line customers would never get "Your order is being
+  // processed" emails). NEVER throws, NEVER blocks the response.
+  if (result?.emailKey) waitUntil(deliverEmailAfterCommit(adminDb, result.emailKey));
   return res.json({ ok: true });
 }

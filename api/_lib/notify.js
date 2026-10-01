@@ -141,6 +141,8 @@ export async function telegramLowStock(db, changes) {
 
 // Fire-and-forget delivery of a just-queued email. MUST be passed to
 // waitUntil() in routes; never awaited on the response path, never throws.
+// Returns the (already error-swallowed) promise so callers can hand it to
+// waitUntil and keep it alive after the HTTP response is sent.
 export function deliverEmailAfterCommit(db, key) {
   return deliverQueuedEmailInline(db, key).catch(error => {
     console.error(`[notify] post-commit email delivery failed for ${key}:`, error?.message || error);
