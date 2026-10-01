@@ -6,7 +6,9 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "node scripts/test-order-core.mjs"
+    "test": "npm run check:api && node scripts/test-order-core.mjs",
+    "check:api": "node scripts/check-api.mjs",
+    "prebuild": "npm run check:api"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.1.0",

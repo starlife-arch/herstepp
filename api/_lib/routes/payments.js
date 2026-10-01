@@ -49,6 +49,7 @@ async function reconcilePending(data) {
   return data;
 }
 
+
 function shape(id, data) {
   return publicPayment(id, data);
 }
@@ -196,6 +197,7 @@ export async function status(req, res) {
           transactionReference: result.transactionReference,
           eventId: result.eventId || `poll:${data.providerReference}:${result.status}`,
           source: 'PRINTPAY',
+          reason: result.reason || null,
         });
         const refreshed = await paymentRef.get();
         if (refreshed.exists) data = refreshed.data();
@@ -235,6 +237,7 @@ export async function mpesaCallback(req, res) {
       transactionReference: confirmation.transactionReference || verified.transactionReference,
       eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
       source: 'PRINTPAY',
+      reason: confirmation.reason ?? verified.reason ?? null,
     });
   } else {
     applied = await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
@@ -244,6 +247,7 @@ export async function mpesaCallback(req, res) {
       transactionReference: verified.transactionReference,
       eventId: verified.eventId || `callback:${verified.providerReference}:${verified.status}`,
       source: 'PRINTPAY',
+      reason: verified.reason || null,
     });
   }
 
