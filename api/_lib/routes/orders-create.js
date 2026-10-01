@@ -11,7 +11,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { normalizeKenyanPhone } from '../phone.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { createOrderCore } from '../order-core.js';
+import { createOrderCore, expireStaleOrders } from '../order-core.js';
 
 const LOCATION = 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12';
 
@@ -36,6 +36,9 @@ export async function create(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
   const u = await requireUser(req);
   rateLimitOrders(u.uid);
+  // Housekeeping first (best-effort, never throws): unpaid PENDING orders
+  // older than 30 minutes get cancelled and their reserved stock restored.
+  await expireStaleOrders(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() });
   const { cart, delivery } = req.body || {};
   // Email comes from the VERIFIED TOKEN only — the client never has to send
   // delivery.email (that was the "Email address is required." 400 bug).

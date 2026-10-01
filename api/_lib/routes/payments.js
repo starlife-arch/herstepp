@@ -22,6 +22,34 @@ import {
 
 const ATTEMPT_WINDOW_MS = 30 * 60_000; // a dead attempt may be replaced after 30 min
 
+// A payment that has died (webhook lost, customer closed the phone) must never
+// keep an order stuck in PENDING. If a PENDING attempt is older than the
+// window and the provider cannot be reached or still says pending, mark it
+// TIMEOUT so the UI and admin show the truth immediately.
+async function reconcilePending(data) {
+  if (data.status !== PAYMENT_STATUS.PENDING) return data;
+  const initiatedMs = data.initiatedAt?.toMillis ? data.initiatedAt.toMillis() : null;
+  if (initiatedMs != null && Date.now() - initiatedMs > ATTEMPT_WINDOW_MS) {
+    try {
+      await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+        providerReference: data.providerReference || `stale:${data.paymentId}`,
+        status: PAYMENT_STATUS.TIMEOUT,
+        amount: Number(data.amount),
+        transactionReference: null,
+        eventId: `stale-window:${data.paymentId}:TIMEOUT`,
+        source: 'SYSTEM',
+        reason: 'The M-Pesa request timed out.',
+      });
+      const refreshed = await adminDb.collection('payments').doc(data.paymentId).get();
+      if (refreshed.exists) return refreshed.data();
+    } catch (error) {
+      console.error(`payments reconcile stale window failed for ${data.paymentId}:`, error?.message || error);
+    }
+  }
+  return data;
+}
+
+
 function shape(id, data) {
   return publicPayment(id, data);
 }
@@ -169,6 +197,7 @@ export async function status(req, res) {
           transactionReference: result.transactionReference,
           eventId: result.eventId || `poll:${data.providerReference}:${result.status}`,
           source: 'PRINTPAY',
+          reason: result.reason || null,
         });
         const refreshed = await paymentRef.get();
         if (refreshed.exists) data = refreshed.data();
@@ -208,6 +237,7 @@ export async function mpesaCallback(req, res) {
       transactionReference: confirmation.transactionReference || verified.transactionReference,
       eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
       source: 'PRINTPAY',
+      reason: confirmation.reason ?? verified.reason ?? null,
     });
   } else {
     applied = await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
@@ -217,6 +247,7 @@ export async function mpesaCallback(req, res) {
       transactionReference: verified.transactionReference,
       eventId: verified.eventId || `callback:${verified.providerReference}:${verified.status}`,
       source: 'PRINTPAY',
+      reason: verified.reason || null,
     });
   }
 

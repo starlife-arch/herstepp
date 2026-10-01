@@ -40,8 +40,15 @@ export default function Checkout() {
 
   // Payment state machine: the order is created ONCE and its id kept here so
   // "Try again" re-initiates the STK push for the SAME order (no second order).
-  const [orderId, setOrderId] = useState<string | null>(null);
+  // Firestore document id — INTERNAL ONLY (payments API calls). Never rendered.
+  const [orderDocId, setOrderDocId] = useState<string | null>(null);
+  // Human order number HS-YYYY-NNNNNN — what the user sees everywhere.
+  const [orderNumber, setOrderNumber] = useState<string | null>(null);
+  const [failureReason, setFailureReason] = useState<string | null>(null);
   const [paidInfo, setPaidInfo] = useState<{ orderId: string; receiptNumber: string | null } | null>(null);
+  // Ref mirrors so the async flow always sees the latest values (state lags).
+  const orderNumberRef = useRef<string | null>(null);
+  const failureReasonRef = useRef<string | null>(null);
 
   // Abort ref: leaving the page (or restarting the flow) stops all polling.
   const abortRef = useRef(false);
@@ -119,8 +126,9 @@ export default function Checkout() {
     void abortTimer;
   });
 
-  // Poll GET /api/payments/status every 4 s for up to 90 s. Network errors
+  // Poll GET /api/payments/status every 2 s for up to 90 s. Network errors
   // RETRY (they do not end the flow); only a terminal status stops it.
+  // Also captures the server's failureReason for CANCELLED/FAILED/TIMEOUT.
   const pollPaymentStatus = async (paymentId: string): Promise<PaymentOutcome> => {
     const started = Date.now();
     let consecutiveNetworkErrors = 0;
@@ -130,18 +138,19 @@ export default function Checkout() {
         consecutiveNetworkErrors = 0;
         const status = String(res?.payment?.status || '').toUpperCase();
         if (status === 'PAID' || status === 'CANCELLED' || status === 'FAILED' || status === 'TIMEOUT') {
+          { const fr = typeof res?.payment?.failureReason === 'string' && res.payment.failureReason ? res.payment.failureReason : null; failureReasonRef.current = fr; setFailureReason(fr); }
           return status as PaymentOutcome;
         }
       } catch (err) {
         if (abortRef.current) return 'STILL_PENDING';
         consecutiveNetworkErrors += 1;
         // Transient network/poll failure: keep retrying within the window.
-        if (consecutiveNetworkErrors >= 8) {
+        if (consecutiveNetworkErrors >= 16) {
           setErrors({ payment: 'We could not reach the payment service. Please check Track Order shortly.' });
           return 'STILL_PENDING';
         }
       }
-      try { await sleep(4000); } catch { return 'STILL_PENDING'; } // aborted
+      try { await sleep(2000); } catch { return 'STILL_PENDING'; } // aborted
     }
     return 'STILL_PENDING';
   };
@@ -152,10 +161,14 @@ export default function Checkout() {
     const reusingOrder = Boolean(existingOrderId || orderId);
     if (!reusingOrder) setServerTotal(null);
     setStep('processing');
-    let currentOrderId = existingOrderId || orderId;
+    setFailureReason(null);
+    let currentDocId = existingOrderId || orderDocId;
+    let currentNumber = orderNumberRef.current;
+    failureReasonRef.current = null;
+    setFailureReason(null);
     try {
-      // Create the order exactly once; reuse its id on every retry.
-      if (!currentOrderId) {
+      // Create the order exactly once; reuse its ids on every retry.
+      if (!currentDocId) {
         const created = await apiFetch('/api/orders/create', {
           method: 'POST',
           body: JSON.stringify({
@@ -169,9 +182,13 @@ export default function Checkout() {
             },
           }),
         });
-        currentOrderId = created?.order?.id ?? created?.order?.orderDocumentId ?? null;
-        if (!currentOrderId) throw new Error('The server did not return an order id. Please try again.');
-        setOrderId(currentOrderId);
+        currentDocId = created?.order?.orderDocumentId ?? created?.order?.id ?? null;
+        if (!currentDocId) throw new Error('The server did not return an order id. Please try again.');
+        setOrderDocId(currentDocId);
+        // The HS-... order number is what we show the customer — never the doc id.
+        currentNumber = typeof created?.order?.orderId === 'string' ? created.order.orderId : null;
+        orderNumberRef.current = currentNumber;
+        setOrderNumber(currentNumber);
         // The amount to pay is the SERVER total returned by orders/create.
         const st = Number(created?.order?.total);
         if (Number.isFinite(st) && st > 0) setServerTotal(st);
@@ -179,10 +196,11 @@ export default function Checkout() {
 
       const attempt = await apiFetch('/api/payments/stk/initiate', {
         method: 'POST',
-        body: JSON.stringify({ orderDocumentId: currentOrderId }),
+        body: JSON.stringify({ orderDocumentId: currentDocId }),
       });
       const paymentId = attempt?.payment?.id;
       if (!paymentId) throw new Error('Payment could not be started.');
+      if (attempt?.payment?.failureReason) { failureReasonRef.current = String(attempt.payment.failureReason); setFailureReason(failureReasonRef.current); }
 
       const outcome = await pollPaymentStatus(paymentId);
       if (abortRef.current) return;
@@ -195,19 +213,26 @@ export default function Checkout() {
         } catch { /* keep whatever we have */ }
         // Only clear the cart AFTER PAID.
         dispatch({ type: 'CLEAR_CART' });
-        setPaidInfo({ orderId: currentOrderId, receiptNumber });
+        // Show the human HS-... order number, NEVER the Firestore document id.
+        setPaidInfo({ orderId: currentNumber || 'your order', receiptNumber });
         setStep('success');
         return;
       }
 
       // Terminal non-paid outcomes: back to review with a clear red message.
-      const messages: Record<string, string> = {
+      const fallbackMessages: Record<string, string> = {
         CANCELLED: 'You cancelled the M-Pesa request.',
         TIMEOUT: 'The M-Pesa request timed out.',
         FAILED: 'The payment failed (wrong PIN or insufficient funds).',
         STILL_PENDING: 'We have not received confirmation yet. Check Track Order shortly.',
       };
-      setErrors({ payment: messages[outcome] || 'The payment could not be completed.' });
+      // For CANCELLED / FAILED / TIMEOUT prefer the SERVER's failureReason
+      // (e.g. "Wrong M-Pesa PIN entered.") in the red box above Pay.
+      const serverReason = failureReasonRef.current;
+      const message = (outcome !== 'PAID' && outcome !== 'STILL_PENDING' && serverReason)
+        ? serverReason
+        : (fallbackMessages[outcome] || 'The payment could not be completed.');
+      setErrors({ payment: message });
       setStep('review');
     } catch (error) {
       if (abortRef.current) return;
@@ -218,7 +243,7 @@ export default function Checkout() {
   };
 
   const handlePay = () => { void runFlow(null); };
-  const handleRetryPayment = () => { void runFlow(orderId); }; // same order, no second order
+  const handleRetryPayment = () => { void runFlow(orderDocId); }; // SAME order (doc id internal only), no second order
 
   if (state.cart.length === 0 && step !== 'success') {
     navigate('/cart');
@@ -226,7 +251,10 @@ export default function Checkout() {
   }
 
   const errorMessage = errors.payment || configError;
-  const stillPendingMessage = errorMessage === 'We have not received confirmation yet. Check Track Order shortly.';
+  const stillPendingMessage = typeof errorMessage === 'string' && (
+    errorMessage === 'We have not received confirmation yet. Check Track Order shortly.'
+    || errorMessage === 'We could not reach the payment service. Please check Track Order shortly.'
+  );
 
   if (step === 'processing') {
     return (
@@ -384,7 +412,7 @@ export default function Checkout() {
 
               <div className="flex gap-3">
                 <Button variant="outline" onClick={() => setStep('details')}>Edit Details</Button>
-                {orderId ? (
+                {orderDocId ? (
                   <Button size="lg" className="flex-1" onClick={handleRetryPayment}>
                     <CreditCard className="w-4 h-4 mr-2" />
                     Try again — Pay {formatCurrency(amountToPay)}
@@ -396,7 +424,7 @@ export default function Checkout() {
                   </Button>
                 )}
               </div>
-              {orderId && (
+              {orderDocId && (
                 <p className="text-xs text-neutral-500 mt-2">
                   Retrying uses the same order — no duplicate order will be created.
                 </p>
@@ -430,7 +458,7 @@ export default function Checkout() {
                 <span>{formatCurrency(amountToPay)}</span>
               </div>
               {serverTotal != null && (
-                <p className="text-xs text-neutral-400">Confirmed by the server for order {orderId}.</p>
+                <p className="text-xs text-neutral-400">Confirmed by the server for order {orderNumber || 'your order'}.</p>
               )}
             </div>
             <div className="mt-4 p-3 bg-neutral-50 rounded-lg">

@@ -18,8 +18,8 @@ class Query {
 
   where(field, op, value) {
     if (field.includes('.')) throw new Error(`FakeFirestore forbids dotted query paths: ${field}`);
-    if (op !== '==') throw new Error(`FakeFirestore only supports == queries, got ${op}`);
-    return new Query(this.store, this.collection, [...this.conditions, [field, value]], this.orderField, this.orderDir, this.limitCount);
+    if (op !== '==' && op !== 'in') throw new Error(`FakeFirestore only supports == / in queries, got ${op}`);
+    return new Query(this.store, this.collection, [...this.conditions, [field, value, op]], this.orderField, this.orderDir, this.limitCount);
   }
 
   orderBy(field, dir = 'asc') {
@@ -33,7 +33,7 @@ class Query {
   _rows(merged) {
     const docs = (merged || this.store.collections).get(this.collection) || new Map();
     let entries = [...docs.entries()].filter(([, data]) =>
-      this.conditions.every(([field, value]) => data[field] === value)
+      this.conditions.every(([field, value, op]) => (op === 'in' ? Array.isArray(value) && value.includes(data[field]) : data[field] === value))
     );
     if (this.orderField) {
       const rank = (v) => (v && typeof v === 'object' && v.__serverTs ? v.n : v);
