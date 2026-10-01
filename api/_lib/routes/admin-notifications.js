@@ -6,12 +6,14 @@
 //           exactly what happened; configuration problems come back as
 //           { sent:false, reason:'not-configured', missing:[...] } instead of
 //           breaking anything.
+import { waitUntil } from '@vercel/functions';
 import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import {
   emailConfig,
   missingSenderPurposes,
   deliverQueuedEmailInline,
+  retryPendingEmails,
   emailId,
   queueEmail,
 } from '../email-service.js';
@@ -128,4 +130,19 @@ export async function notificationTest(req, res) {
     reason: result.skipped ? 'not-configured' : 'send-failed',
     detail,
   });
+}
+
+// POST /api/admin/notifications/retry — body {limit?} (1..20, default 5).
+// Delivers up to `limit` PENDING emails older than 2 minutes through the same
+// claim-and-send path as production. Returns immediately; the actual sending
+// continues via waitUntil so a slow Brevo never turns this button into a 504.
+export async function notificationRetry(req, res) {
+  if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
+  await requireAdmin(req);
+  const rawLimit = Number(req.body?.limit ?? 5);
+  const limit = Number.isFinite(rawLimit) ? Math.min(20, Math.max(1, Math.trunc(rawLimit))) : 5;
+  const pendingSnap = await adminDb.collection('emailOutbox').where('status', '==', 'PENDING').limit(100).get();
+  const pending = pendingSnap.size;
+  waitUntil(retryPendingEmails(adminDb, { limit }));
+  return res.json({ ok: true, pendingBefore: pending, attemptedUpTo: limit });
 }

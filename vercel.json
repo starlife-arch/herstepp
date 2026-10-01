@@ -97,6 +97,18 @@
       "destination": "/api/admin?route=customers"
     },
     {
+      "source": "/api/admin/notifications",
+      "destination": "/api/admin?route=notifications"
+    },
+    {
+      "source": "/api/admin/notifications/test",
+      "destination": "/api/admin?route=notifications/test"
+    },
+    {
+      "source": "/api/admin/notifications/retry",
+      "destination": "/api/admin?route=notifications/retry"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

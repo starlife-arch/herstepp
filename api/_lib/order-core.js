@@ -639,16 +639,21 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     }
 
     return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys };
-  }).then(async result => {
-    // Post-commit, best-effort side effects. NEVER throws into the caller and
-    // never blocks the HTTP response (routes pass these to waitUntil).
-    if (!result.duplicate) {
-      const orderSnapForNotify = await db.collection('orders').doc(result.orderDocumentId || '').get().catch(() => null);
-      const orderData = orderSnapForNotify?.exists ? orderSnapForNotify.data() : null;
-      telegramPayment(result.status, orderData || {}, { amount: callback.amount, failureReason: callback.reason });
-      for (const key of result.emailKeys || []) deliverEmailAfterCommit(db, key);
-    }
-    return result;
+  }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
+}
+
+// POST-COMMIT EMAIL FLUSH for payment events. Returns a promise that routes
+// hand to waitUntil(); it is ALREADY started here so nothing is lost even if a
+// caller forgets to await/flush, and it can never throw into the response path.
+function flushPaymentEmails(db, result) {
+  if (!result || result.duplicate) return Promise.resolve();
+  return (async () => {
+    const orderSnapForNotify = await db.collection('orders').doc(result.orderDocumentId || '').get().catch(() => null);
+    const orderData = orderSnapForNotify?.exists ? orderSnapForNotify.data() : null;
+    telegramPayment(result.status, orderData || {}, { amount: undefined, failureReason: undefined });
+    for (const key of result.emailKeys || []) await deliverEmailAfterCommit(db, key);
+  })().catch(error => {
+    console.error('[order-core] post-commit payment notify failed:', error?.message || error);
   });
 }
 

@@ -18,4 +18,10 @@ export default (req, res) => dispatchRoute(req, res, {
   'media/sign-upload': lazyRoute(() => import('./_lib/routes/admin-media.js')),
   // GET/PATCH /api/admin/orders
   orders: lazyRoute(() => import('./_lib/routes/orders-phase1.js').then(m => ({ default: m.adminOrders }))),
+  // GET /api/admin/notifications — email/Telegram config status + outbox stats.
+  'notifications': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationStatus }))),
+  // POST /api/admin/notifications/test — {channel:'email'|'telegram', to?}
+  'notifications/test': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationTest }))),
+  // POST /api/admin/notifications/retry — retry PENDING outbox emails
+  'notifications/retry': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationRetry }))),
 });
