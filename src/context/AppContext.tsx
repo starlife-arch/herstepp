@@ -320,8 +320,21 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   // Real customer dashboard data (GET /api/dashboard) — orders, payments and notifications.
-  const loadDashboard = async () => {
-    if (!stateRef.current.user) {
+  // IMPORTANT: this must NOT read stateRef.current.user — the auth listener calls it in the
+  // same tick it dispatches SET_USER, and stateRef only updates on the NEXT render. That race
+  // used to dispatch empty arrays and never hit the server ("My Orders always empty").
+  // Pass the uid explicitly when known; otherwise fall back to Firebase auth.currentUser.
+  const loadDashboard = async (uidHint?: string | null) => {
+    let uid = uidHint ?? null;
+    if (!uid) {
+      try {
+        const { auth } = await getFirebase();
+        uid = auth.currentUser?.uid ?? null;
+      } catch {
+        uid = null;
+      }
+    }
+    if (!uid) {
       dispatch({ type: 'SET_DASHBOARD', payload: { orders: [], payments: [], notifications: [] } });
       return;
     }
@@ -337,6 +350,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         },
       });
     } catch (error) {
+      // Never silently show "No orders yet" on failure: keep the server message visible.
       dispatch({ type: 'SET_DASHBOARD_STATUS', payload: { loading: false, error: error instanceof Error ? error.message : 'We could not load your account.' } });
     }
   };
@@ -391,8 +405,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
               },
             });
           }
-          // Real orders, payments and notifications (GET /api/dashboard).
-          void loadDashboard();
+          // Real orders, payments and notifications (GET /api/dashboard). Pass the uid we just
+          // verified — loadDashboard must not read stateRef (it updates only on the next render).
+          void loadDashboard(firebaseUser.uid);
         } catch {
           if (active) dispatch({ type: 'SET_USER', payload: null });
         } finally {
