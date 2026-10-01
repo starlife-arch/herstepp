@@ -288,69 +288,119 @@ export async function cancel(req, res) {
   return res.json({ payment: shape(paymentId, data) });
 }
 
+// POST /api/payments/mpesa/callback — PUBLIC PrintPay webhook.
+//
+// CRITICAL RULE: this endpoint MUST ALWAYS ANSWER HTTP 200 to PrintPay.
+// PrintPay's "Test Link" sends a fake/empty payload and marks the URL broken
+// on any non-200 response, so every failure path (unknown checkout id, empty
+// or malformed body, unconfirmed PAID, thrown errors) is logged with
+// console.error and answered 200 {ok:true, received:true, applied:false}.
+// GET/HEAD return 200 {ok:true} as a link health check; other methods return
+// 200 {ok:true, ignored:true}.
+//
+// Security is unchanged: PAID is applied ONLY after provider.checkStatus
+// re-confirms the same checkout id (and the exact amount inside
+// applyVerifiedCallbackCore). Cancel/failed/timeout results (codes 1032,
+// 1037, 2001, 1 or any non-success status) are applied directly with the
+// friendly failureReason. Every call records settings/printpay so the admin
+// Payments tab can show "last callback received …".
 export async function mpesaCallback(req, res) {
-  if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
-  const provider = getMpesaProvider();
-  const verified = await provider.verifyCallback(req);
+  const send = (payload) => res.status(200).json(payload);
+
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    return send({ ok: true });
+  }
+  if (req.method !== 'POST') {
+    return send({ ok: true, ignored: true });
+  }
 
   // ---- Webhook visibility: one safe log line per call + a settings doc the
   // admin Payments tab reads ("last callback received …"). Only checkout id,
   // status, result code and the LAST 4 phone digits are ever logged/stored.
-  const cbBody = req.body || {};
-  const rawPhone = String(cbBody.msisdn || cbBody.phone || cbBody.Phone || '');
-  const logFields = {
-    lastCallbackAt: new Date().toISOString(),
-    lastCallbackStatus: verified?.status ?? 'UNRECOGNISED',
-    lastCallbackCheckoutId: verified?.providerReference ?? String(cbBody.checkout_request_id ?? cbBody.CheckoutRequestID ?? '') ?? null,
-    lastResultCode: String(cbBody.result_code ?? cbBody.ResultCode ?? ''),
-    phoneLast4: rawPhone ? rawPhone.slice(-4) : null,
+  const cbBody = (req.body && typeof req.body === 'object') ? req.body : {};
+  const extractCheckoutId = () => String(
+    cbBody.checkout_request_id ?? cbBody.CheckoutRequestID ?? cbBody.checkoutRequestId
+    ?? cbBody.CheckoutData?.CheckoutRequestID ?? '',
+  );
+  const recordCallback = async (statusValue, checkoutId) => {
+    const rawPhone = String(cbBody.msisdn || cbBody.phone || cbBody.Phone || '');
+    const logFields = {
+      lastCallbackAt: new Date().toISOString(),
+      lastCallbackStatus: statusValue ?? 'UNRECOGNISED',
+      lastCallbackCheckoutId: checkoutId || null,
+      lastResultCode: String(cbBody.result_code ?? cbBody.ResultCode ?? ''),
+      phoneLast4: rawPhone ? rawPhone.slice(-4) : null,
+    };
+    console.log(`mpesa-callback checkout=${logFields.lastCallbackCheckoutId ?? '-'} status=${logFields.lastCallbackStatus} code=${logFields.lastResultCode || '-'} phone=…${logFields.phoneLast4 ?? '????'}`);
+    try {
+      await adminDb.collection('settings').doc('printpay').set(
+        { ...logFields, updatedAt: FieldValue.serverTimestamp() },
+        { merge: true },
+      );
+    } catch (error) {
+      console.error('mpesa-callback settings/printpay write failed:', error?.message || error);
+    }
   };
-  console.log(`mpesa-callback checkout=${logFields.lastCallbackCheckoutId ?? '-'} status=${logFields.lastCallbackStatus} code=${logFields.lastResultCode || '-'} phone=…${logFields.phoneLast4 ?? '????'}`);
+
+  let verified = null;
   try {
-    await adminDb.collection('settings').doc('printpay').set(
-      { ...logFields, updatedAt: FieldValue.serverTimestamp() },
-      { merge: true },
-    );
+    const provider = getMpesaProvider();
+    verified = await provider.verifyCallback(req);
   } catch (error) {
-    console.error('mpesa-callback settings/printpay write failed:', error?.message || error);
+    // Malformed/garbage/fake-test payload — verifyCallback threw. Log it and
+    // still answer 200 so PrintPay never sees an error.
+    console.error('mpesa-callback verifyCallback failed:', error?.message || error);
+    await recordCallback('UNRECOGNISED', extractCheckoutId());
+    return send({ ok: true, received: true, applied: false });
   }
+
+  await recordCallback(verified?.status ?? 'UNRECOGNISED', verified?.providerReference || extractCheckoutId());
 
   if (!verified?.providerReference) {
-    return res.status(400).json({ ok: false, error: 'Unrecognised callback payload.' });
+    console.error('mpesa-callback: unrecognised payload (no checkout id) — acknowledged with 200');
+    return send({ ok: true, received: true, applied: false });
   }
 
-  let applied;
-  if (verified.status === PAYMENT_STATUS.PAID) {
-    // NEVER trust the webhook alone: re-confirm with an explicit status query
-    // and require the SAME checkout id before marking anything PAID.
-    const confirmation = await provider.checkStatus(verified.providerReference);
-    if (confirmation.status !== PAYMENT_STATUS.PAID
-      || String(confirmation.providerReference) !== String(verified.providerReference)) {
-      console.error(`mpesa-callback: unconfirmed PAID for ${verified.providerReference} (provider says ${confirmation.status})`);
-      throw clientError('Payment could not be confirmed with the provider.', 409);
+  try {
+    let applied;
+    if (verified.status === PAYMENT_STATUS.PAID) {
+      // NEVER trust the webhook alone: re-confirm with an explicit status query
+      // and require the SAME checkout id before marking anything PAID.
+      const provider = getMpesaProvider();
+      const confirmation = await provider.checkStatus(verified.providerReference);
+      if (confirmation.status !== PAYMENT_STATUS.PAID
+        || String(confirmation.providerReference) !== String(verified.providerReference)) {
+        console.error(`mpesa-callback: unconfirmed PAID for ${verified.providerReference} (provider says ${confirmation.status}) — acknowledged with 200`);
+        return send({ ok: true, received: true, applied: false });
+      }
+      applied = await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+        providerReference: verified.providerReference,
+        status: PAYMENT_STATUS.PAID,
+        amount: confirmation.amount ?? verified.amount,
+        transactionReference: confirmation.transactionReference || verified.transactionReference,
+        eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
+        source: 'PRINTPAY',
+        reason: confirmation.reason ?? verified.reason ?? null,
+      });
+    } else {
+      applied = await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+        providerReference: verified.providerReference,
+        status: verified.status,
+        amount: verified.amount,
+        transactionReference: verified.transactionReference,
+        eventId: verified.eventId || `callback:${verified.providerReference}:${verified.status}`,
+        source: 'PRINTPAY',
+        reason: verified.reason || null,
+      });
     }
-    applied = await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
-      providerReference: verified.providerReference,
-      status: PAYMENT_STATUS.PAID,
-      amount: confirmation.amount ?? verified.amount,
-      transactionReference: confirmation.transactionReference || verified.transactionReference,
-      eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
-      source: 'PRINTPAY',
-      reason: confirmation.reason ?? verified.reason ?? null,
-    });
-  } else {
-    applied = await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
-      providerReference: verified.providerReference,
-      status: verified.status,
-      amount: verified.amount,
-      transactionReference: verified.transactionReference,
-      eventId: verified.eventId || `callback:${verified.providerReference}:${verified.status}`,
-      source: 'PRINTPAY',
-      reason: verified.reason || null,
-    });
+    return send({ ok: true, applied: applied?.applied !== false, duplicate: applied?.duplicate === true });
+  } catch (error) {
+    // Unknown payment, amount mismatch (409), Firestore failure… PrintPay
+    // STILL gets a 200; the truth is in the log and reconciliation/polling
+    // will converge the state anyway.
+    console.error(`mpesa-callback apply failed for ${verified.providerReference}:`, error?.message || error, error?.stack || '');
+    return send({ ok: true, received: true, applied: false });
   }
-
-  return res.status(200).json({ ok: true, duplicate: applied.duplicate === true });
 }
 
 export async function receipt(req, res) {
