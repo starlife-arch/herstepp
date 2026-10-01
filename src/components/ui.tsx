@@ -194,7 +194,8 @@ export function getStatusBadge(status?: string | null): { label: string; variant
     CANCELLED: { label: 'Cancelled', variant: 'danger' },
     PAID: { label: 'Paid', variant: 'success' },
     FAILED: { label: 'Failed', variant: 'danger' },
-    TIMEOUT: { label: 'Timeout', variant: 'warning' },
+    // Same payment badge labels everywhere (customer AND admin): "Timed out".
+    TIMEOUT: { label: 'Timed out', variant: 'warning' },
     REFUNDED: { label: 'Refunded', variant: 'warning' },
     DRAFT: { label: 'Draft', variant: 'default' },
     ACTIVE: { label: 'Active', variant: 'success' },

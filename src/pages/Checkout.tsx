@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { ArrowLeft, CreditCard, MapPin, Store, Loader2, Check, AlertCircle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { effectivePrice, hasDiscount } from '../context/AppContext';
@@ -20,6 +20,11 @@ type PaymentOutcome = 'PAID' | 'CANCELLED' | 'FAILED' | 'TIMEOUT' | 'STILL_PENDI
 export default function Checkout() {
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
+  // /checkout?order=<doc id> — "Pay now" from the dashboard: retry payment for
+  // an EXISTING order (no new order is created; the doc id stays internal).
+  const [searchParams] = useSearchParams();
+  const resumeOrderDocId = searchParams.get('order');
+  const resumedRef = useRef(false);
   const [step, setStep] = useState<'details' | 'review' | 'processing' | 'success'>('details');
   const [form, setForm] = useState({
     fullName: state.user?.name || '',
@@ -45,10 +50,15 @@ export default function Checkout() {
   // Human order number HS-YYYY-NNNNNN — what the user sees everywhere.
   const [orderNumber, setOrderNumber] = useState<string | null>(null);
   const [failureReason, setFailureReason] = useState<string | null>(null);
+  // Countdown + "I cancelled / I didn't get the prompt" UX state.
+  const [secondsElapsed, setSecondsElapsed] = useState(0);
+  const [cancelling, setCancelling] = useState(false);
   const [paidInfo, setPaidInfo] = useState<{ orderId: string; receiptNumber: string | null } | null>(null);
   // Ref mirrors so the async flow always sees the latest values (state lags).
   const orderNumberRef = useRef<string | null>(null);
   const failureReasonRef = useRef<string | null>(null);
+  // The payment currently being polled — needed by the cancel button.
+  const currentPaymentIdRef = useRef<string | null>(null);
 
   // Abort ref: leaving the page (or restarting the flow) stops all polling.
   const abortRef = useRef(false);
@@ -126,13 +136,17 @@ export default function Checkout() {
     void abortTimer;
   });
 
-  // Poll GET /api/payments/status every 2 s for up to 90 s. Network errors
-  // RETRY (they do not end the flow); only a terminal status stops it.
+  // Poll GET /api/payments/status every 2 s for up to 105 s. The server applies
+  // its own timeout rule at RECONCILE_TIMEOUT_MS (100 s), so a lost prompt is
+  // surfaced as TIMEOUT before our window closes. Network errors RETRY (they do
+  // not end the flow); only a terminal status stops it.
   // Also captures the server's failureReason for CANCELLED/FAILED/TIMEOUT.
   const pollPaymentStatus = async (paymentId: string): Promise<PaymentOutcome> => {
     const started = Date.now();
     let consecutiveNetworkErrors = 0;
-    while (!abortRef.current && Date.now() - started < 90_000) {
+    while (!abortRef.current && Date.now() - started < 105_000) {
+      const elapsed = Math.floor((Date.now() - started) / 1000);
+      setSecondsElapsed(elapsed);
       try {
         const res = await apiFetch(`/api/payments/status?paymentId=${encodeURIComponent(paymentId)}`);
         consecutiveNetworkErrors = 0;
@@ -145,7 +159,7 @@ export default function Checkout() {
         if (abortRef.current) return 'STILL_PENDING';
         consecutiveNetworkErrors += 1;
         // Transient network/poll failure: keep retrying within the window.
-        if (consecutiveNetworkErrors >= 16) {
+        if (consecutiveNetworkErrors >= 40) {
           setErrors({ payment: 'We could not reach the payment service. Please check Track Order shortly.' });
           return 'STILL_PENDING';
         }
@@ -153,6 +167,41 @@ export default function Checkout() {
       try { await sleep(2000); } catch { return 'STILL_PENDING'; } // aborted
     }
     return 'STILL_PENDING';
+  };
+
+  // "I cancelled / I didn't get the prompt": POST /api/payments/cancel does ONE
+  // final provider.checkStatus — if PrintPay says PAID we apply that (never
+  // cancel real money); otherwise the payment becomes CANCELLED and stock is
+  // released, so the customer sees the truth instantly instead of waiting out
+  // the full poll window.
+  const handleCancelPrompt = async () => {
+    if (!currentPaymentIdRef.current) return;
+    setCancelling(true);
+    try {
+      const res: any = await apiFetch('/api/payments/cancel', {
+        method: 'POST',
+        body: JSON.stringify({ paymentId: currentPaymentIdRef.current }),
+      });
+      const status = String(res?.payment?.status || '').toUpperCase();
+      const fr = typeof res?.payment?.failureReason === 'string' && res.payment.failureReason ? res.payment.failureReason : null;
+      failureReasonRef.current = fr;
+      setFailureReason(fr);
+      if (status === 'PAID') {
+        abortRef.current = true; // stop polling; the payment actually went through
+        dispatch({ type: 'CLEAR_CART' });
+        setPaidInfo({ orderId: orderNumberRef.current || 'your order', receiptNumber: res?.payment?.receiptNumber ?? null });
+        setStep('success');
+      } else {
+        abortRef.current = true;
+        setErrors({ payment: fr || 'You cancelled the M-Pesa request.' });
+        setStep('review');
+      }
+    } catch (error) {
+      // Cancel call failed (e.g. offline): keep polling; show the server message.
+      setErrors({ payment: error instanceof Error ? error.message : 'Could not cancel the payment request. It will time out automatically.' });
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const runFlow = async (existingOrderId?: string | null) => {
@@ -200,6 +249,8 @@ export default function Checkout() {
       });
       const paymentId = attempt?.payment?.id;
       if (!paymentId) throw new Error('Payment could not be started.');
+      currentPaymentIdRef.current = String(paymentId);
+      setSecondsElapsed(0);
       if (attempt?.payment?.failureReason) { failureReasonRef.current = String(attempt.payment.failureReason); setFailureReason(failureReasonRef.current); }
 
       const outcome = await pollPaymentStatus(paymentId);
@@ -243,9 +294,23 @@ export default function Checkout() {
   };
 
   const handlePay = () => { void runFlow(null); };
-  const handleRetryPayment = () => { void runFlow(orderDocId); }; // SAME order (doc id internal only), no second order
+  const handleRetryPayment = () => { void runFlow(orderDocId || resumeOrderDocId); }; // SAME order (doc id internal only), no second order
 
-  if (state.cart.length === 0 && step !== 'success') {
+  // /checkout?order=<doc id>: "Pay now" from the dashboard. Skip the details
+  // step and initiate the STK push for the EXISTING order immediately.
+  useEffect(() => {
+    if (!resumeOrderDocId || resumedRef.current) return;
+    if (!state.authReady || !state.user) return; // wait so we never redirect to /cart on a cold render
+    resumedRef.current = true;
+    setOrderDocId(resumeOrderDocId);
+    void runFlow(resumeOrderDocId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resumeOrderDocId, state.authReady, state.user]);
+
+  // A resumed payment has an empty local cart — that is expected, the order
+  // already exists server-side. Only bounce to /cart when there is genuinely
+  // nothing to pay for.
+  if (state.cart.length === 0 && step !== 'success' && !(resumeOrderDocId && state.authReady)) {
     navigate('/cart');
     return null;
   }
@@ -257,6 +322,7 @@ export default function Checkout() {
   );
 
   if (step === 'processing') {
+    const remaining = Math.max(0, 105 - secondsElapsed);
     return (
       <div className="max-w-lg mx-auto px-4 py-20 text-center animate-fadeIn">
         <div className="w-16 h-16 bg-neutral-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
@@ -264,7 +330,14 @@ export default function Checkout() {
         </div>
         <h2 className="text-xl font-bold text-neutral-900 mb-2">Processing Payment</h2>
         <p className="text-neutral-500 text-sm">An M-Pesa prompt has been sent to {form.phone}. Please enter your PIN to complete the payment.</p>
-        <p className="text-neutral-400 text-xs mt-4">Waiting up to 90 seconds for confirmation…</p>
+        {/* Visible countdown — the server applies its own timeout at 100 s. */}
+        <p className="text-neutral-700 text-sm mt-4 font-medium tabular-nums">Waiting for confirmation… {remaining}s left</p>
+        {/* From 6 s after the prompt: let the customer cut the wait short. */}
+        {secondsElapsed >= 6 && currentPaymentIdRef.current && (
+          <Button variant="outline" className="mt-4" onClick={() => void handleCancelPrompt()} disabled={cancelling}>
+            {cancelling ? 'Cancelling…' : 'I cancelled / I didn’t get the prompt'}
+          </Button>
+        )}
         {stillPendingMessage && (
           <div role="alert" className="mt-6 p-3 rounded-lg bg-red-50 border border-red-200 text-left flex items-start gap-2">
             <AlertCircle className="w-4 h-4 text-red-600 mt-0.5 shrink-0" />
