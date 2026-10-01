@@ -309,6 +309,50 @@ await test('admin cancel of an unpaid order restores stock (new array) + ORDER_C
   assert.equal(logs.length, 2);
 });
 
+await test('admin transition accepts DELIVERED (VALID set, not TRANSITIONS keys)', async () => {
+  const db = seedBase();
+  const d = deps(db);
+  const res = await createOrderCore(db, d, checkoutPayload());
+  const id = res.order.id;
+  // PAID so PROCESSING is allowed (callback resolves the payment by providerReference).
+  db.__seed('payments', 'pay-deliv', {
+    paymentId: 'pay-deliv', orderDocumentId: id, orderId: res.order.orderId, customerId: 'user-1',
+    amount: res.order.total, currency: 'KES', phone: '+254712345678', method: 'MPESA',
+    status: 'PENDING', providerReference: 'PFKDELIV', transactionReference: null, receiptNumber: null,
+    failureReason: null, createdAt: d.serverTimestamp(), initiatedAt: d.serverTimestamp(),
+  });
+  await applyVerifiedCallbackCore(db, d, { providerReference: 'PFKDELIV', status: 'PAID', amount: res.order.total, transactionReference: 'QNDL1', eventId: 'evt-deliv-paid' });
+  await adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'PROCESSING', note: '' });
+  await adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'PROCESSED', note: '' });
+  await adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'OUT_FOR_DELIVERY', note: '' });
+  await adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'DELIVERED', note: 'handed over' });
+  assert.equal(db.__doc('orders', id).orderStatus, 'DELIVERED');
+  // Terminal: no further transitions from DELIVERED.
+  await assert.rejects(
+    () => adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'CANCELLED', note: '' }),
+    err => err.statusCode === 409 && /Cannot move an order from Delivered to Cancelled\./.test(err.message),
+  );
+});
+
+await test('invalid status rejected; PROCESSING requires PAID; human error messages', async () => {
+  const db = seedBase();
+  const d = deps(db);
+  const res = await createOrderCore(db, d, checkoutPayload());
+  const id = res.order.id;
+  await assert.rejects(
+    () => adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'SHIPPED', note: '' }),
+    err => err.statusCode === 400 && err.message === 'A valid orderStatus is required.',
+  );
+  await assert.rejects(
+    () => adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'DELIVERED', note: '' }),
+    err => err.statusCode === 409 && err.message === 'Cannot move an order from Pending to Delivered.',
+  );
+  await assert.rejects(
+    () => adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: id, orderStatus: 'PROCESSING', note: '' }),
+    err => err.statusCode === 409 && /Payment must be confirmed/.test(err.message),
+  );
+});
+
 await test('salePrice null gives the normal price; valid discount gives the sale price', async () => {
   assert.equal(unitPrice({ price: 4000, salePrice: null }), 4000);
   assert.equal(unitPrice({ price: 4000, salePrice: 0 }), 4000);

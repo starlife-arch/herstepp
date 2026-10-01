@@ -8,6 +8,7 @@ import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare
 import { useApp } from '../context/AppContext';
 import { apiFetch } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
+import { ORDER_STATUSES, nextOrderStatuses, humanStatus } from '../lib/orderTransitions';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
 
 // formatCurrency/formatDate accept Firestore Timestamps and strings too; keep a
@@ -19,7 +20,15 @@ const day = (d: any) => {
 };
 
 const SIZES = Array.from({ length: 16 }, (_, i) => String(30 + i)); // "30".."45"
-const ORDER_STATUSES = ['PENDING', 'PROCESSING', 'PROCESSED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED'];
+
+// Small toast so status changes give visible feedback (auto-dismisses).
+function Toast({ message }: { message: string }) {
+  return (
+    <div role="status" className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white text-sm font-medium px-4 py-3 rounded-lg shadow-lg animate-fadeIn">
+      {message}
+    </div>
+  );
+}
 
 type Async<T> = { loading: boolean; error: string | null; data: T | null };
 
@@ -274,11 +283,20 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3500);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   const filtered = orders.filter(o => {
     const text = `${o.orderId} ${o.customerName || ''} ${o.customerEmail || ''}`.toLowerCase();
     return (!search || text.includes(search.toLowerCase())) && (!statusFilter || o.orderStatus === statusFilter);
   });
+  const detail = detailId ? orders.find(o => o.id === detailId) ?? null : null;
 
   async function changeStatus(order: any, orderStatus: string) {
     setBusyId(order.id);
@@ -288,6 +306,7 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[
         method: 'PATCH',
         body: JSON.stringify({ orderDocumentId: order.id, orderStatus, note: '' }),
       });
+      setToast(`Order ${order.orderId} moved to ${humanStatus(orderStatus)}.`);
       res.reload();
     } catch (err: any) {
       setActionError(err?.message || 'Could not update the order.');
@@ -303,7 +322,7 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[
         <Input placeholder="Search orders…" value={search} onChange={e => setSearch(e.target.value)} className="flex-1" />
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="border border-neutral-200 rounded-lg px-3 py-2 text-sm bg-white">
           <option value="">All statuses</option>
-          {ORDER_STATUSES.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+          {ORDER_STATUSES.map(s => <option key={s} value={s}>{humanStatus(s)}</option>)}
         </select>
       </div>
       {actionError && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{actionError}</div>}
@@ -328,41 +347,140 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
-                  {filtered.map(order => (
-                    <tr key={order.id} className="hover:bg-neutral-50">
-                      <td className="px-4 py-3 font-medium">{order.orderId}</td>
-                      <td className="px-4 py-3 text-neutral-600">
-                        {order.customerName}
-                        <p className="text-xs text-neutral-400">{order.customerPhone}</p>
-                      </td>
-                      <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{day(order.createdAt)}</td>
-                      <td className="px-4 py-3 font-medium">{money(order.total)}</td>
-                      <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
-                      <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <select
-                          value=""
-                          disabled={busyId === order.id}
-                          onChange={e => e.target.value && changeStatus(order, e.target.value)}
-                          className="border border-neutral-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50"
-                        >
-                          <option value="">{busyId === order.id ? 'Saving…' : 'Update status'}</option>
-                          {ORDER_STATUSES.filter(s => s !== order.orderStatus).map(s => (
-                            <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
+                  {filtered.map(order => {
+                    const next = nextOrderStatuses(order.orderStatus);
+                    return (
+                      <tr key={order.id} className="hover:bg-neutral-50 cursor-pointer" onClick={() => setDetailId(order.id)}>
+                        <td className="px-4 py-3 font-medium">{order.orderId}</td>
+                        <td className="px-4 py-3 text-neutral-600">
+                          {order.customerName || order.delivery?.fullName || '—'}
+                          <p className="text-xs text-neutral-400">{order.customerPhone}</p>
+                        </td>
+                        <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{day(order.createdAt)}</td>
+                        <td className="px-4 py-3 font-medium">{money(order.total)}</td>
+                        <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
+                        <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                          <select
+                            value=""
+                            disabled={busyId === order.id || next.length === 0}
+                            title={next.length === 0 ? 'No further status changes allowed' : undefined}
+                            onChange={e => e.target.value && changeStatus(order, e.target.value)}
+                            className="border border-neutral-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50"
+                          >
+                            <option value="">{busyId === order.id ? 'Saving…' : next.length === 0 ? 'Final' : 'Update status'}</option>
+                            {next.map(s => (
+                              <option key={s} value={s}>{humanStatus(s)}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           )}
         </Card>
       )}
+      {detail && <OrderDetailPanel order={detail} onClose={() => setDetailId(null)} />}
+      {toast && <Toast message={toast} />}
     </div>
   );
 }
+
+// Order detail panel — everything the customer ordered plus delivery notes and
+// the full status-history timeline. Names and HS order numbers only, never ids.
+function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void }) {
+  const history = Array.isArray(order.history) ? order.history : [];
+  const items = Array.isArray(order.items) ? order.items : [];
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-white w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl shadow-xl">
+        <div className="sticky top-0 bg-white border-b border-neutral-200 px-6 py-4 flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-neutral-900">Order {order.orderId}</h2>
+            <p className="text-xs text-neutral-500">Placed {day(order.createdAt)} · {order.customerName || order.delivery?.fullName || '—'}</p>
+          </div>
+          <button onClick={onClose} aria-label="Close" className="p-2 rounded-full hover:bg-neutral-100"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div><p className="text-neutral-500">Order status</p><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></div>
+            <div><p className="text-neutral-500">Payment status</p><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></div>
+            {order.receiptNumber && <div><p className="text-neutral-500">M-Pesa receipt</p><p className="font-mono text-xs">{order.receiptNumber}</p></div>}
+            {order.paymentReference && <div><p className="text-neutral-500">Payment reference</p><p className="font-mono text-xs">{order.paymentReference}</p></div>}
+            {order.failureReason && <div className="col-span-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs">{order.failureReason}</div>}
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-2">Items</h3>
+            <div className="border border-neutral-200 rounded-lg divide-y divide-neutral-100">
+              {items.map((i: any, n: number) => (
+                <div key={n} className="flex items-center gap-3 px-3 py-2 text-sm">
+                  <img src={i.imageUrl || undefined} alt={i.name} onError={handleImageError} className="w-10 h-10 rounded object-cover bg-neutral-100" />
+                  <div className="flex-1 min-w-0">
+                    <p className="truncate font-medium text-neutral-900">{i.name}</p>
+                    <p className="text-xs text-neutral-500">Size {i.size} · Qty {i.quantity} × {money(i.unitPrice)}</p>
+                  </div>
+                  <p className="font-medium">{money(i.lineTotal)}</p>
+                </div>
+              ))}
+              {items.length === 0 && <p className="px-3 py-2 text-sm text-neutral-500">No item details stored on this order.</p>}
+            </div>
+          </div>
+
+          <div className="text-sm space-y-1">
+            <div className="flex justify-between"><span className="text-neutral-500">Subtotal</span><span>{money(order.subtotal)}</span></div>
+            <div className="flex justify-between"><span className="text-neutral-500">Delivery fee</span><span>{money(order.deliveryFee)}</span></div>
+            <div className="flex justify-between"><span className="text-neutral-500">Discount</span><span>{money(order.discount)}</span></div>
+            <div className="flex justify-between font-bold text-neutral-900 border-t border-neutral-200 pt-2"><span>Total</span><span>{money(order.total)}</span></div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-2">Delivery</h3>
+            <div className="text-sm space-y-1 text-neutral-700">
+              <p><span className="text-neutral-500">Method:</span> {humanStatus(order.delivery?.deliveryMethod) || '—'}</p>
+              <p><span className="text-neutral-500">Name:</span> {order.delivery?.fullName || '—'}</p>
+              <p><span className="text-neutral-500">Phone:</span> {order.delivery?.phone || '—'}</p>
+              {order.delivery?.location && <p><span className="text-neutral-500">Location:</span> {order.delivery.location}</p>}
+              {order.customerEmail && <p><span className="text-neutral-500">Email:</span> {order.customerEmail}</p>}
+              {order.delivery?.instructions && (
+                <p className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-amber-800">
+                  <span className="font-medium">Delivery notes:</span> {order.delivery.instructions}
+                </p>
+              )}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-semibold text-neutral-900 mb-2">Status history</h3>
+            {history.length === 0 ? (
+              <p className="text-sm text-neutral-500">No history recorded yet.</p>
+            ) : (
+              <ol className="space-y-3">
+                {history.map((h: any, n: number) => (
+                  <li key={n} className="flex gap-3 text-sm">
+                    <span className="mt-1 w-2 h-2 rounded-full bg-neutral-300 shrink-0" />
+                    <div>
+                      <p className="font-medium text-neutral-900">
+                        {h.previousStatus ? `${humanStatus(h.previousStatus)} → ${humanStatus(h.newStatus)}` : humanStatus(h.newStatus)}
+                      </p>
+                      {h.note && <p className="text-neutral-500 text-xs">{h.note}</p>}
+                      <p className="text-neutral-400 text-xs">{day(h.createdAt)}{h.source ? ` · ${String(h.source).toLowerCase()}` : ''}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 // ---------------------------------------------------------------------------
 // Products — GET /api/admin/products (ALL statuses) with category names from
@@ -796,6 +914,7 @@ function AdminCustomers() {
 // Payments — derived from GET /api/admin/orders (paymentStatus + reference).
 // ---------------------------------------------------------------------------
 function AdminPayments({ res, orders }: { res: ReturnType<typeof useAdminData<any[]>>; orders: any[] }) {
+  const payOrders = orders.filter(o => o.paymentStatus || o.paymentReference || o.receiptNumber);
   return (
     <div className="space-y-6 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900">Payments</h1>
@@ -803,7 +922,7 @@ function AdminPayments({ res, orders }: { res: ReturnType<typeof useAdminData<an
       {res.error && !res.loading && <ErrorCard message={res.error} onRetry={res.reload} />}
       {!res.loading && !res.error && (
         <Card className="overflow-hidden">
-          {orders.length === 0 ? (
+          {payOrders.length === 0 ? (
             <EmptyState title="No payments yet" description="M-Pesa payments will appear here." />
           ) : (
             <div className="overflow-x-auto">
@@ -812,22 +931,24 @@ function AdminPayments({ res, orders }: { res: ReturnType<typeof useAdminData<an
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-neutral-600">Order</th>
                     <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Phone</th>
                     <th className="text-left px-4 py-3 font-medium text-neutral-600">Amount</th>
-                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Method</th>
-                    <th className="text-left px-4 py-3 font-medium text-neutral-600">Reference</th>
                     <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600">M-Pesa Receipt</th>
+                    <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Failure reason</th>
                     <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Date</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
-                  {orders.map(order => (
+                  {payOrders.map(order => (
                     <tr key={order.id} className="hover:bg-neutral-50">
                       <td className="px-4 py-3 font-medium">{order.orderId}</td>
-                      <td className="px-4 py-3 text-neutral-600">{order.customerName}</td>
+                      <td className="px-4 py-3 text-neutral-600">{order.customerName || order.delivery?.fullName || '—'}</td>
+                      <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{order.customerPhone || order.delivery?.phone || '—'}</td>
                       <td className="px-4 py-3 font-medium">{money(order.total)}</td>
-                      <td className="px-4 py-3 text-neutral-500">M-Pesa</td>
-                      <td className="px-4 py-3 text-neutral-500 font-mono text-xs">{order.paymentReference || '—'}</td>
                       <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
+                      <td className="px-4 py-3 text-neutral-500 font-mono text-xs">{order.receiptNumber || order.paymentReference || '—'}</td>
+                      <td className="px-4 py-3 text-red-600 text-xs hidden md:table-cell">{order.failureReason || '—'}</td>
                       <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{day(order.createdAt)}</td>
                     </tr>
                   ))}
