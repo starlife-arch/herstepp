@@ -60,6 +60,40 @@ function ErrorCard({ message, onRetry }: { message: string; onRetry?: () => void
   );
 }
 
+// Webhook visibility banner. printpay comes from settings/printpay (written by
+// every /api/payments/mpesa/callback call) via GET /api/admin/orders.
+function PrintpayCallbackBanner({ printpay }: { printpay: any }) {
+  const lastAt = printpay?.lastCallbackAt ?? null;
+  const status = printpay?.lastCallbackStatus ?? null;
+  if (!lastAt) {
+    const siteUrl = typeof window !== 'undefined' ? window.location.origin : '';
+    return (
+      <div role="alert" className="bg-red-50 border border-red-300 text-red-700 text-sm rounded-lg px-4 py-3">
+        <p className="font-semibold">Printpay callback: Never received.</p>
+        <p className="mt-1">Set the callback URL in your Printpay dashboard to <span className="font-mono text-xs">{siteUrl}/api/payments/mpesa/callback</span></p>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm rounded-lg px-4 py-3">
+      Printpay callback: last received <span className="font-medium">{relativeTime(lastAt)}</span>{status ? <> (<span className="font-medium">{String(status)}</span>)</> : null}
+    </div>
+  );
+}
+
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return String(iso);
+  const diff = Math.max(0, Date.now() - then);
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} minute${mins === 1 ? '' : 's'} ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
 function ComingSoon({ title }: { title: string }) {
   return (
     <div className="space-y-6 animate-fadeIn">
@@ -82,11 +116,17 @@ export default function AdminDashboard() {
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('overview');
 
-  const ordersRes = useAdminData<any[]>('/api/admin/orders');
- const orders = useMemo(() => {
-  const d: any = ordersRes.data;
-  return Array.isArray(d) ? d : Array.isArray(d?.orders) ? d.orders : [];
-}, [ordersRes.data]);
+  const ordersRes = useAdminData<any>('/api/admin/orders');
+  // GET /api/admin/orders returns { orders: [...], printpay: {...} } (wrapped).
+  // Normalise defensively so BOTH the wrapped shape and a legacy bare array work.
+  const orders = useMemo(() => {
+    const d: any = ordersRes.data;
+    return Array.isArray(d) ? d : Array.isArray(d?.orders) ? d.orders : [];
+  }, [ordersRes.data]);
+  const printpay = useMemo(() => {
+    const d: any = ordersRes.data;
+    return (d && !Array.isArray(d) && d.printpay && typeof d.printpay === 'object') ? d.printpay : null;
+  }, [ordersRes.data]);
 
   if (!state.user || (state.user.role !== 'ADMIN' && state.user.role !== 'SUPER_ADMIN')) {
     navigate('/login');
@@ -168,7 +208,7 @@ export default function AdminDashboard() {
           {activeSection === 'orders' && <AdminOrders res={ordersRes} orders={orders} />}
           {activeSection === 'products' && <AdminProducts />}
           {activeSection === 'customers' && <AdminCustomers />}
-          {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} />}
+          {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
           {activeSection === 'support' && <ComingSoon title="Support" />}
           {activeSection === 'promotions' && <ComingSoon title="Promotions" />}
           {activeSection === 'notifications' && <ComingSoon title="Notifications" />}
@@ -354,7 +394,14 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[
                     const next = nextOrderStatuses(order.orderStatus);
                     return (
                       <tr key={order.id} className="hover:bg-neutral-50 cursor-pointer" onClick={() => setDetailId(order.id)}>
-                        <td className="px-4 py-3 font-medium">{order.orderId}</td>
+                        <td className="px-4 py-3 font-medium">{order.orderId}
+                          {order.needsReview === true && (
+                            <span title={order.needsReviewNote || 'Late payment after the reservation was released — check stock.'}
+                              className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 text-[10px] font-semibold align-middle">
+                              Needs review
+                            </span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-neutral-600">
                           {order.customerName || order.delivery?.fullName || '—'}
                           <p className="text-xs text-neutral-400">{order.customerPhone}</p>
@@ -412,6 +459,11 @@ function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void 
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div><p className="text-neutral-500">Order status</p><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></div>
             <div><p className="text-neutral-500">Payment status</p><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></div>
+            {order.needsReview === true && (
+              <div className="col-span-2 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg px-3 py-2 text-xs font-semibold">
+                Needs review{order.needsReviewNote ? ` — ${order.needsReviewNote}` : ' — payment arrived after the stock reservation was released; verify availability before fulfilment.'}
+              </div>
+            )}
             {order.receiptNumber && <div><p className="text-neutral-500">M-Pesa receipt</p><p className="font-mono text-xs">{order.receiptNumber}</p></div>}
             {order.paymentReference && <div><p className="text-neutral-500">Payment reference</p><p className="font-mono text-xs">{order.paymentReference}</p></div>}
             {order.failureReason && <div className="col-span-2 bg-red-50 border border-red-200 text-red-700 rounded-lg px-3 py-2 text-xs">{order.failureReason}</div>}
@@ -916,11 +968,12 @@ function AdminCustomers() {
 // ---------------------------------------------------------------------------
 // Payments — derived from GET /api/admin/orders (paymentStatus + reference).
 // ---------------------------------------------------------------------------
-function AdminPayments({ res, orders }: { res: ReturnType<typeof useAdminData<any[]>>; orders: any[] }) {
+function AdminPayments({ res, orders, printpay }: { res: ReturnType<typeof useAdminData<any>>; orders: any[]; printpay: any }) {
   const payOrders = orders.filter(o => o.paymentStatus || o.paymentReference || o.receiptNumber);
   return (
     <div className="space-y-6 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900">Payments</h1>
+      <PrintpayCallbackBanner printpay={printpay} />
       {res.loading && <LoadingCard />}
       {res.error && !res.loading && <ErrorCard message={res.error} onRetry={res.reload} />}
       {!res.loading && !res.error && (
