@@ -158,7 +158,7 @@ export default function Checkout() {
   const runFlow = async (existingOrderId?: string | null) => {
     setErrors({});
     // If we are not reusing an existing order, this attempt creates a fresh one.
-    const reusingOrder = Boolean(existingOrderId || orderId);
+    const reusingOrder = Boolean(existingOrderId || orderDocId);
     if (!reusingOrder) setServerTotal(null);
     setStep('processing');
     setFailureReason(null);
@@ -229,7 +229,7 @@ export default function Checkout() {
       // For CANCELLED / FAILED / TIMEOUT prefer the SERVER's failureReason
       // (e.g. "Wrong M-Pesa PIN entered.") in the red box above Pay.
       const serverReason = failureReasonRef.current;
-      const message = (outcome !== 'PAID' && outcome !== 'STILL_PENDING' && serverReason)
+      const message = (outcome !== 'STILL_PENDING' && serverReason)
         ? serverReason
         : (fallbackMessages[outcome] || 'The payment could not be completed.');
       setErrors({ payment: message });
@@ -296,7 +296,9 @@ export default function Checkout() {
         )}
         <div className="flex flex-col gap-3">
           <Link to="/dashboard/orders"><Button>View My Orders</Button></Link>
-          <Link to={`/track?order=${encodeURIComponent(paidInfo.orderId)}`}><Button variant="outline">Track This Order</Button></Link>
+          {paidInfo && (
+            <Link to={`/track?order=${encodeURIComponent(paidInfo.orderId)}`}><Button variant="outline">Track This Order</Button></Link>
+          )}
           <Link to="/shop"><Button variant="outline">Continue Shopping</Button></Link>
         </div>
       </div>
