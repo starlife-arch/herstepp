@@ -49,8 +49,6 @@ async function reconcilePending(data) {
   return data;
 }
 
-const ATTEMPT_WINDOW_MS = 30 * 60_000; // a dead attempt may be replaced after 30 min
-
 function shape(id, data) {
   return publicPayment(id, data);
 }
