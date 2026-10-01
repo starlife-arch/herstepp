@@ -225,6 +225,9 @@ export async function adminOrders(req, res) {
       paymentId: o.paymentId ?? null,
       receiptNumber: o.receiptNumber ?? paymentsByOrder.get(o.id)?.receiptNumber ?? null,
       failureReason: paymentsByOrder.get(o.id)?.failureReason ?? null,
+      // Late PAID after a released reservation with short stock -> admin must review.
+      needsReview: o.needsReview === true,
+      needsReviewNote: typeof o.needsReviewNote === 'string' ? o.needsReviewNote : null,
       history: historyByOrder.get(o.id) ?? [],
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
