@@ -83,7 +83,10 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState('overview');
 
   const ordersRes = useAdminData<any[]>('/api/admin/orders');
-  const orders = useMemo(() => (Array.isArray(ordersRes.data) ? ordersRes.data : []), [ordersRes.data]);
+ const orders = useMemo(() => {
+  const d: any = ordersRes.data;
+  return Array.isArray(d) ? d : Array.isArray(d?.orders) ? d.orders : [];
+}, [ordersRes.data]);
 
   if (!state.user || (state.user.role !== 'ADMIN' && state.user.role !== 'SUPER_ADMIN')) {
     navigate('/login');
