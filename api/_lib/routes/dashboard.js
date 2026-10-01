@@ -8,7 +8,7 @@
 // `warnings` so the UI can show them instead of silently rendering "No orders yet".
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { methodNotAllowed, clientError } from '../http.js';
-import { reconcilePendingPayments } from '../order-core.js';
+import { reconcileBestEffort } from '../order-core.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
@@ -44,9 +44,10 @@ export async function dashboard(req, res) {
   const t0 = Date.now();
   const warnings = [];
 
-  // Lazy reconciliation (best effort, never throws): refresh dead PENDING payments for
-  // this user so paid/failed/cancelled/timeout shows correctly without any cron.
-  await reconcilePendingPayments(adminDb, { customerId: u.uid }).catch(() => {});
+  // Lazy reconciliation (best effort, NEVER throws — reconcileBestEffort wraps
+  // it): refresh dead PENDING payments for this user so paid/failed/cancelled/
+  // timeout shows correctly without any cron.
+  await reconcileBestEffort(adminDb, { customerId: u.uid });
   console.log(`[dashboard] reconcile took ${Date.now() - t0}ms uid=${u.uid}`);
 
   const t1 = Date.now();

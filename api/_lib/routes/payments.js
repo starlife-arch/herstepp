@@ -3,48 +3,69 @@
 //          Firestore transaction, then (OUTSIDE the transaction) send ONE
 //          PrintPay STK push. A payment that already has a providerReference
 //          never receives a second push.
-//   GET  /api/payments/status        — owner only; when the payment is still
-//          PENDING and has a providerReference we poll the provider and apply
-//          any confirmed result through applyVerifiedCallbackCore.
+//   GET  /api/payments/status        — owner only; reconciles THAT payment
+//          first (provider truth applied through applyVerifiedCallbackCore),
+//          then returns the fresh state.
 //   POST /api/payments/mpesa/callback— public webhook. verifyCallback() is
 //          only a hint: PAID must be RE-CONFIRMED with checkStatus() before
 //          anything is applied. Idempotent via paymentTransactions/{eventId}.
 //   GET  /api/payments/receipt       — owner only, PAID only.
+//   POST /api/payments/cancel        — owner only; final provider.checkStatus
+//          then apply PAID (if truly paid) or CANCELLED ("You cancelled the
+//          payment."). A later verified PAID still lands via the late-success
+//          path in applyVerifiedCallbackCore.
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { getMpesaProvider } from '../mpesa-provider.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import {
   PAYMENT_STATUS,
+  RECONCILE_TIMEOUT_MS, // single source of truth — no local window constant
   applyVerifiedCallbackCore,
+  reconcileBestEffort,
   publicPayment,
 } from '../order-core.js';
 
-const ATTEMPT_WINDOW_MS = 30 * 60_000; // a dead attempt may be replaced after 30 min
-
-// A payment that has died (webhook lost, customer closed the phone) must never
-// keep an order stuck in PENDING. If a PENDING attempt is older than the
-// window and the provider cannot be reached or still says pending, mark it
-// TIMEOUT so the UI and admin show the truth immediately.
-async function reconcilePending(data) {
-  if (data.status !== PAYMENT_STATUS.PENDING) return data;
-  const initiatedMs = data.initiatedAt?.toMillis ? data.initiatedAt.toMillis() : null;
-  if (initiatedMs != null && Date.now() - initiatedMs > ATTEMPT_WINDOW_MS) {
-    try {
+// Reconcile ONE payment immediately (used by GET /api/payments/status).
+// Best effort: any failure just leaves the stored state to be returned.
+async function reconcileOne(paymentId, data) {
+  if (data.status !== PAYMENT_STATUS.PENDING || !data.providerReference) return data;
+  try {
+    const provider = getMpesaProvider();
+    const result = await provider.checkStatus(data.providerReference);
+    if (result.status !== PAYMENT_STATUS.PENDING) {
       await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
-        providerReference: data.providerReference || `stale:${data.paymentId}`,
-        status: PAYMENT_STATUS.TIMEOUT,
-        amount: Number(data.amount),
-        transactionReference: null,
-        eventId: `stale-window:${data.paymentId}:TIMEOUT`,
-        source: 'SYSTEM',
-        reason: 'The M-Pesa request timed out.',
+        providerReference: data.providerReference,
+        status: result.status,
+        amount: result.amount ?? data.amount,
+        transactionReference: result.transactionReference,
+        eventId: result.eventId || `poll:${data.providerReference}:${result.status}`,
+        source: 'PRINTPAY',
+        reason: result.reason || null,
       });
-      const refreshed = await adminDb.collection('payments').doc(data.paymentId).get();
+      const refreshed = await adminDb.collection('payments').doc(paymentId).get();
       if (refreshed.exists) return refreshed.data();
-    } catch (error) {
-      console.error(`payments reconcile stale window failed for ${data.paymentId}:`, error?.message || error);
+    } else {
+      // Provider still says PENDING — apply the shared 100-second rule so a
+      // dead prompt never lives longer here than anywhere else (TIMEOUT is
+      // applied via applyVerifiedCallbackCore with stock restored ONCE).
+      const initiatedMs = data.initiatedAt?.toMillis ? data.initiatedAt.toMillis() : null;
+      if (initiatedMs != null && Date.now() - initiatedMs > RECONCILE_TIMEOUT_MS) {
+        await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+          providerReference: data.providerReference,
+          status: PAYMENT_STATUS.TIMEOUT,
+          amount: Number(data.amount),
+          transactionReference: null,
+          eventId: `reconcile-timeout:${paymentId}`,
+          source: 'SYSTEM',
+          reason: 'The M-Pesa request timed out or was cancelled.',
+        }).catch(error => console.error(`payments timeout-rule failed for ${paymentId}:`, error?.message || error));
+        const refreshed = await adminDb.collection('payments').doc(paymentId).get();
+        if (refreshed.exists) return refreshed.data();
+      }
     }
+  } catch (error) {
+    console.error(`payments reconcile-one failed for ${paymentId}:`, error?.message || error);
   }
   return data;
 }
@@ -77,6 +98,8 @@ export async function initiate(req, res) {
   // the provider already says it died (webhook lost, browser closed), apply
   // the truth now so the order leaves "Pending" and Try again starts a fresh
   // push instead of reusing a dead prompt. Best-effort — never blocks.
+  // SPEED: skipped entirely when the order has no activePaymentId (no previous
+  // attempt to reconcile).
   try {
     const pre = await adminDb.collection('orders').doc(orderDocId).get();
     const preActive = pre.exists ? pre.data()?.activePaymentId : null;
@@ -92,6 +115,7 @@ export async function initiate(req, res) {
             transactionReference: result.transactionReference,
             eventId: `pre-initiate:${pSnap.data().providerReference}:${result.status}`,
             source: 'PRINTPAY',
+            reason: result.reason || null,
           });
         }
       }
@@ -116,7 +140,7 @@ export async function initiate(req, res) {
     if (existing && existing.exists) {
       const data = existing.data();
       const initiatedAtMs = data.initiatedAt?.toMillis ? data.initiatedAt.toMillis() : Date.now();
-      const fresh = Date.now() - initiatedAtMs < ATTEMPT_WINDOW_MS;
+      const fresh = Date.now() - initiatedAtMs < RECONCILE_TIMEOUT_MS;
       if (fresh) {
         if (order.activePaymentId !== existing.id) {
           tx.update(orderRef, { activePaymentId: existing.id, updatedAt: FieldValue.serverTimestamp() });
@@ -127,8 +151,10 @@ export async function initiate(req, res) {
         // the customer just confirms that same prompt or waits for timeout.
         return { paymentRef: existing.ref, data, sendStk: !data.providerReference };
       }
-      // Stale attempt (>30 min): abandon it so a new one can start.
-      tx.update(existing.ref, { status: PAYMENT_STATUS.TIMEOUT, failureReason: 'Attempt expired after 30 minutes', completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      // Stale attempt (> RECONCILE_TIMEOUT_MS): terminalise it as TIMEOUT and
+      // start a NEW push. applyVerifiedCallbackCore restores any reserved
+      // stock exactly once (guarded by order.inventoryReserved).
+      tx.update(existing.ref, { status: PAYMENT_STATUS.TIMEOUT, failureReason: 'The M-Pesa request timed out or was cancelled.', completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
     }
 
     const phone = typeof order.delivery?.phone === 'string' ? order.delivery.phone : '';
@@ -184,29 +210,79 @@ export async function status(req, res) {
   let data = paymentSnap.data();
   if (data.customerId !== u.uid) throw clientError('Forbidden.', 403);
 
-  // Still PENDING with a live STK push? Ask the provider and apply the truth.
-  if (data.status === PAYMENT_STATUS.PENDING && data.providerReference) {
+  // Reconcile THIS payment immediately (no minimum age beyond ~3 s so a lost
+  // webhook or a cancelled prompt surfaces within one or two polls instead of
+  // waiting for the 100-second timeout). Best effort — never breaks polling.
+  if (data.status === PAYMENT_STATUS.PENDING) {
+    const initiatedMs = data.initiatedAt?.toMillis ? data.initiatedAt.toMillis() : 0;
+    if (!initiatedMs || Date.now() - initiatedMs > 3_000) {
+      data = await reconcileOne(paymentId, data);
+    }
+  }
+
+  return res.json({ payment: shape(paymentId, data) });
+}
+
+// POST /api/payments/cancel — owner only, body {paymentId}.
+// The customer clicked "I cancelled / I didn't get the prompt". We do ONE
+// final provider.checkStatus first so we never cancel real money:
+//   PAID     -> apply it and return PAID (late-success path covers webhooks).
+//   PENDING  -> apply CANCELLED with reason "You cancelled the payment."
+//              (stock released once, guarded by order.inventoryReserved).
+//   terminal -> returned unchanged.
+export async function cancel(req, res) {
+  if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
+  const u = await requireUser(req);
+  const paymentId = req.body?.paymentId;
+  if (typeof paymentId !== 'string' || !/^[A-Za-z0-9_-]{8,80}$/.test(paymentId)) throw clientError('Payment id is invalid.');
+
+  const paymentRef = adminDb.collection('payments').doc(paymentId);
+  const paymentSnap = await paymentRef.get();
+  if (!paymentSnap.exists) throw clientError('Payment not found.', 404);
+  let data = paymentSnap.data();
+  if (data.customerId !== u.uid) throw clientError('Forbidden.', 403);
+
+  if (data.status === PAYMENT_STATUS.PENDING) {
+    let nextStatus = PAYMENT_STATUS.CANCELLED;
+    let reason = 'You cancelled the payment.';
+    let transactionReference = null;
+    if (data.providerReference) {
+      try {
+        const provider = getMpesaProvider();
+        const result = await provider.checkStatus(data.providerReference);
+        if (result.status === PAYMENT_STATUS.PAID) {
+          nextStatus = PAYMENT_STATUS.PAID;
+          reason = null;
+          transactionReference = result.transactionReference || null;
+        }
+      } catch (error) {
+        // Provider unreachable: honour the customer's cancel. If the money
+        // actually landed later, the webhook/poll applies it via the
+        // late-success path in applyVerifiedCallbackCore.
+        console.error(`payments.cancel checkStatus failed for ${paymentId}:`, error?.message || error);
+      }
+    }
     try {
-      const provider = getMpesaProvider();
-      const result = await provider.checkStatus(data.providerReference);
-      if (result.status !== PAYMENT_STATUS.PENDING) {
-        await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
-          providerReference: data.providerReference,
-          status: result.status,
-          amount: result.amount ?? data.amount,
-          transactionReference: result.transactionReference,
-          eventId: result.eventId || `poll:${data.providerReference}:${result.status}`,
-          source: 'PRINTPAY',
-          reason: result.reason || null,
-        });
+      await applyVerifiedCallbackCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+        providerReference: data.providerReference || `cancel:${paymentId}`,
+        status: nextStatus,
+        amount: Number(data.amount),
+        transactionReference,
+        eventId: `cancel:${paymentId}:${nextStatus}`,
+        source: 'CUSTOMER',
+        reason,
+      });
+    } catch (error) {
+      if (error?.status === 409) {
+        // Already terminalised concurrently (webhook race) — return the truth.
         const refreshed = await paymentRef.get();
         if (refreshed.exists) data = refreshed.data();
+      } else {
+        throw error;
       }
-    } catch (error) {
-      // A provider hiccup must never break polling — the webhook will land
-      // the real result. Log and return the current state.
-      console.error(`payments.status poll failed for ${paymentId}:`, error?.message || error);
     }
+    const refreshed = await paymentRef.get();
+    if (refreshed.exists) data = refreshed.data();
   }
 
   return res.json({ payment: shape(paymentId, data) });
@@ -216,6 +292,29 @@ export async function mpesaCallback(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
   const provider = getMpesaProvider();
   const verified = await provider.verifyCallback(req);
+
+  // ---- Webhook visibility: one safe log line per call + a settings doc the
+  // admin Payments tab reads ("last callback received …"). Only checkout id,
+  // status, result code and the LAST 4 phone digits are ever logged/stored.
+  const cbBody = req.body || {};
+  const rawPhone = String(cbBody.msisdn || cbBody.phone || cbBody.Phone || '');
+  const logFields = {
+    lastCallbackAt: new Date().toISOString(),
+    lastCallbackStatus: verified?.status ?? 'UNRECOGNISED',
+    lastCallbackCheckoutId: verified?.providerReference ?? String(cbBody.checkout_request_id ?? cbBody.CheckoutRequestID ?? '') ?? null,
+    lastResultCode: String(cbBody.result_code ?? cbBody.ResultCode ?? ''),
+    phoneLast4: rawPhone ? rawPhone.slice(-4) : null,
+  };
+  console.log(`mpesa-callback checkout=${logFields.lastCallbackCheckoutId ?? '-'} status=${logFields.lastCallbackStatus} code=${logFields.lastResultCode || '-'} phone=…${logFields.phoneLast4 ?? '????'}`);
+  try {
+    await adminDb.collection('settings').doc('printpay').set(
+      { ...logFields, updatedAt: FieldValue.serverTimestamp() },
+      { merge: true },
+    );
+  } catch (error) {
+    console.error('mpesa-callback settings/printpay write failed:', error?.message || error);
+  }
+
   if (!verified?.providerReference) {
     return res.status(400).json({ ok: false, error: 'Unrecognised callback payload.' });
   }

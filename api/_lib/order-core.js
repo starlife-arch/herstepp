@@ -958,7 +958,11 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
 //     show the truth quickly instead of an eternal Pending badge.
 // ---------------------------------------------------------------------------
 export const RECONCILE_MIN_AGE_MS = 8_000;
-export const RECONCILE_TIMEOUT_MS = 180_000;
+// SINGLE SOURCE OF TRUTH for how long a PENDING M-Pesa attempt may live.
+// An STK push is only valid ~60-90 s on the customer's phone; after 100 s we
+// give up, mark TIMEOUT (restoring stock once) and let the customer retry.
+// payments.js and Checkout.tsx (105 s poll) must stay consistent with this.
+export const RECONCILE_TIMEOUT_MS = 100_000;
 export const RECONCILE_CALL_LIMIT_MS = 4_000;
 
 function withTimeout(promise, ms) {
@@ -1049,5 +1053,20 @@ function getMpesaProviderSafe() {
     return getMpesaProvider();
   } catch {
     return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Best-effort wrapper used by read endpoints (dashboard, admin orders GET,
+// track, payments routes). It NEVER throws and never blocks the page it
+// serves: one dead provider call must not turn into a 500 on an unrelated
+// GET. Returns a summary object or { checked: 0, applied: 0, error: true }.
+// ---------------------------------------------------------------------------
+export async function reconcileBestEffort(db, options = {}) {
+  try {
+    return await reconcilePendingPayments(db, options);
+  } catch (error) {
+    console.error(`reconcileBestEffort failed: ${error?.message || error}`);
+    return { checked: 0, applied: 0, error: true };
   }
 }
