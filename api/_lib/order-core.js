@@ -6,6 +6,7 @@
 // written back as a complete new array — never with dotted paths like
 // `inventory.0.quantity`, which Firestore turns into a map and corrupts the doc.
 import { clientError } from './http.js';
+import { queuePaymentEmail, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
 
 export const ORDER_STATUS = {
   PENDING: 'PENDING',
@@ -319,6 +320,20 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       createdAt: deps.serverTimestamp(),
     });
 
+    // Best-effort Telegram ping for the admins (NEVER blocks or fails the
+    // order — sendTelegramMessage cannot throw and this promise is not awaited).
+    telegramNewOrder({ orderId, total, customerName: fullName, items });
+
+    // Low-stock alerts: any size left at <= 2 after this reservation. Once per
+    // product+size+quantity value (marker docs) — also fully best-effort.
+    const lowStockChanges = [];
+    for (const p of plan) {
+      for (const c of p.changes) {
+        lowStockChanges.push({ productId: p.ref.id, productName: p.data.name ?? null, ...c });
+      }
+    }
+    Promise.resolve(telegramLowStock(db, lowStockChanges)).catch(() => {});
+
     return {
       order: {
         id: orderRef.id,
@@ -509,6 +524,18 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       createdAt: deps.serverTimestamp(),
     });
 
+    // Receipt / failure email queued INSIDE this transaction with a
+    // deterministic key (<orderDoc>-PAYMENT-<STATUS>) — a replayed webhook or
+    // poll can never double-send. Delivery happens after commit (waitUntil).
+    queuePaymentEmail(tx, db, {
+      orderDocumentId: payment.orderDocumentId,
+      order,
+      status,
+      failureReason: status === PAYMENT_STATUS.PAID ? null : (callback.reason || `M-Pesa ${status.toLowerCase()}`),
+      receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
+    });
+    const queuedEmailKeys = [`${payment.orderDocumentId}-PAYMENT-${status}`];
+
     // Unpaid orders that go away release their reserved stock — in the SAME
     // transaction, writing a NEW inventory array (never dotted paths).
     let restored = [];
@@ -611,7 +638,17 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       });
     }
 
-    return { duplicate: false, status, paymentId: paymentRef.id, restored, lateSuccess: LATE_SUCCESS };
+    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys };
+  }).then(async result => {
+    // Post-commit, best-effort side effects. NEVER throws into the caller and
+    // never blocks the HTTP response (routes pass these to waitUntil).
+    if (!result.duplicate) {
+      const orderSnapForNotify = await db.collection('orders').doc(result.orderDocumentId || '').get().catch(() => null);
+      const orderData = orderSnapForNotify?.exists ? orderSnapForNotify.data() : null;
+      telegramPayment(result.status, orderData || {}, { amount: callback.amount, failureReason: callback.reason });
+      for (const key of result.emailKeys || []) deliverEmailAfterCommit(db, key);
+    }
+    return result;
   });
 }
 
@@ -775,6 +812,15 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
       createdAt: deps.serverTimestamp(),
     });
 
+    // Status email queued in the SAME transaction (deterministic key per
+    // status; PROCESSING/PROCESSED/OUT_FOR_DELIVERY/DELIVERED/CANCELLED only —
+    // queueOrderStatusEmail ignores anything else).
+    queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderStatus });
+
+    return { ok: true, emailKey: `${orderDocumentId}-ORDER-${orderStatus}` };
+  }).then(result => {
+    // After commit: deliver the status email best-effort. Never throws.
+    deliverEmailAfterCommit(db, result.emailKey);
     return { ok: true };
   });
 }

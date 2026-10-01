@@ -6,9 +6,12 @@
 // 2) Dynamic-import each api/*.js entry and each api/_lib/routes/*.js inside
 //    try/catch with harmless dummy env vars, so IMPORT-TIME errors (missing
 //    exports, bad top-level code) are caught too.
+// 3) Vercel Hobby limits: at most 12 files directly under /api (excluding
+//    _lib), and EVERY vercel.json rewrite must point to a ?route=<name> that
+//    is actually registered in the matching area file (parsed both ways).
 // Exits 1 if anything fails. Wired into "test" (first) and "prebuild".
 import { spawnSync } from 'node:child_process';
-import { readdirSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -84,6 +87,72 @@ for (const file of importTargets) {
   }
 }
 console.log(`check-api: dynamic import of ${importTargets.length} module(s): ${importFails ? `${importFails} FAILED` : 'all OK'}`);
+
+// ---- Phase 3: Vercel Hobby limits ------------------------------------------
+// (a) at most 12 .js files directly under /api (excluding _lib/) — the plan
+//     allows 12 serverless functions.
+const apiDir = path.join(root, 'api');
+const areaFiles = readdirSync(apiDir).filter(n => {
+  if (n.startsWith('.') || n === '_lib') return false;
+  try { return statSync(path.join(apiDir, n)).isFile() && /\.js$/.test(n); } catch { return false; }
+});
+if (areaFiles.length > 12) {
+  failed = true;
+  console.error(`LIMIT FAIL: ${areaFiles.length} files directly under /api (Vercel Hobby allows 12): ${areaFiles.join(', ')}`);
+} else {
+  console.log(`check-api: ${areaFiles.length}/12 /api function files (OK)`);
+}
+
+// (b) every vercel.json rewrite destination "/api/<area>?route=<name>" must
+//     have <name> registered in that area file's dispatch map. Route names are
+//     parsed from the object keys of `dispatchRoute(req, res, { ... })`.
+function routeNamesIn(areaFile) {
+  const src = readFileSync(areaFile, 'utf8');
+  const names = new Set();
+  // Quoted or plain identifier keys followed by ':' inside the routes object.
+  const re = /(?:^|[{,\s])('([^']+)'|"([^"]+)"|([A-Za-z_$][\w$]*))\s*:/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const key = m[2] || m[3] || m[4];
+    if (!key || key === 'default' || key === 'then' || key === 'catch') continue;
+    names.add(key);
+  }
+  return names;
+}
+
+let vercelJson;
+try {
+  vercelJson = JSON.parse(readFileSync(path.join(root, 'vercel.json'), 'utf8'));
+} catch (error) {
+  failed = true;
+  console.error(`REWRITE FAIL: cannot parse vercel.json: ${error.message}`);
+}
+if (vercelJson) {
+  const rewrites = Array.isArray(vercelJson.rewrites) ? vercelJson.rewrites : [];
+  const cache = new Map();
+  let rewriteFails = 0;
+  for (const rw of rewrites) {
+    const dest = String(rw?.destination || '');
+    const match = dest.match(/^\/api\/([\w-]+)\?route=([^&]+)/);
+    if (!match) continue; // non-dispatch destinations are not our concern here
+    const [, area, routeName] = match;
+    const decoded = decodeURIComponent(routeName);
+    const file = path.join(apiDir, `${area}.js`);
+    if (!existsSync(file)) {
+      rewriteFails += 1;
+      failed = true;
+      console.error(`REWRITE FAIL: ${rw.source} -> /api/${area} does not exist`);
+      continue;
+    }
+    if (!cache.has(area)) cache.set(area, routeNamesIn(file));
+    if (!cache.get(area).has(decoded)) {
+      rewriteFails += 1;
+      failed = true;
+      console.error(`REWRITE FAIL: ${rw.source} -> route "${decoded}" is NOT registered in api/${area}.js`);
+    }
+  }
+  console.log(`check-api: ${rewrites.length} rewrite(s) validated against area route maps: ${rewriteFails ? `${rewriteFails} FAILED` : 'all OK'}`);
+}
 
 if (failed) {
   console.error('check-api: FAILED — fix the errors above before deploying.');
