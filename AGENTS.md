@@ -20,3 +20,31 @@ This repo (Vite + React + TypeScript UI, Vercel serverless API in /api) is the N
 - payments/{id}: paymentId, receiptNumber ("HSP-<ID>" only when PAID), orderDocumentId, orderId, customerId, amount, currency, phone, method "MPESA", status (same values as paymentStatus), providerReference (PrintPay checkout_id), transactionReference (M-Pesa receipt), failureReason, createdAt, updatedAt, initiatedAt, completedAt.
 - paymentTransactions/{base64url(eventId)}: idempotency record per provider event. orderStatusHistory/{id}: orderId, orderDocumentId, customerId, eventType, previousStatus, newStatus, paymentStatus, note, source, createdAt. notifications/{orderDocumentId-EVENT}: customerId, orderDocumentId, event, title, body, readAt(null), createdAt. inventoryLogs, auditLogs: server-only. settings/checkout: {deliveryEnabled:bool, deliveryRates:{outsideJuja:int(default 100), kiambu:int(200), defaultCounty:int(500), counties:{name:fee}}}. Collection pickup is always available at "Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12".
 - Order status transitions allowed: PENDING->PROCESSING|CANCELLED, PROCESSING->PROCESSED|CANCELLED, PROCESSED->OUT_FOR_DELIVERY|CANCELLED, OUT_FOR_DELIVERY->DELIVERED. Payment transitions: PENDING->PAID|FAILED|CANCELLED|TIMEOUT, PAID->REFUNDED only.
+
+===== APPEND TO AGENTS.md =====
+## Phase 2 contract
+
+### Definition of done (applies to every task)
+- Every task covers BACKEND AND FRONTEND together. Never report "backend done, frontend pending". If something cannot be finished, finish whole vertical slices and say precisely what is missing.
+- Whenever an API response shape changes, update every frontend consumer and src/lib/apiTypes.ts in the same task.
+- Do NOT add new files directly under /api (Vercel Hobby limit is 12 functions). Register new routes in the existing area files (admin.js, catalog.js, orders.js, users.js, payments.js) and add a vercel.json rewrite for each. Keep sorting in memory and use single-field equality queries; do not depend on composite indexes.
+- End every task with a table: Feature | backend | frontend | tested, with real status, plus pasted output of npm test, npm run check-api, npm run typecheck, npm run build.
+
+### Env (server only, set in Vercel)
+BREVO_API_KEY, BREVO_SENDER_HELLO, BREVO_SENDER_SUPPORT, BREVO_SENDER_ORDERS, BREVO_SENDER_PAYMENTS, BREVO_SENDER_PROMOTIONS, BREVO_SENDER_NAME, BREVO_REPLY_TO_EMAIL, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SITE_URL (public base URL for email links, default https://herstepp.vercel.app). Add all to .env.example.
+
+### Side effects
+Email and Telegram are best-effort: they must NEVER block or fail checkout, payments, signup or support. Send after the Firestore commit, using waitUntil from '@vercel/functions' (add the dependency), wrapped in try/catch. Email uses a transactional outbox: emailOutbox/{emailId(key)} = {key, purpose (hello|support|orders|payments|promotions), to, subject, htmlContent, status PENDING|SENDING|SENT, createdAt, sentAt, lastError}; deterministic keys make retries safe (an existing key means already queued).
+
+### Collections (shared with the old live site; never rename fields)
+- settings/checkout: {deliveryEnabled:bool, deliveryRates:{outsideJuja:int, kiambu:int, defaultCounty:int, counties:{name:fee}}}
+- settings/hero: {enabled:bool, slides:[1..8 of {title<=160, copy<=500, ctaLabel<=80, ctaUrl (starts with # or / or https://), media:{url (https), publicId, resourceType 'image'|'video'}, mobileMedia:{image only}|null, focalPoint (one of 'left top','center top','right top','left center','center center','right center','left bottom','center bottom','right bottom')}]}
+- settings/announcement: {enabled:bool, message<=500, linkUrl (https), linkLabel<=80}
+- promoCodes/{CODE}: {name 3..120, description<=600|null, active:bool, startsAt, endsAt (end after start), discountType 'PERCENTAGE'|'FIXED', discountValue int>=1 (<=100 for PERCENTAGE), productIds:[<=100 ids], categoryIds:[<=100 ids], minimumOrderValue int>=0, maximumUsage int>=1|null, perCustomerUsage int 1..100 (default 1), usageCount int, createdAt, updatedAt}. Code regex ^[A-Z0-9][A-Z0-9_-]{2,39}$ (uppercase). If productIds AND categoryIds are both empty the code applies to ALL products; otherwise only to lines whose productId is in productIds OR whose categoryId is in categoryIds.
+- promoCodeUsages/{CODE_uid}: {code, customerId, usageCount, updatedAt}
+- orders also hold: discount, promoCode, promotion:{code,name,discountType,discountValue}
+- supportTickets/{id}: {ticketId 'SUP-000001' (counters/supportTickets.sequence), customerId, customerName, customerEmail, subject 3..140, orderDocumentId|null, status OPEN|IN_PROGRESS|WAITING_FOR_CUSTOMER|RESOLVED|CLOSED, lastMessage, lastMessageAt, lastMessageSenderRole CUSTOMER|ADMIN, hasUnreadAdminMessages (true = customer wrote and admin has not opened it), assignedTo?, createdAt, updatedAt}; subcollections messages/{clientMessageId} {senderId, senderRole CUSTOMER|ADMIN, body<=4000, createdAt}, history/{prev-next} {previousStatus,newStatus,adminId,adminName,createdAt}, internalNotes/{auto} {body<=4000, authorId, authorName, createdAt}. Allowed status moves: OPEN->any; IN_PROGRESS->WAITING_FOR_CUSTOMER|RESOLVED|CLOSED; WAITING_FOR_CUSTOMER->IN_PROGRESS|RESOLVED|CLOSED; RESOLVED->IN_PROGRESS|WAITING_FOR_CUSTOMER|CLOSED; CLOSED is final.
+- notifications/{orderDocumentId-EVENT}: {customerId, orderDocumentId, event, title, body, readAt:null, createdAt}
+- auditLogs (server only): {adminId, adminName, action, targetType, targetId, previous, next, createdAt}
+The Firestore rules already cover these collections; never loosen them.
+===== END =====
