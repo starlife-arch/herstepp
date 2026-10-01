@@ -8,6 +8,8 @@ export default (req, res) => dispatchRoute(req, res, {
   'stk/initiate': lazyRoute(() => import('./_lib/routes/payments.js').then(m => ({ default: m.initiate }))),
   // GET /api/payments/status
   status: lazyRoute(() => import('./_lib/routes/payments.js').then(m => ({ default: m.status }))),
+  // POST /api/payments/cancel — customer says "I cancelled / no prompt"
+  cancel: lazyRoute(() => import('./_lib/routes/payments.js').then(m => ({ default: m.cancel }))),
   // POST /api/payments/mpesa/callback — public PrintPay webhook
   'mpesa/callback': lazyRoute(() => import('./_lib/routes/payments.js').then(m => ({ default: m.mpesaCallback }))),
   // GET /api/payments/receipt — owner only, PAID only

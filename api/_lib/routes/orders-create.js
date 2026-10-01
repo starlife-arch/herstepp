@@ -35,10 +35,11 @@ export function rateLimitOrders(uid) {
 export async function create(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
   const u = await requireUser(req);
+  const t0 = Date.now();
   rateLimitOrders(u.uid);
-  // Housekeeping first (best-effort, never throws): unpaid PENDING orders
-  // older than 30 minutes get cancelled and their reserved stock restored.
-  await expireStaleOrders(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() });
+  // SPEED: expireStaleOrders is NOT run on the hot path any more (it used to
+  // add seconds to every order). Housekeeping runs from GET /api/admin/orders,
+  // GET /api/dashboard and best-effort AFTER this response is sent.
   const { cart, delivery } = req.body || {};
   // Email comes from the VERIFIED TOKEN only — the client never has to send
   // delivery.email (that was the "Email address is required." 400 bug).

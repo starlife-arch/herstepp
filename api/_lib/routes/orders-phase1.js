@@ -6,7 +6,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { adminOrderTransitionCore, expireStaleOrders } from '../order-core.js';
+import { adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
@@ -68,7 +68,19 @@ export async function track(req, res) {
   // Owner only — and we report "not found" rather than leaking existence.
   if (d.customerId !== u.uid) throw clientError('We couldn\'t find that order on your account', 404);
 
-  const h = await adminDb.collection('orderStatusHistory').where('orderDocumentId', '==', docSnap.id).orderBy('createdAt').get();
+  // Best-effort reconcile for THIS customer so a lost webhook shows the real
+  // payment result here too (never throws, capped by the shared rules).
+  await reconcileBestEffort(adminDb, { customerId: u.uid });
+
+  let historyRows = [];
+  try {
+    const h = await adminDb.collection('orderStatusHistory').where('orderDocumentId', '==', docSnap.id).get();
+    historyRows = h.docs
+      .map(x => ({ ...x.data(), createdAt: iso(x.data().createdAt) }))
+      .sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
+  } catch (err) {
+    console.error(`[track] history lookup failed for ${docSnap.id}: ${err?.message || err}`);
+  }
 
   // Receipt number: prefer the payment stored on the order, then look up by
   // the order's human id. Only ever surfaces for a PAID payment.
@@ -114,7 +126,7 @@ export async function track(req, res) {
       items: (Array.isArray(d.items) ? d.items : []).map(({ productId, name, size, quantity, unitPrice, lineTotal, imageUrl }) => ({
         productId, name, size, quantity, unitPrice, lineTotal, imageUrl: imageUrl ?? null,
       })),
-      history: h.docs.map(x => ({ ...x.data(), createdAt: iso(x.data().createdAt) })),
+      history: historyRows,
     },
   });
 }
@@ -123,8 +135,12 @@ export async function adminOrders(req, res) {
   const a = await requireAdmin(req);
   if (req.method === 'GET') {
     // Housekeeping first: stale unpaid orders leave the list as CANCELLED and
-    // their reserved stock is restored (best-effort, never throws).
+    // their reserved stock is restored (best-effort, never throws). Then
+    // reconcile ALL customers' dead PENDING payments (limit 20, newest first)
+    // so the admin badges show the truth within seconds of a lost webhook —
+    // no cron needed. Best effort: never blocks or fails this GET.
     await expireStaleOrders(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() });
+    await reconcileBestEffort(adminDb, { limit: 20 });
     let q = adminDb.collection('orders');
     const statusFilter = Array.isArray(req.query.orderStatus) ? req.query.orderStatus[0] : req.query.orderStatus;
     if (typeof statusFilter === 'string' && statusFilter) q = q.where('orderStatus', '==', statusFilter);
@@ -148,16 +164,36 @@ export async function adminOrders(req, res) {
       }
     } catch (error) { console.error('[adminOrders] payments lookup failed:', error?.message || error); }
     try {
-      const histSnap = await adminDb.collection('orderStatusHistory').where('orderDocumentId', 'in', docIds.slice(0, 100)).orderBy('createdAt', 'asc').get();
+      const histSnap = await adminDb.collection('orderStatusHistory').where('orderDocumentId', 'in', docIds.slice(0, 100)).get();
       for (const h of histSnap.docs) {
         const d = h.data();
         const key = d.orderDocumentId;
         if (!historyByOrder.has(key)) historyByOrder.set(key, []);
         historyByOrder.get(key).push({ ...d, createdAt: iso(d.createdAt) });
       }
+      // Sort in memory — no orderBy → no composite index needed.
+      for (const arr of historyByOrder.values()) {
+        arr.sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
+      }
     } catch (error) { console.error('[adminOrders] history lookup failed:', error?.message || error); }
 
-    return res.json(list.map(o => ({
+    // Webhook visibility banner for the admin Payments tab: read
+    // settings/printpay (written by every mpesa/callback call). Best-effort.
+    let printpay = null;
+    try {
+      const ppSnap = await adminDb.collection('settings').doc('printpay').get();
+      if (ppSnap.exists) {
+        const pd = ppSnap.data();
+        printpay = {
+          lastCallbackAt: pd.lastCallbackAt ?? null,
+          lastCallbackStatus: pd.lastCallbackStatus ?? null,
+          lastCallbackCheckoutId: pd.lastCallbackCheckoutId ?? null,
+        };
+      }
+    } catch (error) { console.error('[adminOrders] settings/printpay lookup failed:', error?.message || error); }
+
+    return res.json({
+      orders: list.map(o => ({
       id: o.id,
       orderId: o.orderId ?? o.id,
       customerName: o.customerName ?? '',
@@ -192,7 +228,9 @@ export async function adminOrders(req, res) {
       history: historyByOrder.get(o.id) ?? [],
       createdAt: o.createdAt,
       updatedAt: o.updatedAt,
-    })));
+      })),
+      printpay,
+    });
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
   const { orderDocumentId, orderStatus, note } = req.body || {};

@@ -393,11 +393,14 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const paymentSnap = await tx.get(paymentRef);
     const payment = paymentSnap.data();
 
-    // Idempotency safety net: a terminal payment never changes again. If the
-    // same truth arrives through another event id (e.g. webhook + poll race),
-    // do nothing instead of double-restoring stock or double-writing history.
+    // Idempotency safety net: a terminal payment never changes again — EXCEPT the
+    // LATE SUCCESS case: if a verified PAID arrives for a payment we already gave
+    // up on (TIMEOUT/FAILED/CANCELLED), the customer really paid. Do NOT reject
+    // it with 409; allow the transition to PAID below.
     const TERMINAL_STATUSES = ['PAID', 'FAILED', 'CANCELLED', 'TIMEOUT', 'REFUNDED'];
-    if (TERMINAL_STATUSES.includes(payment.status)) {
+    const LATE_SUCCESS = TERMINAL_STATUSES.includes(payment.status) && status === PAYMENT_STATUS.PAID
+      && ['TIMEOUT', 'FAILED', 'CANCELLED'].includes(payment.status);
+    if (TERMINAL_STATUSES.includes(payment.status) && !LATE_SUCCESS) {
       return { duplicate: true, status: payment.status };
     }
 
@@ -432,7 +435,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       });
       return { duplicate: true, status };
     }
-    if (!(ALLOWED_PAYMENT_TRANSITIONS[from] || []).includes(status)) {
+    if (!LATE_SUCCESS && !(ALLOWED_PAYMENT_TRANSITIONS[from] || []).includes(status)) {
       throw clientError(`Payment transition ${from} -> ${status} is not allowed.`, 409);
     }
 
@@ -466,6 +469,11 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       // Denormalise the receipt onto the order so /api/orders/track and the
       // dashboard can show it without a second payments query.
       orderUpdate.receiptNumber = receiptNumberFor(paymentRef.id);
+      if (LATE_SUCCESS) {
+        // The order may have been auto-cancelled while we waited for this money.
+        orderUpdate.orderStatus = order.orderStatus === 'CANCELLED' ? 'PENDING' : order.orderStatus;
+        orderUpdate.needsReviewNote = 'Payment succeeded after the attempt had already timed out or failed; stock reservation must be re-checked.';
+      }
     } else {
       orderUpdate.paymentStatus = status;
       // Customer may retry: drop the pointer to the dead payment attempt.
@@ -547,7 +555,63 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       tx.update(orderRef, { inventoryReserved: false });
     }
 
-    return { duplicate: false, status, paymentId: paymentRef.id, restored };
+    // LATE SUCCESS SAFETY: the money landed after we had already given up and
+    // restored the reserved stock. Try to reserve it AGAIN with a complete new
+    // inventory array. If any size no longer has enough stock we do NOT reject
+    // or lose the payment: mark PAID anyway (the customer really paid) and set
+    // order.needsReview = true so admin sees the conflict immediately.
+    if (status === PAYMENT_STATUS.PAID && LATE_SUCCESS && order.inventoryReserved !== true) {
+      let shortStock = false;
+      const byProduct = groupByProduct((order.items || []).map(i => ({ productId: i.productId, size: i.size, quantity: i.quantity })));
+      const refs = [...byProduct.keys()].map(id => db.collection('products').doc(id));
+      const snaps = refs.length ? await tx.getAll(...refs) : [];
+      for (let n = 0; n < snaps.length; n += 1) {
+        const snap = snaps[n];
+        if (!snap.exists) { shortStock = true; continue; }
+        const data = snap.data();
+        if (!Array.isArray(data.inventory)) {
+          console.error(`INVENTORY_NOT_ARRAY product=${refs[n].id} during late-success re-reserve: needs repair`);
+          shortStock = true;
+          continue;
+        }
+        let inventory = data.inventory.map(i => ({ size: i.size, quantity: Number(i.quantity) || 0 }));
+        for (const line of byProduct.get(refs[n].id)) {
+          const before = inventory.find(i => i.size === line.size)?.quantity ?? 0;
+          if (before < line.quantity) {
+            shortStock = true;
+            continue;
+          }
+          inventory = applyDecrement(inventory, line.size, line.quantity, data.name); // returns the NEW ARRAY itself
+          const after = inventory.find(i => i.size === line.size)?.quantity ?? 0;
+          tx.set(db.collection('inventoryLogs').doc(), {
+            productId: refs[n].id,
+            productName: data.name ?? null,
+            size: line.size,
+            previousQuantity: before,
+            newQuantity: after,
+            reason: 'LATE_PAYMENT_RERESEVE',
+            orderId: order.orderId,
+            orderDocumentId: payment.orderDocumentId,
+            actorType: 'SYSTEM',
+            actorId: 'printpay-callback',
+            createdAt: deps.serverTimestamp(),
+          });
+        }
+        const derived = deriveStock(inventory);
+        tx.update(snap.ref, {
+          inventory, // full ARRAY — never dotted paths
+          stockQuantity: derived.stockQuantity,
+          availableSizes: derived.availableSizes,
+          updatedAt: deps.serverTimestamp(),
+        });
+      }
+      tx.update(orderRef, {
+        inventoryReserved: !shortStock,
+        ...(shortStock ? { needsReview: true } : {}),
+      });
+    }
+
+    return { duplicate: false, status, paymentId: paymentRef.id, restored, lateSuccess: LATE_SUCCESS };
   });
 }
 
@@ -605,6 +669,15 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
 
     // Reads needed for a possible stock restore must happen before writes.
     let restorePlan = [];
+    const activePaymentReads = [];
+    if (orderStatus === 'CANCELLED') {
+      // Admin must never see "Cancelled order + Pending payment": read the
+      // order's active PENDING payment so it can be terminalised in THIS tx.
+      if (typeof order.activePaymentId === 'string' && order.activePaymentId) {
+        const pSnap = await tx.get(db.collection('payments').doc(order.activePaymentId));
+        if (pSnap.exists && pSnap.data().status === 'PENDING') activePaymentReads.push({ ref: pSnap.ref, data: pSnap.data() });
+      }
+    }
     if (orderStatus === 'CANCELLED' && order.inventoryReserved === true) {
       const byProduct = groupByProduct((order.items || []).map(i => ({ productId: i.productId, size: i.size, quantity: i.quantity })));
       const refs = [...byProduct.keys()].map(id => db.collection('products').doc(id));
@@ -631,9 +704,26 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
 
     tx.update(orderRef, {
       orderStatus,
-      ...(orderStatus === 'CANCELLED' ? { activePaymentId: null } : {}),
+      ...(orderStatus === 'CANCELLED'
+        ? {
+            activePaymentId: null,
+            // Never leave "Cancelled order + Pending payment" on screen.
+            ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.CANCELLED } : {}),
+          }
+        : {}),
       updatedAt: deps.serverTimestamp(),
     });
+
+    // Cancel an unpaid order -> its still-PENDING payment attempt dies too,
+    // in the SAME transaction.
+    for (const p of activePaymentReads) {
+      tx.update(p.ref, {
+        status: PAYMENT_STATUS.CANCELLED,
+        failureReason: 'Order cancelled by admin before payment completed.',
+        completedAt: deps.serverTimestamp(),
+        updatedAt: deps.serverTimestamp(),
+      });
+    }
 
     for (const p of restorePlan) {
       const derived = deriveStock(p.inventory);
@@ -710,19 +800,25 @@ function msOf(value) {
 
 export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
   try {
+    // Single-field equality query ONLY (no orderBy) — no composite index needed;
+    // the stalest 40 candidates are picked in memory.
     const snap = await db.collection('orders')
       .where('orderStatus', '==', 'PENDING')
-      .orderBy('createdAt', 'desc')
-      .limit(40)
+      .limit(200)
       .get();
     const cutoff = now - STALE_ORDER_MS;
+    const candidates = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(o => UNPAID_PAYMENT_STATUSES.includes(o.paymentStatus))
+      .filter(o => {
+        const created = msOf(o.createdAt);
+        return created != null && created <= cutoff;
+      })
+      .sort((a, b) => (msOf(a.createdAt) ?? 0) - (msOf(b.createdAt) ?? 0)) // oldest first
+      .slice(0, 20); // limit 20 per call
     let expired = 0;
-    for (const doc of snap.docs) {
-      if (expired >= 20) break; // limit 20 per call
-      const o = doc.data() || {};
-      if (!UNPAID_PAYMENT_STATUSES.includes(o.paymentStatus)) continue;
-      const created = msOf(o.createdAt);
-      if (created == null || created > cutoff) continue;
+    for (const o of candidates) {
+      const doc = { id: o.id };
 
       await db.runTransaction(async tx => {
         const orderRef = db.collection('orders').doc(doc.id);
@@ -734,7 +830,14 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
         const createdMs = msOf(order.createdAt);
         if (createdMs == null || createdMs > cutoff) return;
 
-        // Reads before writes: products needed for the stock restore.
+        // Reads before writes: products for the stock restore AND the still
+        // PENDING payment attempt (never leave "Cancelled order + Pending
+        // payment" on the admin screen).
+        let activePaymentRead = null;
+        if (typeof order.activePaymentId === 'string' && order.activePaymentId) {
+          const pSnap = await tx.get(db.collection('payments').doc(order.activePaymentId));
+          if (pSnap.exists && pSnap.data().status === PAYMENT_STATUS.PENDING) activePaymentRead = { ref: pSnap.ref, data: pSnap.data() };
+        }
         let restorePlan = [];
         if (order.inventoryReserved === true) {
           const byProduct = groupByProduct((order.items || []).map(i => ({ productId: i.productId, size: i.size, quantity: i.quantity })));
@@ -793,6 +896,16 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
           }
         }
 
+        // The dead payment attempt becomes TIMEOUT in the same transaction.
+        if (activePaymentRead) {
+          tx.update(activePaymentRead.ref, {
+            status: PAYMENT_STATUS.TIMEOUT,
+            failureReason: 'The M-Pesa request timed out or was cancelled.',
+            completedAt: deps.serverTimestamp(),
+            updatedAt: deps.serverTimestamp(),
+          });
+        }
+
         tx.set(db.collection('orderStatusHistory').doc(), {
           orderId: order.orderId,
           orderDocumentId: doc.id,
@@ -825,5 +938,135 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
     // or the admin list. Log loudly and move on.
     console.error('expireStaleOrders failed:', error?.message || error);
     return { expired: 0, error: true };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Lazy payment reconciliation (no cron needed). Called best-effort from GET
+// /api/dashboard, GET /api/admin/orders, GET /api/orders/track and GET
+// /api/payments/status so a lost webhook never leaves a payment stuck in
+// PENDING on screen. Rules:
+//   * only PENDING payments WITH a providerReference initiated > 8 seconds ago
+//     are checked (a prompt younger than that is still legitimately pending),
+//   * at most `limit` (default 5), newest first, each check capped at 4 seconds
+//     and run with Promise.allSettled — one dead provider call cannot hang the
+//     page and this function NEVER throws,
+//   * any non-PENDING result from the provider is applied via
+//     applyVerifiedCallbackCore,
+//   * HARD RULE: still PENDING after 180 seconds -> TIMEOUT with reason
+//     "The M-Pesa request timed out or was cancelled." so admin/customer UIs
+//     show the truth quickly instead of an eternal Pending badge.
+// ---------------------------------------------------------------------------
+export const RECONCILE_MIN_AGE_MS = 8_000;
+// SINGLE SOURCE OF TRUTH for how long a PENDING M-Pesa attempt may live.
+// An STK push is only valid ~60-90 s on the customer's phone; after 100 s we
+// give up, mark TIMEOUT (restoring stock once) and let the customer retry.
+// payments.js and Checkout.tsx (105 s poll) must stay consistent with this.
+export const RECONCILE_TIMEOUT_MS = 100_000;
+export const RECONCILE_CALL_LIMIT_MS = 4_000;
+
+function withTimeout(promise, ms) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`reconcile: provider call exceeded ${ms}ms`)), ms)),
+  ]);
+}
+
+async function applyReconcileResult(db, deps, payment, nextStatus, transactionReference, reason, eventId) {
+  try {
+    await applyVerifiedCallbackCore(db, deps, {
+      providerReference: payment.providerReference || `stale:${payment.paymentId}`,
+      status: nextStatus,
+      amount: Number(payment.amount),
+      transactionReference: transactionReference ?? null,
+      eventId,
+      source: 'SYSTEM',
+      reason,
+    });
+    return true;
+  } catch (error) {
+    // Duplicate/idempotent hits are expected when webhook + poll race — not an error.
+    console.error(`reconcilePendingPayments apply failed for ${payment.paymentId}: ${error?.message || error}`);
+    return false;
+  }
+}
+
+export async function reconcilePendingPayments(db, options = {}) {
+  const {
+    customerId = null,
+    limit = 5,
+    now = Date.now(),
+    minAgeMs = RECONCILE_MIN_AGE_MS,
+    timeoutMs = RECONCILE_TIMEOUT_MS,
+    provider = null,
+    deps = { serverTimestamp: () => FieldValue.serverTimestamp() },
+  } = options;
+  try {
+    let q = db.collection('payments').where('status', '==', PAYMENT_STATUS.PENDING);
+    if (customerId) q = q.where('customerId', '==', customerId);
+    const snap = await q.limit(100).get(); // no orderBy → no composite index needed
+    const docs = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(p => {
+        const initiatedAt = msOf(p.initiatedAt) ?? msOf(p.createdAt);
+        return initiatedAt != null && now - initiatedAt > minAgeMs;
+      })
+      // newest first, deterministic fallback by id
+      .sort((a, b) => {
+        const ta = msOf(a.initiatedAt) ?? msOf(a.createdAt) ?? 0;
+        const tb = msOf(b.initiatedAt) ?? msOf(b.createdAt) ?? 0;
+        if (tb !== ta) return tb - ta;
+        return String(a.id).localeCompare(String(b.id));
+      })
+      .slice(0, limit);
+    if (docs.length === 0) return { checked: 0, applied: 0 };
+
+    const mpesaProvider = provider || getMpesaProviderSafe();
+    const results = await Promise.allSettled(docs.map(async p => {
+      const initiatedAt = msOf(p.initiatedAt) ?? msOf(p.createdAt) ?? now;
+      const age = now - initiatedAt;
+      // DEAD PROMPT RULE: nothing to ask the provider — apply TIMEOUT directly.
+      if (age > timeoutMs) {
+        return applyReconcileResult(db, deps, p, PAYMENT_STATUS.TIMEOUT, null,
+          'The M-Pesa request timed out or was cancelled.',
+          `reconcile-timeout:${p.paymentId}`);
+      }
+      if (!mpesaProvider || !p.providerReference) return false;
+      const result = await withTimeout(mpesaProvider.checkStatus(p.providerReference), RECONCILE_CALL_LIMIT_MS);
+      if (result?.status === PAYMENT_STATUS.PENDING) return false;
+      return applyReconcileResult(db, deps, p, result.status, result.transactionReference,
+        result.reason || null, `reconcile:${p.providerReference}:${result.status}`);
+    }));
+    const applied = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
+    return { checked: docs.length, applied };
+  } catch (error) {
+    // Best effort ONLY: reconciliation must never break the page it serves.
+    console.error(`reconcilePendingPayments failed: ${error?.message || error}`);
+    return { checked: 0, applied: 0, error: true };
+  }
+}
+
+// The env key may be missing (payments disabled) — reconciliation then only
+// applies the 180-second hard timeout and skips provider calls.
+function getMpesaProviderSafe() {
+  try {
+    return getMpesaProvider();
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Best-effort wrapper used by read endpoints (dashboard, admin orders GET,
+// track, payments routes). It NEVER throws and never blocks the page it
+// serves: one dead provider call must not turn into a 500 on an unrelated
+// GET. Returns a summary object or { checked: 0, applied: 0, error: true }.
+// ---------------------------------------------------------------------------
+export async function reconcileBestEffort(db, options = {}) {
+  try {
+    return await reconcilePendingPayments(db, options);
+  } catch (error) {
+    console.error(`reconcileBestEffort failed: ${error?.message || error}`);
+    return { checked: 0, applied: 0, error: true };
   }
 }
