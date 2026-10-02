@@ -6,12 +6,10 @@ import { effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Input, formatCurrency } from '../components/ui';
 import { apiFetch } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
+import { deliveryFee as previewDeliveryFee, normalizeDelivery } from '../lib/delivery';
+import type { CheckoutConfigResponse } from '../lib/apiTypes';
 
-type CheckoutConfig = {
-  deliveryEnabled: boolean;
-  collectionEnabled: boolean;
-  deliveryRates: Record<string, unknown>;
-};
+type CheckoutConfig = CheckoutConfigResponse;
 
 // Finite outcome of the payment poll. Anything else keeps polling until the
 // 90-second deadline turns into 'STILL_PENDING'.
@@ -75,7 +73,8 @@ export default function Checkout() {
         const cfg: CheckoutConfig = {
           deliveryEnabled: data?.deliveryEnabled === true,
           collectionEnabled: data?.collectionEnabled !== false,
-          deliveryRates: (data?.deliveryRates && typeof data.deliveryRates === 'object') ? data.deliveryRates : {},
+          collectionLocation: typeof data?.collectionLocation === 'string' ? data.collectionLocation : 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12',
+          deliveryRates: normalizeDelivery(data).deliveryRates,
         };
         setConfig(cfg);
         // Delivery is only offered when the server enables it; if it was
@@ -86,7 +85,7 @@ export default function Checkout() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setConfig({ deliveryEnabled: false, collectionEnabled: true, deliveryRates: {} });
+        setConfig({ deliveryEnabled: false, collectionEnabled: true, collectionLocation: 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12', deliveryRates: normalizeDelivery({}).deliveryRates });
         setConfigError(err instanceof Error ? err.message : 'Could not load delivery options.');
       });
     return () => { cancelled = true; };
@@ -98,15 +97,7 @@ export default function Checkout() {
   // free. The ACTUAL amount to pay is the total returned by /api/orders/create.
   const estimateDeliveryFee = (): number => {
     if (form.deliveryMethod === 'collection') return 0;
-    const rates = config?.deliveryRates || {};
-    const counties = (rates.counties && typeof rates.counties === 'object') ? rates.counties as Record<string, number> : {};
-    const text = form.deliveryLocation.toLowerCase();
-    const match = Object.entries(counties).find(([name]) => name && text.includes(name.toLowerCase()));
-    if (match && Number.isFinite(Number(match[1]))) return Number(match[1]);
-    const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : undefined);
-    if (text.includes('juja')) return num(rates.outsideJuja) ?? 100;
-    if (text.includes('kiambu')) return num(rates.kiambu) ?? 200;
-    return num(rates.defaultCounty) ?? 500;
+    return previewDeliveryFee(config, form.deliveryLocation);
   };
   const deliveryFee = estimateDeliveryFee();
   const estimatedTotal = subtotal + deliveryFee;
@@ -422,13 +413,14 @@ export default function Checkout() {
                     </button>
                   </div>
                   {config && !config.deliveryEnabled && (
-                    <p className="text-xs text-neutral-500 mt-2">Delivery is currently unavailable — collection only.</p>
+                    <p className="text-xs text-neutral-500 mt-2">Delivery is currently unavailable. Collection only.</p>
                   )}
                 </div>
 
-                {form.deliveryMethod === 'delivery' && (
+                {form.deliveryMethod === 'delivery' && <div className="space-y-2">
                   <Input label="Delivery Location" value={form.deliveryLocation} onChange={e => setForm({ ...form, deliveryLocation: e.target.value })} error={errors.deliveryLocation} placeholder="e.g., Juja Town, near Stage" />
-                )}
+                  <p className="text-xs text-neutral-500">Estimated delivery fee: <span className="font-medium text-neutral-900">{deliveryFee === 0 ? 'Free' : formatCurrency(deliveryFee)}</span>. Juja is always free.</p>
+                </div>}
                 <div>
                   <label className="block text-sm font-medium text-neutral-700 mb-1.5">Additional Instructions</label>
                   <textarea

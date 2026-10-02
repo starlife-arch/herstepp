@@ -26,8 +26,6 @@ export const COLLECTION_LOCATION = 'Juja Town, Jerry House, near Juja Posta, Out
 // back to Firestore by normaliseDelivery.
 export const DELIVERY_DEFAULTS = { kiambu: 200, defaultCounty: 500 };
 
-const intOrNull = v => (Number.isInteger(v) ? v : Number.isInteger(Number(v)) && Number(v) >= 0 && String(v).trim() !== '' ? Number(v) : null);
-
 /** Non-negative integer or null. */
 function asFee(value) {
   const n = Number(value);
@@ -110,6 +108,7 @@ export function validateDelivery(input) {
     counties[name] = fee;
   }
 
+  const outsideJuja = feeField('outsideJuja', 'outsideJuja', 100);
   if (errors.length) throw new Error(errors[0]);
 
   return {
@@ -117,7 +116,7 @@ export function validateDelivery(input) {
     deliveryRates: {
       // Keep the stored outsideJuja value if provided (never shown in UI);
       // it must still be a sane non-negative integer if present.
-      outsideJuja: ratesIn.outsideJuja === undefined ? 100 : (asFee(ratesIn.outsideJuja) ?? (() => { errors.push('outsideJuja must be a whole number of at least 0.'); return 100; })()),
+      outsideJuja,
       kiambu,
       defaultCounty,
       counties,
