@@ -11,7 +11,7 @@ import { productImageUrl, handleImageError } from '../lib/productImage';
 import { ORDER_STATUSES, nextOrderStatuses, humanStatus } from '../lib/orderTransitions';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
 import { deliveryFee as previewDeliveryFee, normalizeDelivery } from '../lib/delivery';
-import type { AdminDeliveryResponse } from '../lib/apiTypes';
+import type { AdminDeliveryResponse, AdminNotificationsResponse } from '../lib/apiTypes';
 
 // formatCurrency/formatDate accept Firestore Timestamps and strings too; keep a
 // local wrapper so the admin tables never crash on odd shapes (safe defaults).
@@ -111,6 +111,28 @@ function ComingSoon({ title }: { title: string }) {
       </Card>
     </div>
   );
+}
+
+function NotificationsPanel() {
+  const status = useAdminData<AdminNotificationsResponse>('/api/admin/notifications');
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [working, setWorking] = useState<string | null>(null);
+  const run = async (action: 'email' | 'telegram' | 'retry') => {
+    setWorking(action); setMessage(null);
+    try {
+      const endpoint = action === 'retry' ? '/api/admin/notifications/retry' : '/api/admin/notifications/test';
+      const result: any = await apiFetch(endpoint, { method: 'POST', body: JSON.stringify(action === 'retry' ? {} : { channel: action }) });
+      if (result.sent === false) throw new Error(result.reason === 'not-configured' ? 'This notification channel is not configured in Vercel.' : (result.detail || 'The test message could not be sent.'));
+      setMessage({ type: 'success', text: action === 'retry' ? `Retry started for up to ${result.attemptedUpTo} pending emails.` : `Test ${action} sent successfully.` });
+      status.reload();
+    } catch (error: any) { setMessage({ type: 'error', text: error?.message || 'Could not complete that notification action.' }); }
+    finally { setWorking(null); }
+  };
+  if (status.loading) return <LoadingCard />;
+  if (status.error || !status.data) return <ErrorCard message={status.error || 'Could not load notification status.'} onRetry={status.reload} />;
+  const { email, telegram } = status.data;
+  const statusCard = (label: string, configured: boolean, missing: string[]) => <Card className="p-5"><div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold text-neutral-900">{label}</h2><p className={`mt-1 text-sm font-medium ${configured ? 'text-emerald-700' : 'text-red-700'}`}>{configured ? 'Configured' : 'Not configured'}</p></div><span className={`h-3 w-3 mt-1 rounded-full ${configured ? 'bg-emerald-500' : 'bg-red-500'}`} aria-label={configured ? `${label} configured` : `${label} not configured`} /></div>{!configured && <p className="mt-3 text-xs text-red-700">Add {missing.join(', ') || 'the required variables'} in Vercel.</p>}</Card>;
+  return <div className="space-y-6 animate-fadeIn"><div><h1 className="text-2xl font-bold text-neutral-900">Notifications</h1><p className="text-sm text-neutral-500">Monitor delivery channels and safely retry the transactional email outbox.</p></div>{message && <div role="status" className={`rounded-lg border px-4 py-3 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{message.text}</div>}<div className="grid gap-4 md:grid-cols-2">{statusCard('Email (Brevo)', email.configured, email.missing)}{statusCard('Telegram', telegram.configured, telegram.missing)}</div><Card className="p-5"><h2 className="font-semibold text-neutral-900">Email outbox</h2><div className="mt-4 grid grid-cols-2 gap-4 sm:max-w-sm"><div className="rounded-lg bg-amber-50 p-3"><p className="text-xs text-amber-800">Pending</p><p className="text-xl font-bold text-amber-950">{email.pending}</p></div><div className="rounded-lg bg-emerald-50 p-3"><p className="text-xs text-emerald-800">Sent (7 days)</p><p className="text-xl font-bold text-emerald-950">{email.sent7d}</p></div></div>{email.failed.length > 0 && <div className="mt-5"><h3 className="text-sm font-semibold text-neutral-900">Recent delivery failures</h3><ul className="mt-2 divide-y divide-neutral-100 rounded-lg border border-neutral-200">{email.failed.map(f => <li key={f.key} className="p-3 text-sm"><p className="font-medium text-neutral-800">{f.to || 'Unknown recipient'}</p><p className="text-red-700">{f.lastError || 'Delivery attempt failed.'}</p></li>)}</ul></div>}</Card><div className="flex flex-wrap gap-3"><Button onClick={() => run('email')} disabled={working !== null}>{working === 'email' ? 'Sending…' : 'Send test email'}</Button><Button variant="outline" onClick={() => run('telegram')} disabled={working !== null}>{working === 'telegram' ? 'Sending…' : 'Send test Telegram'}</Button><Button variant="outline" onClick={() => run('retry')} disabled={working !== null}>{working === 'retry' ? 'Retrying…' : 'Retry pending emails'}</Button></div></div>;
 }
 
 type AreaRow = { name: string; fee: string };
@@ -279,7 +301,7 @@ export default function AdminDashboard() {
           {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
           {activeSection === 'support' && <ComingSoon title="Support" />}
           {activeSection === 'promotions' && <ComingSoon title="Promotions" />}
-          {activeSection === 'notifications' && <ComingSoon title="Notifications" />}
+          {activeSection === 'notifications' && <NotificationsPanel />}
           {activeSection === 'settings' && <DeliverySettings />}
         </div>
       </main>
