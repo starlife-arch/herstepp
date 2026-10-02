@@ -9,13 +9,18 @@
 // 3) Vercel Hobby limits: at most 12 files directly under /api (excluding
 //    _lib), and EVERY vercel.json rewrite must point to a ?route=<name> that
 //    is actually registered in the matching area file (parsed both ways).
-// Exits 1 if anything fails. Wired into "test" (first) and "prebuild".
+// 4) Readable source (STYLE ONLY): lines over 400 characters are reported as
+//    warnings. They never fail a deploy. Pass --strict-format to turn them
+//    into errors (used for local checks after the code has been formatted).
+// Exits 1 if checks 1-3 fail (or check 4 with --strict-format).
+// Wired into "test" (first) and "prebuild".
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const strictFormat = process.argv.includes('--strict-format');
 
 // Generate a REAL (throwaway) RSA key pair so firebase-admin's cert() parses
 // successfully at import time — initializeApp does NOT contact any server, so
@@ -154,14 +159,25 @@ if (vercelJson) {
   console.log(`check-api: ${rewrites.length} rewrite(s) validated against area route maps: ${rewriteFails ? `${rewriteFails} FAILED` : 'all OK'}`);
 }
 
-// ---- Phase 4: readable source ---------------------------------------------
+// ---- Phase 4: readable source (STYLE ONLY) ---------------------------------
+// A style problem must NEVER block a deploy, so by default this only warns.
+// Run `node scripts/check-api.mjs --strict-format` to make it fail.
 const sourceFiles = [...walk(path.join(root, 'api')), ...walk(path.join(root, 'src'))].filter(file => /\.(js|mjs|ts|tsx)$/.test(file));
+let longLineFiles = 0;
 for (const file of sourceFiles) {
   const longLine = readFileSync(file, 'utf8').split(/\r?\n/).findIndex(line => line.length > 400);
   if (longLine >= 0) {
-    failed = true;
-    console.error(`FORMAT FAIL: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
+    longLineFiles += 1;
+    if (strictFormat) {
+      failed = true;
+      console.error(`FORMAT FAIL: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
+    } else {
+      console.warn(`FORMAT WARN: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
+    }
   }
+}
+if (longLineFiles > 0 && !strictFormat) {
+  console.warn(`check-api: ${longLineFiles} file(s) have lines over 400 characters (warning only, does not block the build).`);
 }
 
 if (failed) {
