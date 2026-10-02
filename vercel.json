@@ -113,6 +113,14 @@
       "destination": "/api/admin?route=notifications/retry"
     },
     {
+      "source": "/api/promo/validate",
+      "destination": "/api/orders?route=promo/validate"
+    },
+    {
+      "source": "/api/promo/validate",
+      "destination": "/api/orders?route=promo/validate"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
