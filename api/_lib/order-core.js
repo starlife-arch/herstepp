@@ -665,6 +665,15 @@ function flushPaymentEmails(db, result) {
   });
 }
 
+
+async function releasePromoUsage(tx, db, order, deps) {
+  if (!order.promoCode || order.promoReleased === true) return;
+  const promoRef = db.collection('promoCodes').doc(order.promoCode);
+  const usageRef = db.collection('promoCodeUsages').doc(`${order.promoCode}_${order.customerId}`);
+  const [promoSnap, usageSnap] = await Promise.all([tx.get(promoRef), tx.get(usageRef)]);
+  if (promoSnap.exists) tx.update(promoRef, { usageCount: Math.max(0, Number(promoSnap.data().usageCount || 0) - 1), updatedAt: deps.serverTimestamp() });
+  if (usageSnap.exists) tx.update(usageRef, { usageCount: Math.max(0, Number(usageSnap.data().usageCount || 0) - 1), updatedAt: deps.serverTimestamp() });
+}
 // ---------------------------------------------------------------------------
 // Admin PATCH /api/admin/orders — status transitions. Cancelling an UNPAID
 // order restores reserved stock in the same transaction (new inventory arrays
@@ -752,10 +761,12 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
       }
     }
 
+    if (orderStatus === 'CANCELLED') await releasePromoUsage(tx, db, order, deps);
     tx.update(orderRef, {
       orderStatus,
       ...(orderStatus === 'CANCELLED'
         ? {
+            promoReleased: order.promoReleased === true ? true : true,
             activePaymentId: null,
             // Never leave "Cancelled order + Pending payment" on screen.
             ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.CANCELLED } : {}),
@@ -922,8 +933,10 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
           }
         }
 
+        await releasePromoUsage(tx, db, order, deps);
         tx.update(orderRef, {
           orderStatus: 'CANCELLED',
+          promoReleased: order.promoReleased === true ? true : true,
           ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.TIMEOUT } : {}),
           activePaymentId: null,
           ...(restorePlan.length ? { inventoryReserved: false } : {}),
