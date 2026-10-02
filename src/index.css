@@ -117,3 +117,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible {
   .no-print { display: none !important; }
   body { background: white; }
 }
+
+/* Support attachments and long messages must not overflow the approved chat bubbles. */
+.chat-bubble-customer,
+.chat-bubble-admin {
+  padding: 10px 14px;
+  word-break: break-word;
+}

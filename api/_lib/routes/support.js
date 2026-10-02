@@ -31,7 +31,8 @@ export async function create(req, res) {
   const body = req.body || {};
   if (Object.keys(body).some(key => !['subject', 'message', 'category', 'attachments', 'orderDocumentId', 'clientMessageId'].includes(key))) throw clientError('Unknown support field.');
   const input = messageInput(body);
-  if (typeof body.subject !== 'string' || body.subject.trim().length < 3 || body.subject.trim().length > 140 || !categories.has(body.category)) throw clientError('Provide a valid subject and category.');
+  if (typeof body.subject !== 'string' || body.subject.trim().length < 3 || body.subject.trim().length > 140) throw clientError('Subject must be 3 to 140 characters.');
+  if (!categories.has(body.category)) throw clientError('Choose a category.');
   const now = Date.now();
   const hits = (createHits.get(user.uid) || []).filter(at => now - at < 600000);
   if (hits.length >= 3) throw clientError('Too many support tickets. Please wait before creating another.', 429);
@@ -48,7 +49,7 @@ export async function create(req, res) {
     const ref = adminDb.collection('supportTickets').doc();
     const profileData = profile.exists ? profile.data() : {};
     tx.set(counter, { sequence }, { merge: true });
-    tx.set(ref, { ticketId: `SUP-${String(sequence).padStart(6, '0')}`, customerId: user.uid, customerName: profileData.displayName || user.displayName || '', customerEmail: profileData.email || user.email || '', subject: body.subject.trim(), category: body.category, orderDocumentId: body.orderDocumentId || null, status: 'OPEN', lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'CUSTOMER', hasUnreadAdminMessages: true, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    tx.set(ref, { ticketId: `SUP-${String(sequence).padStart(6, '0')}`, customerId: user.uid, customerName: profileData.displayName || user.displayName || '', customerEmail: profileData.email || user.email || '', subject: body.subject.trim(), category: body.category, orderDocumentId: body.orderDocumentId || null, status: 'OPEN', lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'CUSTOMER', hasUnreadAdminMessages: true, messageCount: 1, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
     tx.set(ref.collection('messages').doc(body.clientMessageId), { senderId: user.uid, senderName: profileData.displayName || user.displayName || '', senderRole: 'CUSTOMER', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
     return { id: ref.id, ticketId: `SUP-${String(sequence).padStart(6, '0')}` };
   });
@@ -72,7 +73,7 @@ export async function message(req, res) {
     const messageRef = ref.collection('messages').doc(body.clientMessageId); const old = await tx.get(messageRef);
     if (old.exists) return { id: messageRef.id };
     tx.set(messageRef, { senderId: user.uid, senderName: user.displayName || '', senderRole: 'CUSTOMER', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
-    tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'CUSTOMER', hasUnreadAdminMessages: true, updatedAt: FieldValue.serverTimestamp() });
+    tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'CUSTOMER', hasUnreadAdminMessages: true, messageCount: Number(ticket.messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
     return { id: messageRef.id };
   });
   return res.json({ message: out });
@@ -97,7 +98,7 @@ export async function adminMessage(req, res) {
     if ((await tx.get(messageRef)).exists) return;
     const senderName = admin.displayName || admin.email || '';
     tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
-    tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', updatedAt: FieldValue.serverTimestamp() });
+    tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticket.data().messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
   });
   return res.json({ ok: true });
 }

@@ -330,10 +330,13 @@ function PaymentsTab({ orders }: any) {
 function SupportTab() {
   return (
     <div className="space-y-6">
-      <h2 className="text-xl font-bold text-neutral-900">Support</h2>
-      <Card className="p-6 text-center">
-        <p className="text-sm text-neutral-500 mb-4">Support tickets are coming soon.</p>
-        <Link to="/support"><Button size="sm" variant="outline">Contact Us</Button></Link>
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-bold text-neutral-900">Support Tickets</h2>
+        <Link to="/support"><Button size="sm">New Ticket</Button></Link>
+      </div>
+      <Card className="p-6">
+        <p className="text-sm text-neutral-500 mb-4">Your support tickets and conversations.</p>
+        <Link to="/support" className="text-sm font-medium text-neutral-700 hover:text-neutral-900">View all tickets</Link>
       </Card>
     </div>
   );

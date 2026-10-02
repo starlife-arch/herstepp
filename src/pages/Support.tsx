@@ -130,11 +130,12 @@ function NewTicketForm({ onSubmit, onCancel }: { onSubmit: (t: any) => void; onC
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState('');
+  const subjectValid = subject.trim().length >= 3 && subject.trim().length <= 140;
   const fileInput = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!subject || !category || (!message && !files.length)) return;
+    if (!subjectValid || !category || (!message && !files.length)) return;
     const clientMessageId = crypto.randomUUID().replace(/-/g, '');
     uploadSupportImages(files).then(attachments => apiFetch('/api/support/create', { method: 'POST', body: JSON.stringify({ subject, category, message, attachments, clientMessageId }) }))
       .then((result: any) => onSubmit(toUiTicket({ id: result.ticket.id, ticketId: result.ticket.ticketId, subject, category, status: 'OPEN', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, [{ id: clientMessageId, senderRole: 'CUSTOMER', senderName: 'You', body: message, createdAt: new Date().toISOString() }])))
@@ -164,6 +165,7 @@ function NewTicketForm({ onSubmit, onCancel }: { onSubmit: (t: any) => void; onC
           </select>
         </div>
         <Input label="Subject" value={subject} onChange={e => setSubject(e.target.value)} placeholder="Brief description of your issue" required />
+        {subject.length > 0 && !subjectValid && <p className="text-xs text-red-600">Subject must be at least 3 characters.</p>}
         <div>
           <label className="block text-sm font-medium text-neutral-700 mb-1.5">Message</label>
           <textarea
@@ -179,7 +181,7 @@ function NewTicketForm({ onSubmit, onCancel }: { onSubmit: (t: any) => void; onC
         <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={event => { const next = Array.from(event.target.files || []); if (next.some(file => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024)) { setError('Images must be JPEG, PNG, or WebP files no larger than 5 MB.'); return; } setFiles(current => [...current, ...next].slice(0, 3)); event.target.value = ''; }} />
         <button type="button" onClick={() => fileInput.current?.click()} className="p-2.5 rounded-lg border border-neutral-300 hover:bg-neutral-50 text-neutral-500"><Paperclip className="w-5 h-5" /></button>
         <div className="flex gap-3 pt-2">
-          <Button type="submit">Submit Request</Button>
+          <Button type="submit" disabled={!subjectValid || !category || (!message && !files.length)}>Submit Request</Button>
           <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
         </div>
       </form>
