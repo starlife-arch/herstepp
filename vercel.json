@@ -113,6 +113,46 @@
       "destination": "/api/admin?route=notifications/retry"
     },
     {
+      "source": "/api/promo/validate",
+      "destination": "/api/orders?route=promo/validate"
+    },
+    {
+      "source": "/api/promo/validate",
+      "destination": "/api/orders?route=promo/validate"
+    },
+    {
+      "source": "/api/admin/promo-codes",
+      "destination": "/api/admin?route=promo-codes"
+    },
+    {
+      "source": "/api/support",
+      "destination": "/api/users?route=support"
+    },
+    {
+      "source": "/api/support/create",
+      "destination": "/api/users?route=support/create"
+    },
+    {
+      "source": "/api/support/messages",
+      "destination": "/api/users?route=support/messages"
+    },
+    {
+      "source": "/api/admin/support",
+      "destination": "/api/admin?route=support"
+    },
+    {
+      "source": "/api/admin/support/status",
+      "destination": "/api/admin?route=support/status"
+    },
+    {
+      "source": "/api/admin/support/read",
+      "destination": "/api/admin?route=support/read"
+    },
+    {
+      "source": "/api/admin/support/notes",
+      "destination": "/api/admin?route=support/notes"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
