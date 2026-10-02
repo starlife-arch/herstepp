@@ -5,7 +5,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { queueEmail, deliverQueuedEmailInline } from './email-service.js';
 import { sendTelegramMessage } from './telegram.js';
-import { emailHtml, orderReceiptEmail, escapeHtml } from './email-templates.js';
+import { buildEmail, orderReceiptEmail, escapeHtml } from './email-templates.js';
 
 const money = n => `KSh ${(Number(n) || 0).toLocaleString('en-KE')}`;
 
@@ -13,7 +13,7 @@ const money = n => `KSh ${(Number(n) || 0).toLocaleString('en-KE')}`;
 export function queueWelcomeEmail(tx, db, { uid, email, displayName }) {
   try {
     if (!email) return; // no address -> nothing to queue, silently
-    const { subject, htmlContent } = emailHtml(
+    const { subject, htmlContent } = buildEmail(
       'Welcome to HerStep Collection',
       `Hi ${displayName || 'there'},\n\nWelcome to HerStep Collection — Step Into Your Style.\nYour account is ready. Browse our latest heels, boots and sneakers any time, and pay conveniently with M-Pesa.\n\nCollection is always available at Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12.`,
       { ctaLabel: 'Start shopping', ctaUrl: `${(globalThis.process?.env || {}).SITE_URL || 'https://herstepp.vercel.app'}/shop` },
@@ -101,7 +101,7 @@ export function queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderSta
     const st = String(orderStatus).toUpperCase();
     const line = ORDER_STATUS_LINES[st];
     if (!line || !order?.customerEmail) return;
-    const { subject, htmlContent } = emailHtml(
+    const { subject, htmlContent } = buildEmail(
       `Order ${order.orderId} — ${st.replace(/_/g, ' ').toLowerCase()}`,
       `Hi ${order.delivery?.fullName || order.customerName || 'there'},\n\n${line}`,
       { ctaLabel: 'View your order', ctaUrl: `${(globalThis.process?.env || {}).SITE_URL || 'https://herstepp.vercel.app'}/dashboard` },

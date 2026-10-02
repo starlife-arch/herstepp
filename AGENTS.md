@@ -48,3 +48,8 @@ Email and Telegram are best-effort: they must NEVER block or fail checkout, paym
 - auditLogs (server only): {adminId, adminName, action, targetType, targetId, previous, next, createdAt}
 The Firestore rules already cover these collections; never loosen them.
 ===== END =====
+## UI FREEZE (standing rule)
+- The existing pages' layout, markup, class names, spacing, copy and components are the approved design. Tasks change DATA WIRING only. Never rewrite, reorder, restyle or "simplify" a page. New screens that do not exist yet must be built with the same components (Card, Button, Badge, Input, EmptyState from src/components/ui) and the same Tailwind patterns used on neighbouring screens.
+- Before editing any existing page, view the current file and make the smallest edit. A wholesale rewrite must keep the same JSX structure and classNames.
+- Never write minified or one-line code. Use normal formatting (2 spaces, one statement per line).
+- If a page was changed from the original design, restore the original markup from git history (git log --follow -p -- <file>) before wiring data.

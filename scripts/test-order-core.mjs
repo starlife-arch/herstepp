@@ -165,8 +165,8 @@ await test('delivery fees use Juja, Kiambu, configured-area and default rules', 
 });
 
 await test('delivery settings reject negative and fractional fees', async () => {
-  await assert.rejects(() => validateDelivery({ deliveryEnabled: true, deliveryRates: { kiambu: -1, defaultCounty: 500, counties: {} } }), /Kiambu fee/);
-  await assert.rejects(() => validateDelivery({ deliveryEnabled: true, deliveryRates: { kiambu: 200, defaultCounty: 500, counties: { Nairobi: 1.5 } } }), /whole number/);
+  assert.throws(() => validateDelivery({ deliveryEnabled: true, deliveryRates: { kiambu: -1, defaultCounty: 500, counties: {} } }), /Kiambu fee/);
+  assert.throws(() => validateDelivery({ deliveryEnabled: true, deliveryRates: { kiambu: 200, defaultCounty: 500, counties: { Nairobi: 1.5 } } }), /whole number/);
 });
 
 await test('order numbers come from orderCounters/{year}.sequence: HS-2026-000001, -000002', async () => {

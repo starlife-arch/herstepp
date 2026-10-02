@@ -143,8 +143,13 @@ export function createFakeDb() {
     // which matches how the route code plans reads-then-writes.
     runTransaction(asyncFn) {
       const buffer = [];
+      let wrote = false;
+      const assertReadBeforeWrite = () => {
+        if (wrote) throw new Error('Firestore transactions require all reads to be executed before all writes.');
+      };
       const tx = {
         async get(refOrQuery) {
+          assertReadBeforeWrite();
           const merged = mergedDocs(store, buffer);
           if (refOrQuery instanceof Query) return refOrQuery.get(merged);
           const collection = refOrQuery.collectionName ?? refOrQuery.path.split('/')[0];
@@ -152,14 +157,17 @@ export function createFakeDb() {
           return makeDocSnap(store, collection, refOrQuery.id, docs.get(refOrQuery.id));
         },
         getAll(...refs) {
+          assertReadBeforeWrite();
           return Promise.all(refs.map(r => tx.get(r)));
         },
         set(ref, value, options) {
           validateWritePaths(value, `set ${ref.path}`);
+          wrote = true;
           buffer.push({ type: 'set', collection: ref.path.split('/')[0], id: ref.id, value: deepClone(value), options });
         },
         update(ref, value) {
           validateWritePaths(value, `update ${ref.path}`);
+          wrote = true;
           buffer.push({ type: 'update', collection: ref.path.split('/')[0], id: ref.id, value: deepClone(value) });
         },
       };

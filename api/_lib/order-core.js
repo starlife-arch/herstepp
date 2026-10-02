@@ -462,6 +462,16 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       throw clientError(`Payment transition ${from} -> ${status} is not allowed.`, 409);
     }
 
+    // Fetch every stock document before the first transaction write. Firestore
+    // transactions reject reads after a write.
+    let preloadedRestoreRefs = [];
+    let preloadedRestoreSnaps = [];
+    if (status !== PAYMENT_STATUS.PAID && order.inventoryReserved === true) {
+      const ids = [...new Set((order.items || []).map(i => i.productId))];
+      preloadedRestoreRefs = ids.map(id => db.collection('products').doc(id));
+      preloadedRestoreSnaps = preloadedRestoreRefs.length ? await tx.getAll(...preloadedRestoreRefs) : [];
+    }
+
     // ---- WRITES ----
     tx.set(idemRef, {
       paymentId: paymentRef.id,
@@ -549,8 +559,8 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     let restored = [];
     if (status !== PAYMENT_STATUS.PAID && order.inventoryReserved === true) {
       const byProduct = groupByProduct((order.items || []).map(i => ({ productId: i.productId, size: i.size, quantity: i.quantity })));
-      const refs = [...byProduct.keys()].map(id => db.collection('products').doc(id));
-      const snaps = refs.length ? await tx.getAll(...refs) : [];
+      const refs = preloadedRestoreRefs;
+      const snaps = preloadedRestoreSnaps;
       for (let n = 0; n < snaps.length; n += 1) {
         const snap = snaps[n];
         if (!snap.exists) continue;

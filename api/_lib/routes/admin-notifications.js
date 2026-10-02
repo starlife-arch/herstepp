@@ -17,7 +17,7 @@ import {
   emailId,
   queueEmail,
 } from '../email-service.js';
-import { emailHtml } from '../email-templates.js';
+import { buildEmail } from '../email-templates.js';
 import { telegramConfig, sendTelegramMessage } from '../telegram.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
@@ -105,7 +105,7 @@ export async function notificationTest(req, res) {
   // exact same code as production events. Deterministic key per request time.
   const key = `TEST-${Date.now()}-${admin.uid}`;
   await adminDb.runTransaction(async tx => {
-    const { subject, htmlContent } = emailHtml(
+    const { subject, htmlContent } = buildEmail(
       'HerStep notifications test',
       'Hi,\n\nthis is a test email from the HerStep admin panel. If you can read this, Brevo transactional email is working end to end.',
     );
