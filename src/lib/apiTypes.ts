@@ -222,3 +222,8 @@ export function normaliseCustomers(raw: unknown): AdminCustomerRow[] {
   const d = raw as { customers?: unknown } | null | undefined;
   return Array.isArray(d?.customers) ? (d!.customers as AdminCustomerRow[]) : [];
 }
+
+
+export interface SupportAttachment { url: string; publicId: string; type: 'image'; }
+export interface SupportTicketResponse { id: string; ticketId: string; subject: string; category: string; status: string; customerId: string; customerName: string; orderDocumentId: string | null; hasUnreadAdminMessages: boolean; createdAt: IsoDate; updatedAt: IsoDate; }
+export interface SupportListResponse { tickets: SupportTicketResponse[]; }

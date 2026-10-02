@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip, X, Plus, MessageSquare, Clock, CheckCircle, ArrowLeft } from 'lucide-react';
 import { apiFetch } from '../lib/api';
-import { SupportChat } from '../components/SupportChat';
+import { SupportChat, uploadSupportImages } from '../components/SupportChat';
 import { toUiTicket } from '../lib/supportAdapter';
 import { Card, Button, Badge, Input, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 
@@ -128,14 +128,17 @@ function NewTicketForm({ onSubmit, onCancel }: { onSubmit: (t: any) => void; onC
   const [subject, setSubject] = useState('');
   const [category, setCategory] = useState('');
   const [message, setMessage] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
+  const [error, setError] = useState('');
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!subject || !category || !message) return;
+    if (!subject || !category || (!message && !files.length)) return;
     const clientMessageId = crypto.randomUUID().replace(/-/g, '');
-    apiFetch('/api/support/create', { method: 'POST', body: JSON.stringify({ subject, category, message, attachments: [], clientMessageId }) })
+    uploadSupportImages(files).then(attachments => apiFetch('/api/support/create', { method: 'POST', body: JSON.stringify({ subject, category, message, attachments, clientMessageId }) }))
       .then((result: any) => onSubmit(toUiTicket({ id: result.ticket.id, ticketId: result.ticket.ticketId, subject, category, status: 'OPEN', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, [{ id: clientMessageId, senderRole: 'CUSTOMER', senderName: 'You', body: message, createdAt: new Date().toISOString() }])))
-      .catch(() => undefined);
+      .catch((err: any) => setError(err.message || 'Could not create your support request.'));
   };
 
   return (
@@ -171,6 +174,10 @@ function NewTicketForm({ onSubmit, onCancel }: { onSubmit: (t: any) => void; onC
             required
           />
         </div>
+        {files.length > 0 && <div className="flex gap-2">{files.map((file, index) => <div key={`${file.name}-${index}`} className="relative"><img className="w-12 h-12 rounded-lg object-cover" src={URL.createObjectURL(file)} /><button type="button" onClick={() => setFiles(current => current.filter((_, item) => item !== index))} className="absolute -top-2 -right-2 bg-white rounded-full"><X className="w-4 h-4" /></button></div>)}</div>}
+        {error && <p className="text-xs text-red-600">{error}</p>}
+        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={event => { const next = Array.from(event.target.files || []); if (next.some(file => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024)) { setError('Images must be JPEG, PNG, or WebP files no larger than 5 MB.'); return; } setFiles(current => [...current, ...next].slice(0, 3)); event.target.value = ''; }} />
+        <button type="button" onClick={() => fileInput.current?.click()} className="p-2.5 rounded-lg border border-neutral-300 hover:bg-neutral-50 text-neutral-500"><Paperclip className="w-5 h-5" /></button>
         <div className="flex gap-3 pt-2">
           <Button type="submit">Submit Request</Button>
           <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
