@@ -153,6 +153,10 @@
       "destination": "/api/admin?route=support/read"
     },
     {
+      "source": "/api/admin/support/messages",
+      "destination": "/api/admin?route=support/messages"
+    },
+    {
       "source": "/api/admin/support/notes",
       "destination": "/api/admin?route=support/notes"
     },

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Send, Paperclip, X, Plus, MessageSquare, Clock, CheckCircle, ArrowLeft } from 'lucide-react';
 import { apiFetch } from '../lib/api';
+import { SupportChat } from '../components/SupportChat';
 import { toUiTicket } from '../lib/supportAdapter';
 import { Card, Button, Badge, Input, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 
@@ -52,7 +53,7 @@ export default function Support() {
       {error && <p className="text-sm text-red-600 mb-4">{error}</p>}
       {view === 'list' && <TicketList tickets={tickets} onOpen={handleOpenTicket} />}
       {view === 'chat' && selectedTicket && (
-        <ChatView ticket={selectedTicket} onBack={() => setView('list')} />
+        <SupportChat ticket={selectedTicket} onBack={() => setView('list')} />
       )}
       {view === 'new' && <NewTicketForm onSubmit={handleNewTicket} onCancel={() => setView('list')} />}
     </div>
@@ -117,92 +118,6 @@ function TicketList({ tickets, onOpen }: { tickets: any[]; onOpen: (t: any) => v
       {tickets.length === 0 && (
         <Card className="p-8">
           <EmptyState title="No support tickets" description="Create a new support request if you need help." />
-        </Card>
-      )}
-    </div>
-  );
-}
-
-function ChatView({ ticket, onBack }: { ticket: any; onBack: () => void }) {
-  const [message, setMessage] = useState('');
-  const [sending, setSending] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [ticket.messages]);
-
-  const handleSend = async () => {
-    if (!message.trim()) return;
-    setSending(true);
-    try {
-      await apiFetch('/api/support/messages', { method: 'POST', body: JSON.stringify({ ticketDocumentId: ticket.id, message, attachments: [], clientMessageId: crypto.randomUUID().replace(/-/g, '') }) });
-      ticket.messages.push({ id: crypto.randomUUID(), senderId: '', senderName: 'You', senderRole: 'customer', content: message, attachments: [], timestamp: new Date().toISOString() });
-      setMessage('');
-    } finally { setSending(false); }
-  };
-
-  return (
-    <div className="animate-fadeIn">
-      {/* Chat Header */}
-      <Card className="p-4 mb-4">
-        <div className="flex items-center gap-3">
-          <button onClick={onBack} className="p-2 rounded-lg hover:bg-neutral-100">
-            <ArrowLeft className="w-5 h-5" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono text-neutral-500">{ticket.ticketId}</span>
-              <Badge variant={getStatusBadge(ticket.status).variant}>{getStatusBadge(ticket.status).label}</Badge>
-            </div>
-            <p className="font-medium text-neutral-900 text-sm truncate">{ticket.subject}</p>
-          </div>
-          <p className="text-xs text-neutral-400">{ticket.category}</p>
-        </div>
-      </Card>
-
-      {/* Messages */}
-      <Card className="p-4 mb-4" >
-        <div className="h-[400px] sm:h-[500px] overflow-y-auto space-y-4">
-          {ticket.messages.map((msg: any) => (
-            <div key={msg.id} className={`flex ${msg.senderRole === 'customer' ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[80%] ${msg.senderRole === 'customer' ? 'chat-bubble-customer' : 'chat-bubble-admin'}`}>
-                {msg.senderRole === 'admin' && (
-                  <p className="text-xs font-medium mb-1 opacity-70">{msg.senderName}</p>
-                )}
-                <p className="text-sm leading-relaxed">{msg.content}</p>
-                <p className="text-xs mt-1 opacity-50">{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
-              </div>
-            </div>
-          ))}
-          <div ref={messagesEndRef} />
-        </div>
-      </Card>
-
-      {/* Input */}
-      {ticket.status !== 'closed' ? (
-        <Card className="p-4">
-          <div className="flex gap-3">
-            <button className="p-2.5 rounded-lg border border-neutral-300 hover:bg-neutral-50 text-neutral-500">
-              <Paperclip className="w-5 h-5" />
-            </button>
-            <input
-              type="text"
-              value={message}
-              onChange={e => setMessage(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleSend()}
-              placeholder="Type your message..."
-              className="flex-1 px-4 py-2.5 border border-neutral-300 rounded-xl text-sm focus:border-neutral-900"
-            />
-            <Button onClick={handleSend} loading={sending} disabled={!message.trim()}>
-              <Send className="w-4 h-4" />
-            </Button>
-          </div>
-        </Card>
-      ) : (
-        <Card className="p-4 text-center">
-          <p className="text-sm text-neutral-500">This support ticket has been closed.</p>
-          <p className="text-xs text-neutral-400 mt-1">Create a new ticket if you need further assistance.</p>
         </Card>
       )}
     </div>

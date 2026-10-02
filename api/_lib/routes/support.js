@@ -82,3 +82,22 @@ export async function adminList(req, res) { if (req.method !== 'GET') return met
 export async function adminStatus(req, res) { if (req.method !== 'PATCH') return methodNotAllowed(res, 'PATCH'); const admin = await requireAdmin(req); const { ticketDocumentId, status } = req.body || {}; await adminDb.runTransaction(async tx => { const ref = adminDb.collection('supportTickets').doc(ticketDocumentId); const snap = await tx.get(ref); if (!snap.exists) throw clientError('Ticket not found.', 404); const old = snap.data().status; if (!statusMoves[old]?.includes(status)) throw clientError('This support ticket status cannot be changed that way.', 409); tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp() }); tx.set(ref.collection('history').doc(`${old}-${status}`), { previousStatus: old, newStatus: status, adminId: admin.uid, adminName: admin.displayName || admin.email || '', createdAt: FieldValue.serverTimestamp() }); }); return res.json({ ok: true }); }
 export async function adminRead(req, res) { if (req.method !== 'POST') return methodNotAllowed(res, 'POST'); await requireAdmin(req); await adminDb.collection('supportTickets').doc(req.body?.ticketDocumentId).update({ hasUnreadAdminMessages: false, updatedAt: FieldValue.serverTimestamp() }); return res.json({ ok: true }); }
 export async function adminNotes(req, res) { const admin = await requireAdmin(req); if (req.method === 'GET') { const snap = await adminDb.collection('supportTickets').doc(req.query?.ticketDocumentId).collection('internalNotes').limit(100).get(); return res.json({ notes: snap.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt) })) }); } if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']); const { ticketDocumentId, body } = req.body || {}; if (typeof body !== 'string' || !body.trim() || body.length > 4000) throw clientError('Provide a valid note.'); await adminDb.collection('supportTickets').doc(ticketDocumentId).collection('internalNotes').add({ body: body.trim(), authorId: admin.uid, authorName: admin.displayName || admin.email || '', createdAt: FieldValue.serverTimestamp() }); return res.status(201).json({ ok: true }); }
+
+export async function adminMessage(req, res) {
+  if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
+  const admin = await requireAdmin(req);
+  const body = req.body || {};
+  const input = messageInput(body);
+  await adminDb.runTransaction(async tx => {
+    const ref = adminDb.collection('supportTickets').doc(body.ticketDocumentId);
+    const ticket = await tx.get(ref);
+    if (!ticket.exists) throw clientError('Ticket not found.', 404);
+    if (ticket.data().status === 'CLOSED') throw clientError('This support ticket has been closed.', 409);
+    const messageRef = ref.collection('messages').doc(body.clientMessageId);
+    if ((await tx.get(messageRef)).exists) return;
+    const senderName = admin.displayName || admin.email || '';
+    tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
+    tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', updatedAt: FieldValue.serverTimestamp() });
+  });
+  return res.json({ ok: true });
+}
