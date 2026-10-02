@@ -59,6 +59,7 @@ interface AppState {
   payments: ServerPayment[];
   dashboardLoading: boolean;
   dashboardError: string | null;
+  dashboardWarnings: string[];
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   authReady: boolean;
   catalogLoading: boolean;
@@ -70,7 +71,7 @@ type Action =
   | { type: 'SET_AUTH_READY'; payload: boolean }
   | { type: 'SET_CATALOG'; payload: { products: Product[]; categories: { id: string; name: string }[] } }
   | { type: 'SET_CATALOG_STATUS'; payload: { loading: boolean; error: string | null } }
-  | { type: 'SET_DASHBOARD'; payload: { orders: ServerOrder[]; payments: ServerPayment[]; notifications: Notification[] } }
+  | { type: 'SET_DASHBOARD'; payload: { orders: ServerOrder[]; payments: ServerPayment[]; notifications: Notification[]; warnings?: string[] } }
   | { type: 'SET_DASHBOARD_STATUS'; payload: { loading: boolean; error: string | null } }
   | { type: 'ADD_TO_CART'; payload: CartItem }
   | { type: 'UPDATE_CART_QUANTITY'; payload: { productId: string; size: string; quantity: number } }
@@ -186,6 +187,7 @@ const initialState: AppState = {
   payments: [],
   dashboardLoading: false,
   dashboardError: null,
+  dashboardWarnings: [],
   toast: null,
   authReady: false,
   catalogLoading: true,
@@ -219,6 +221,7 @@ function appReducer(state: AppState, action: Action): AppState {
         notifications: Array.isArray(action.payload.notifications) ? action.payload.notifications : [],
         dashboardLoading: false,
         dashboardError: null,
+        dashboardWarnings: Array.isArray(action.payload.warnings) ? action.payload.warnings : [],
       };
     case 'SET_DASHBOARD_STATUS':
       return { ...state, dashboardLoading: action.payload.loading, dashboardError: action.payload.error };
@@ -347,6 +350,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
           orders: Array.isArray(data?.orders) ? data.orders : [],
           payments: Array.isArray(data?.payments) ? data.payments : [],
           notifications: Array.isArray(data?.notifications) ? data.notifications.map(mapNotification) : [],
+          warnings: Array.isArray(data?.warnings) ? data.warnings : [],
         },
       });
     } catch (error) {
