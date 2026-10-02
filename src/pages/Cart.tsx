@@ -5,11 +5,13 @@ import { useApp } from '../context/AppContext';
 import { effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, formatCurrency, EmptyState } from '../components/ui';
 import { productImageUrl, handleImageError } from '../lib/productImage';
+import { usePromo } from '../lib/usePromo';
 
 export default function Cart() {
   const { state, dispatch } = useApp();
 
   const subtotal = state.cart.reduce((sum, item) => sum + effectivePrice(item.product) * item.quantity, 0);
+  const { promoCode, setPromoCode, promo, promoError, applyPromo, removePromo } = usePromo(state.cart);
 
   // Delivery fees are never computed here: they come from the server
   // (GET /api/checkout/config and the total returned by POST /api/orders/create).
@@ -108,6 +110,7 @@ export default function Cart() {
           <Card className="p-6 sticky top-24">
             <h2 className="text-lg font-semibold text-neutral-900 mb-4">Order Summary</h2>
 
+            <div className="mt-4"><div className="flex gap-2"><input value={promoCode} onChange={event => setPromoCode(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm" /><Button size="sm" variant="outline" onClick={applyPromo}>Apply</Button></div>{promo && <div className="mt-2 flex items-center justify-between rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-800"><span>{promo.code} · -{formatCurrency(promo.discount)} · applies to: {promo.appliesTo.map((product: any) => product.name).join(', ')}</span><button onClick={removePromo}>Remove</button></div>}{promoError && <p className="mt-1 text-xs text-red-600">{promoError}</p>}</div>
             <div className="space-y-3 border-t border-neutral-200 pt-4">
               <div className="flex justify-between text-sm">
                 <span className="text-neutral-600">Subtotal</span>
@@ -119,7 +122,7 @@ export default function Cart() {
               </div>
               <div className="flex justify-between font-semibold text-neutral-900 border-t border-neutral-200 pt-3">
                 <span>Estimated Total</span>
-                <span>{formatCurrency(subtotal)}</span>
+                <span>{formatCurrency(subtotal - (promo?.discount || 0))}</span>
               </div>
             </div>
 

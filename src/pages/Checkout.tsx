@@ -8,6 +8,7 @@ import { apiFetch } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { deliveryFee as previewDeliveryFee, normalizeDelivery } from '../lib/delivery';
 import type { CheckoutConfigResponse } from '../lib/apiTypes';
+import { usePromo } from '../lib/usePromo';
 
 type CheckoutConfig = CheckoutConfigResponse;
 
@@ -33,7 +34,7 @@ export default function Checkout() {
     instructions: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [promoCode, setPromoCode] = useState(''); const [promo, setPromo] = useState<any>(null); const [promoError, setPromoError] = useState('');
+  const { promoCode, setPromoCode, promo, promoError, applyPromo, removePromo } = usePromo(state.cart);
 
   // Delivery fees come ONLY from GET /api/checkout/config — never hardcoded.
   const [config, setConfig] = useState<CheckoutConfig | null>(null);
@@ -522,7 +523,14 @@ export default function Checkout() {
                   <span>{!config ? '…' : deliveryFee === 0 ? 'Free' : formatCurrency(deliveryFee)}</span>
                 </div>
               )}
-              <div className="pt-2"><div className="flex gap-2"><input value={promoCode} onChange={e => { setPromoCode(e.target.value); setPromoError(''); }} placeholder="Promo code" className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm" /><Button size="sm" variant="outline" onClick={async () => { try { const r:any=await apiFetch('/api/promo/validate',{method:'POST',body:JSON.stringify({code:promoCode,cart:state.cart.map(i=>({productId:i.product.id,size:String(i.size),quantity:i.quantity}))})});setPromo(r);setPromoCode(r.code); } catch(e:any){setPromo(null);setPromoError(e.message||'Could not apply promo code.');} }}>Apply</Button></div>{promo && <div className="mt-2 flex items-center justify-between rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-800"><span>{promo.code} · -{formatCurrency(promo.discount)} · applies to: {promo.appliesTo.map((p:any)=>p.name).join(', ')}</span><button onClick={()=>{setPromo(null);setPromoCode('');}}>Remove</button></div>}{promoError&&<p className="mt-1 text-xs text-red-600">{promoError}</p>}</div>
+              <div className="pt-2">
+                <div className="flex gap-2">
+                  <input value={promoCode} onChange={event => setPromoCode(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
+                  <Button size="sm" variant="outline" onClick={applyPromo}>Apply</Button>
+                </div>
+                {promo && <div className="mt-2 flex items-center justify-between rounded bg-emerald-50 px-2 py-1 text-xs text-emerald-800"><span>{promo.code} · -{formatCurrency(promo.discount)} · applies to: {promo.appliesTo.map((product: any) => product.name).join(', ')}</span><button onClick={removePromo}>Remove</button></div>}
+                {promoError && <p className="mt-1 text-xs text-red-600">{promoError}</p>}
+              </div>
               {promo && <div className="flex justify-between text-sm text-emerald-700"><span>Discount ({promo.code})</span><span>-{formatCurrency(promo.discount)}</span></div>}
               <div className="flex justify-between font-semibold border-t border-neutral-200 pt-3">
                 <span>{serverTotal != null ? 'Amount to pay' : 'Estimated Total'}</span>
