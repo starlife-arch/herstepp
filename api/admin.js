@@ -22,6 +22,7 @@ export default (req, res) => dispatchRoute(req, res, {
   support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminList }))),
   'support/status': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminStatus }))),
   'support/read': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminRead }))),
+  'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminMessage }))),
   'support/notes': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminNotes }))),
   // GET /api/admin/notifications — email/Telegram config status + outbox stats.
   'notifications': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationStatus }))),
