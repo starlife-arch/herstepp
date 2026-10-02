@@ -1,1 +1,11 @@
-import {dispatchRoute,lazyRoute}from'./_lib/route-dispatch.js';export default(req,res)=>dispatchRoute(req,res,{'auth/sync-profile':lazyRoute(()=>import('./_lib/routes/sync-profile.js')),dashboard:lazyRoute(()=>import('./_lib/routes/dashboard.js').then(m=>({default:m.dashboard}))),notifications:lazyRoute(()=>import('./_lib/routes/dashboard.js').then(m=>({default:m.notifications}))),support:lazyRoute(()=>import('./_lib/routes/support.js').then(m=>({default:m.list}))),'support/create':lazyRoute(()=>import('./_lib/routes/support.js').then(m=>({default:m.create}))),'support/messages':lazyRoute(()=>import('./_lib/routes/support.js').then(m=>({default:m.message})))});
+import { dispatchRoute, lazyRoute } from './_lib/route-dispatch.js';
+
+export default (req, res) => dispatchRoute(req, res, {
+  'auth/sync-profile': lazyRoute(() => import('./_lib/routes/sync-profile.js')),
+  dashboard: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.dashboard }))),
+  notifications: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.notifications }))),
+  support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.list }))),
+  'support/create': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.create }))),
+  'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.message }))),
+  'support/sign-upload': lazyRoute(() => import('./_lib/routes/support-sign-upload.js')),
+});
