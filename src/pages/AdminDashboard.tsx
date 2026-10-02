@@ -10,6 +10,8 @@ import { apiFetch } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { ORDER_STATUSES, nextOrderStatuses, humanStatus } from '../lib/orderTransitions';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
+import { deliveryFee as previewDeliveryFee, normalizeDelivery } from '../lib/delivery';
+import type { AdminDeliveryResponse } from '../lib/apiTypes';
 
 // formatCurrency/formatDate accept Firestore Timestamps and strings too; keep a
 // local wrapper so the admin tables never crash on odd shapes (safe defaults).
@@ -109,6 +111,72 @@ function ComingSoon({ title }: { title: string }) {
       </Card>
     </div>
   );
+}
+
+type AreaRow = { name: string; fee: string };
+
+function DeliverySettings() {
+  const [deliveryEnabled, setDeliveryEnabled] = useState(false);
+  const [kiambu, setKiambu] = useState('200');
+  const [defaultCounty, setDefaultCounty] = useState('500');
+  const [areas, setAreas] = useState<AreaRow[]>([]);
+  const [previewLocation, setPreviewLocation] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/admin/delivery').then((raw: AdminDeliveryResponse) => {
+      if (cancelled) return;
+      const settings = normalizeDelivery(raw);
+      setDeliveryEnabled(settings.deliveryEnabled);
+      setKiambu(String(settings.deliveryRates.kiambu));
+      setDefaultCounty(String(settings.deliveryRates.defaultCounty));
+      setAreas(Object.entries(settings.deliveryRates.counties).map(([name, fee]) => ({ name, fee: String(fee) })));
+    }).catch((error: Error) => !cancelled && setMessage({ type: 'error', text: error.message || 'Could not load delivery settings.' }))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, []);
+
+  const previewSettings = normalizeDelivery({ deliveryEnabled, deliveryRates: {
+    kiambu: Number(kiambu), defaultCounty: Number(defaultCounty),
+    counties: Object.fromEntries(areas.map(area => [area.name.trim(), Number(area.fee)])),
+  } });
+  const preview = previewDeliveryFee(previewSettings, previewLocation);
+  const updateArea = (index: number, field: keyof AreaRow, value: string) => setAreas(rows => rows.map((row, i) => i === index ? { ...row, [field]: value } : row));
+  const save = async () => {
+    setSaving(true); setMessage(null);
+    try {
+      const counties = Object.fromEntries(areas.map(area => [area.name.trim(), Number(area.fee)]));
+      const result = await apiFetch('/api/admin/delivery', { method: 'PATCH', body: JSON.stringify({ deliveryEnabled, deliveryRates: { kiambu: Number(kiambu), defaultCounty: Number(defaultCounty), counties } }) }) as AdminDeliveryResponse;
+      const settings = normalizeDelivery(result);
+      setKiambu(String(settings.deliveryRates.kiambu)); setDefaultCounty(String(settings.deliveryRates.defaultCounty));
+      setAreas(Object.entries(settings.deliveryRates.counties).map(([name, fee]) => ({ name, fee: String(fee) })));
+      setMessage({ type: 'success', text: 'Delivery settings saved.' });
+    } catch (error: any) { setMessage({ type: 'error', text: error?.message || 'Could not save delivery settings.' }); }
+    finally { setSaving(false); }
+  };
+
+  if (loading) return <LoadingCard />;
+  return <div className="space-y-6 animate-fadeIn">
+    <div><h1 className="text-2xl font-bold text-neutral-900">Settings</h1><p className="text-sm text-neutral-500">Configure checkout delivery availability and rates.</p></div>
+    <Card className="p-6 space-y-6">
+      <div className="flex items-start justify-between gap-4">
+        <div><h2 className="text-lg font-semibold text-neutral-900">Delivery</h2><p className="text-sm text-neutral-500 mt-1">Juja is always free. Collection is always available.</p></div>
+        <label className="inline-flex items-center gap-2 text-sm font-medium text-neutral-700 cursor-pointer"><input type="checkbox" checked={deliveryEnabled} onChange={e => setDeliveryEnabled(e.target.checked)} className="h-4 w-4" /> Offer delivery</label>
+      </div>
+      {!deliveryEnabled && <div role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Customers can only choose collection.</div>}
+      {message && <div role="status" className={`rounded-lg px-4 py-3 text-sm ${message.type === 'success' ? 'bg-emerald-50 text-emerald-800 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>{message.text}</div>}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><Input label="Kiambu fee" type="number" min="0" step="1" value={kiambu} onChange={e => setKiambu(e.target.value)} /><Input label="Other areas (default) fee" type="number" min="0" step="1" value={defaultCounty} onChange={e => setDefaultCounty(e.target.value)} /></div>
+      <div className="space-y-3"><div><h3 className="font-medium text-neutral-900">Specific areas</h3><p className="text-xs text-neutral-500">Add an area name and its fee. Matching is case-insensitive.</p></div>
+        {areas.map((area, index) => <div className="flex gap-2" key={index}><input aria-label={`Area ${index + 1} name`} value={area.name} maxLength={80} onChange={e => updateArea(index, 'name', e.target.value)} placeholder="Area name" className="min-w-0 flex-1 px-3.5 py-2.5 border border-neutral-300 rounded-lg text-sm" /><input aria-label={`Area ${index + 1} fee`} value={area.fee} type="number" min="0" step="1" onChange={e => updateArea(index, 'fee', e.target.value)} placeholder="Fee" className="w-28 px-3.5 py-2.5 border border-neutral-300 rounded-lg text-sm" /><Button type="button" variant="outline" onClick={() => setAreas(rows => rows.filter((_, i) => i !== index))}>Remove</Button></div>)}
+        <Button type="button" variant="outline" onClick={() => setAreas(rows => [...rows, { name: '', fee: '0' }])}>Add area</Button>
+      </div>
+      <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-4"><h3 className="font-medium text-neutral-900">Fee preview</h3><div className="mt-3 flex flex-col sm:flex-row gap-3 sm:items-end"><div className="flex-1"><Input label="Location" value={previewLocation} onChange={e => setPreviewLocation(e.target.value)} placeholder="Type a delivery location" /></div><p className="pb-2 text-sm text-neutral-700">{deliveryEnabled ? <>Fee: <strong>{preview === 0 ? 'Free' : formatCurrency(preview)}</strong></> : 'Delivery is off'}</p></div></div>
+      <div className="flex justify-end"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button></div>
+    </Card>
+  </div>;
 }
 
 export default function AdminDashboard() {
@@ -212,7 +280,7 @@ export default function AdminDashboard() {
           {activeSection === 'support' && <ComingSoon title="Support" />}
           {activeSection === 'promotions' && <ComingSoon title="Promotions" />}
           {activeSection === 'notifications' && <ComingSoon title="Notifications" />}
-          {activeSection === 'settings' && <ComingSoon title="Settings" />}
+          {activeSection === 'settings' && <DeliverySettings />}
         </div>
       </main>
     </div>

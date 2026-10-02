@@ -141,7 +141,18 @@ export interface CreateOrderResponse {
 export interface CheckoutConfigResponse {
   deliveryEnabled: boolean;
   collectionEnabled: boolean;
-  deliveryRates: Record<string, number>;
+  collectionLocation: string;
+  deliveryRates: {
+    outsideJuja: number;
+    kiambu: number;
+    defaultCounty: number;
+    counties: Record<string, number>;
+  };
+}
+
+export interface AdminDeliveryResponse {
+  deliveryEnabled: boolean;
+  deliveryRates: CheckoutConfigResponse['deliveryRates'];
 }
 
 // GET /api/products (+ /api/admin/products)

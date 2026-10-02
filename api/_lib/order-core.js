@@ -7,6 +7,7 @@
 // `inventory.0.quantity`, which Firestore turns into a map and corrupts the doc.
 import { clientError } from './http.js';
 import { queuePaymentEmail, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
+import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 
 export const ORDER_STATUS = {
   PENDING: 'PENDING',
@@ -55,16 +56,6 @@ export async function loadCheckoutSettings(db) {
   return snapshot.exists ? snapshot.data() || {} : {};
 }
 
-export function computeDeliveryFee(settings, location) {
-  const rates = settings?.deliveryRates || {};
-  const counties = rates.counties || {};
-  const text = typeof location === 'string' ? location.toLowerCase() : '';
-  const match = Object.entries(counties).find(([name]) => name && text.includes(String(name).toLowerCase()));
-  if (match && Number.isInteger(match[1])) return match[1];
-  if (text.includes('juja')) return Number.isInteger(rates.outsideJuja) ? rates.outsideJuja : 100;
-  if (text.includes('kiambu')) return Number.isInteger(rates.kiambu) ? rates.kiambu : 200;
-  return Number.isInteger(rates.defaultCounty) ? rates.defaultCounty : 500;
-}
 
 // ---------------------------------------------------------------------------
 // Cart validation — every rejection happens BEFORE any Firestore write.
@@ -227,7 +218,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       plan.push({ ref: snap.ref, data, inventory, changes });
     }
 
-    const deliveryFee = method === 'COLLECTION' ? 0 : computeDeliveryFee(settings, location);
+    const deliveryFee = method === 'COLLECTION' ? 0 : calculateDeliveryFee(settings, location);
     const discount = 0; // promotions arrive in Phase 2 — always zero for now
     const total = subtotal + deliveryFee - discount;
     if (!Number.isInteger(total) || total <= 0) throw clientError('We could not calculate the order total.');

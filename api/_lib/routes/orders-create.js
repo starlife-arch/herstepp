@@ -12,8 +12,9 @@ import { adminDb, requireUser } from '../firebase-admin.js';
 import { normalizeKenyanPhone } from '../phone.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { createOrderCore, expireStaleOrders } from '../order-core.js';
+import { COLLECTION_LOCATION, normalizeDelivery } from '../delivery.js';
 
-const LOCATION = 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12';
+const LOCATION = COLLECTION_LOCATION;
 
 // Simple in-memory per-instance limiter (5 orders / minute / user). It is a
 // courtesy guard against hammering; prices and stock are still revalidated
@@ -61,11 +62,11 @@ export async function create(req, res) {
 export async function config(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
   const snapshot = await adminDb.doc('settings/checkout').get();
-  const d = snapshot.exists ? snapshot.data() || {} : {};
+  const delivery = normalizeDelivery(snapshot.exists ? snapshot.data() || {} : {});
   return res.json({
     collectionEnabled: true,
     collectionLocation: LOCATION,
-    deliveryEnabled: d.deliveryEnabled === true,
-    deliveryRates: d.deliveryEnabled === true ? (d.deliveryRates || null) : null,
+    deliveryEnabled: delivery.deliveryEnabled,
+    deliveryRates: delivery.deliveryRates,
   });
 }

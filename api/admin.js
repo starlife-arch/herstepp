@@ -24,4 +24,6 @@ export default (req, res) => dispatchRoute(req, res, {
   'notifications/test': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationTest }))),
   // POST /api/admin/notifications/retry — retry PENDING outbox emails
   'notifications/retry': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationRetry }))),
+  // GET/PATCH /api/admin/delivery
+  delivery: lazyRoute(() => import('./_lib/routes/admin-delivery.js')),
 });

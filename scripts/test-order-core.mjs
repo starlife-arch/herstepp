@@ -14,6 +14,7 @@ import {
   unitPrice,
   PAYMENT_STATUS,
 } from '../api/_lib/order-core.js';
+import { deliveryFee, validateDelivery } from '../api/_lib/delivery.js';
 
 let passed = 0;
 const failures = [];
@@ -146,11 +147,26 @@ await test('two sizes of ONE product decrement correctly with a single product u
   const product = db.__doc('products', PRODUCT_ID);
   const bySize = Object.fromEntries(product.inventory.map(i => [i.size, i.quantity]));
   assert.deepEqual(bySize, { '38': 3, '40': 2, '42': 2 });
-  // subtotal 2*4000 + 1*4000 = 12000, delivery to Juja = 100
+  // subtotal 2*4000 + 1*4000 = 12000, delivery to Juja is always free.
   const order = db.__list('orders')[0].data;
   assert.equal(order.subtotal, 12000);
-  assert.equal(order.deliveryFee, 100);
-  assert.equal(order.total, 12100);
+  assert.equal(order.deliveryFee, 0);
+  assert.equal(order.total, 12000);
+  assert.equal(order.total, order.subtotal + order.deliveryFee - order.discount, 'server total is subtotal + fee - discount');
+});
+
+await test('delivery fees use Juja, Kiambu, configured-area and default rules', async () => {
+  const settings = { deliveryEnabled: true, deliveryRates: { outsideJuja: 100, kiambu: 200, defaultCounty: 500, counties: { Nairobi: 300 } } };
+  assert.equal(deliveryFee(settings, 'Juja'), 0);
+  assert.equal(deliveryFee(settings, 'juja town'), 0);
+  assert.equal(deliveryFee(settings, 'Kiambu road'), 200);
+  assert.equal(deliveryFee(settings, 'Nairobi CBD'), 300);
+  assert.equal(deliveryFee(settings, 'Mombasa'), 500);
+});
+
+await test('delivery settings reject negative and fractional fees', async () => {
+  await assert.rejects(() => validateDelivery({ deliveryEnabled: true, deliveryRates: { kiambu: -1, defaultCounty: 500, counties: {} } }), /Kiambu fee/);
+  await assert.rejects(() => validateDelivery({ deliveryEnabled: true, deliveryRates: { kiambu: 200, defaultCounty: 500, counties: { Nairobi: 1.5 } } }), /whole number/);
 });
 
 await test('order numbers come from orderCounters/{year}.sequence: HS-2026-000001, -000002', async () => {

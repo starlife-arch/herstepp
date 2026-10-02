@@ -97,6 +97,10 @@
       "destination": "/api/admin?route=customers"
     },
     {
+      "source": "/api/admin/delivery",
+      "destination": "/api/admin?route=delivery"
+    },
+    {
       "source": "/api/admin/notifications",
       "destination": "/api/admin?route=notifications"
     },
