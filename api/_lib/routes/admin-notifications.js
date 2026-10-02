@@ -31,34 +31,29 @@ export async function notificationStatus(req, res) {
   const missing = [];
   if (!cfg.apiKey) missing.push('BREVO_API_KEY');
   for (const p of missingSenderPurposes(cfg)) missing.push(`BREVO_SENDER_${p.toUpperCase()}`);
-  if (!cfg.senderName) missing.push('BREVO_SENDER_NAME');
-  if (!cfg.replyTo) missing.push('BREVO_REPLY_TO_EMAIL');
 
-  // Outbox stats: single-field equality queries only (no composite indexes).
-  const stats = { pending: 0, sending: 0, sent: 0 };
-  let recent = [];
+  // Outbox stats use single-field equality queries; sort/count in memory.
+  // `sent7d` is deliberately calculated here, not with a range query, so no
+  // composite Firestore index is needed.
+  const stats = { pending: 0, sent7d: 0, failed: [] };
   try {
-    const [pending, sending, sent] = await Promise.all([
+    const [pending, sent] = await Promise.all([
       adminDb.collection('emailOutbox').where('status', '==', 'PENDING').limit(100).get(),
-      adminDb.collection('emailOutbox').where('status', '==', 'SENDING').limit(100).get(),
-      adminDb.collection('emailOutbox').where('status', '==', 'SENT').limit(50).get(),
+      adminDb.collection('emailOutbox').where('status', '==', 'SENT').limit(100).get(),
     ]);
+    const now = Date.now();
     stats.pending = pending.size;
-    stats.sending = sending.size;
-    stats.sent = sent.size;
-    const all = [...pending.docs, ...sending.docs, ...sent.docs]
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => String(b.createdAt?.toDate?.()?.toISOString?.() ?? b.createdAt ?? '').localeCompare(String(a.createdAt?.toDate?.()?.toISOString?.() ?? a.createdAt ?? '')));
-    recent = all.slice(0, 20).map(e => ({
-      id: e.id,
-      purpose: e.purpose ?? null,
-      to: e.to ?? null,
-      subject: e.subject ?? null,
-      status: e.status ?? null,
-      lastError: e.lastError ?? null,
-      createdAt: iso(e.createdAt),
-      sentAt: iso(e.sentAt),
-    }));
+    stats.sent7d = sent.docs.filter(doc => {
+      const value = doc.data().sentAt;
+      const ms = value?.toMillis ? value.toMillis() : Date.parse(String(value || ''));
+      return Number.isFinite(ms) && now - ms <= 7 * 24 * 60 * 60_000;
+    }).length;
+    stats.failed = pending.docs
+      .map(doc => ({ key: doc.data().key || doc.id, to: doc.data().to || null, lastError: doc.data().lastError || null, createdAt: iso(doc.data().createdAt) }))
+      .filter(row => row.lastError)
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+      .slice(0, 10)
+      .map(({ key, to, lastError }) => ({ key, to, lastError }));
   } catch (error) {
     console.error('[admin/notifications] outbox stats failed:', error?.message || error);
   }
@@ -66,16 +61,16 @@ export async function notificationStatus(req, res) {
   return res.json({
     email: {
       configured: Boolean(cfg.apiKey && missingSenderPurposes(cfg).length === 0),
-      senderName: cfg.senderName || null,
-      replyTo: cfg.replyTo || null,
-      senders: cfg.senders,
+      missingPurposes: missingSenderPurposes(cfg),
       missing,
+      pending: stats.pending,
+      sent7d: stats.sent7d,
+      failed: stats.failed,
     },
     telegram: {
       configured: Boolean(tg.token && tg.chatId),
       missing: [!tg.token && 'TELEGRAM_BOT_TOKEN', !tg.chatId && 'TELEGRAM_CHAT_ID'].filter(Boolean),
     },
-    outbox: { ...stats, recent },
   });
 }
 
