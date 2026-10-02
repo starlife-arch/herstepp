@@ -125,6 +125,18 @@
       "destination": "/api/admin?route=promo-codes"
     },
     {
+      "source": "/api/support",
+      "destination": "/api/users?route=support"
+    },
+    {
+      "source": "/api/support/create",
+      "destination": "/api/users?route=support/create"
+    },
+    {
+      "source": "/api/support/messages",
+      "destination": "/api/users?route=support/messages"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
