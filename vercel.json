@@ -137,6 +137,10 @@
       "destination": "/api/users?route=support/messages"
     },
     {
+      "source": "/api/support/sign-upload",
+      "destination": "/api/users?route=support/sign-upload"
+    },
+    {
       "source": "/api/admin/support",
       "destination": "/api/admin?route=support"
     },
