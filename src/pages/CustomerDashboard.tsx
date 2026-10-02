@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight } from 'lucide-react';
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
@@ -12,7 +12,7 @@ const up = (s: unknown) => String(s ?? '').toUpperCase();
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function CustomerDashboard() {
-  const { state, logout } = useApp();
+  const { state, logout, reloadDashboard } = useApp();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -25,6 +25,15 @@ export default function CustomerDashboard() {
   const pendingOrders = userOrders.filter(o => ['PENDING', 'PROCESSING'].includes(up(o.orderStatus)));
   const completedOrders = userOrders.filter(o => up(o.orderStatus) === 'DELIVERED');
   const unreadNotifs = state.notifications.filter(n => !n.read);
+  useEffect(() => {
+    if (!userOrders.some(order => up(order.paymentStatus) === 'PENDING')) return;
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      if (Date.now() - started > 5 * 60_000) return window.clearInterval(timer);
+      void reloadDashboard();
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [reloadDashboard, userOrders]);
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -104,7 +113,7 @@ export default function CustomerDashboard() {
         </aside>
 
         {/* Content */}
-        <main className="lg:col-span-3">{content}</main>
+        <main className="lg:col-span-3">{state.dashboardWarnings.length > 0 && <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{state.dashboardWarnings.join(' ')}</div>}{content}</main>
       </div>
     </div>
   );
@@ -157,14 +166,17 @@ function OverviewTab({ orders, pendingOrders, completedOrders }: any) {
 // ---------------------------------------------------------------------------
 function OrdersTab({ orders }: any) {
   const [openId, setOpenId] = useState<string | null>(null);
+  const [filter, setFilter] = useState('all');
+  const shownOrders = orders.filter((order: any) => filter === 'all' || (filter === 'unpaid' && up(order.paymentStatus) !== 'PAID') || (filter === 'paid' && up(order.paymentStatus) === 'PAID') || (filter === 'cancelled' && (up(order.paymentStatus) === 'CANCELLED' || up(order.orderStatus) === 'CANCELLED')));
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-neutral-900">My Orders</h2>
-      {orders.length === 0 ? (
+      <div className="flex gap-2">{['all', 'unpaid', 'paid', 'cancelled'].map(value => <button key={value} onClick={() => setFilter(value)} className={`rounded-full px-3 py-1.5 text-sm ${filter === value ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}>{value.charAt(0).toUpperCase() + value.slice(1)}</button>)}</div>
+      {shownOrders.length === 0 ? (
         <Card className="p-8"><EmptyState title="No orders yet" description="Your order history will appear here." action={<Link to="/shop"><Button size="sm">Start Shopping</Button></Link>} /></Card>
       ) : (
         <div className="space-y-4">
-          {orders.map((order: any) => {
+          {shownOrders.map((order: any) => {
             const isOpen = openId === order.id;
             const items = Array.isArray(order.items) ? order.items : [];
             const history = Array.isArray(order.statusHistory) ? order.statusHistory : [];
@@ -227,6 +239,7 @@ function OrdersTab({ orders }: any) {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
                       <InfoLine label="Payment" value={getStatusBadge(up(order.paymentStatus)).label} />
                       {up(order.paymentStatus) === 'PAID' && <InfoLine label="Receipt" value={order.receiptNumber || '—'} />}
+                      {order.failureReason && <InfoLine label="Payment issue" value={order.failureReason} />}
                     </div>
 
                     {/* Status history timeline */}
@@ -248,7 +261,7 @@ function OrdersTab({ orders }: any) {
 
                     <div className="flex items-center justify-between pt-2 border-t border-neutral-100">
                       <span className="text-sm text-neutral-500">Placed {formatDate(order.createdAt)}</span>
-                      <Link to={`/track?order=${encodeURIComponent(order.orderId)}`} className="text-sm font-medium text-neutral-700 hover:text-neutral-900">Track Order</Link>
+                      <div className="flex gap-3"><Link to={`/track?order=${encodeURIComponent(order.orderId)}`} className="text-sm font-medium text-neutral-700 hover:text-neutral-900">Track Order</Link>{up(order.paymentStatus) !== 'PAID' && up(order.paymentStatus) !== 'CANCELLED' && up(order.orderStatus) !== 'CANCELLED' && <Link to={`/checkout?order=${encodeURIComponent(order.id)}`}><Button size="sm">Pay now</Button></Link>}</div>
                     </div>
                   </div>
                 )}

@@ -8,6 +8,8 @@ import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare
 import { useApp } from '../context/AppContext';
 import { apiFetch } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
+import { SupportChat } from '../components/SupportChat';
+import { toUiTicket } from '../lib/supportAdapter';
 import { ORDER_STATUSES, nextOrderStatuses, humanStatus } from '../lib/orderTransitions';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
 import { deliveryFee as previewDeliveryFee, normalizeDelivery } from '../lib/delivery';
@@ -94,6 +96,25 @@ function relativeTime(iso: string): string {
   if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
   const days = Math.floor(hours / 24);
   return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+function AdminSupport({ tickets }: { tickets: any[] }) {
+  const [selected, setSelected] = useState<any>(null);
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [notes, setNotes] = useState<any[]>([]);
+  const [note, setNote] = useState('');
+  const open = async (ticket: any) => {
+    setSelected(ticket);
+    await apiFetch('/api/admin/support/read', { method: 'POST', body: JSON.stringify({ ticketDocumentId: ticket.id }) }).catch(() => undefined);
+    const result: any = await apiFetch(`/api/admin/support/notes?ticketDocumentId=${encodeURIComponent(ticket.id)}`).catch(() => ({ notes: [] }));
+    setNotes(result.notes || []);
+  };
+  const changeStatus = async (status: string) => {
+    await apiFetch('/api/admin/support/status', { method: 'PATCH', body: JSON.stringify({ ticketDocumentId: selected.id, status }) });
+    setSelected({ ...selected, status: toUiTicket({ ...selected, status }, []).status });
+  };
+  if (selected) return <div className="space-y-4"><Card className="p-4"><div className="flex items-center gap-3"><a className="text-sm font-mono text-neutral-600" href={selected.orderDocumentId ? `/orders/${selected.orderDocumentId}` : undefined}>{selected.orderId || 'No linked order'}</a><select value="" onChange={event => event.target.value && changeStatus(event.target.value)} className="px-3 py-2 border border-neutral-300 rounded-lg text-sm"><option value="">Change status</option>{({ open: ['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'], in_progress: ['WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'], waiting_customer: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'], resolved: ['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'CLOSED'], closed: [] } as any)[selected.status].map((status: string) => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}</select><Button variant="outline" size="sm" onClick={() => setNotesOpen(value => !value)}>Internal notes</Button></div>{notesOpen && <div className="mt-4 space-y-2"><div className="space-y-1">{notes.map(item => <p key={item.id} className="text-sm text-neutral-600">{item.authorName}: {item.body}</p>)}</div><div className="flex gap-2"><input value={note} onChange={event => setNote(event.target.value)} className="flex-1 px-3 py-2 border border-neutral-300 rounded-lg text-sm" placeholder="Add internal note" /><Button size="sm" onClick={async () => { if (!note.trim()) return; await apiFetch('/api/admin/support/notes', { method: 'POST', body: JSON.stringify({ ticketDocumentId: selected.id, body: note }) }); setNote(''); }}>Add</Button></div></div>}</Card><SupportChat ticket={selected} admin onBack={() => setSelected(null)} /></div>;
+  return <div className="space-y-6 animate-fadeIn"><h1 className="text-2xl font-bold text-neutral-900">Support Tickets</h1><div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6"><StatCard title="Open" value={tickets.filter(ticket => ticket.status === 'open').length.toString()} /><StatCard title="In Progress" value={tickets.filter(ticket => ticket.status === 'in_progress').length.toString()} /><StatCard title="Resolved" value={tickets.filter(ticket => ticket.status === 'resolved').length.toString()} /><StatCard title="Closed" value={tickets.filter(ticket => ticket.status === 'closed').length.toString()} /></div><div className="space-y-3">{tickets.map(ticket => <Card key={ticket.id} className="p-4"><div onClick={() => open(ticket)} className="flex items-start justify-between cursor-pointer"><div><div className="flex items-center gap-2 mb-1"><span className="text-xs font-mono text-neutral-500">{ticket.ticketId}</span><Badge variant={getStatusBadge(ticket.status).variant}>{getStatusBadge(ticket.status).label}</Badge></div><p className="font-medium text-sm text-neutral-900">{ticket.subject}</p><p className="text-xs text-neutral-500 mt-1">{ticket.customerName} | {ticket.category}</p></div><Button variant="ghost" size="sm">Open</Button></div></Card>)}</div></div>;
 }
 
 function ComingSoon({ title }: { title: string }) {
@@ -214,6 +235,9 @@ export default function AdminDashboard() {
   const [activeSection, setActiveSection] = useState('overview');
 
   const ordersRes = useAdminData<any>('/api/admin/orders');
+  const supportRes = useAdminData<any>('/api/admin/support');
+  const supportTickets = useMemo(() => (supportRes.data?.tickets || []).map((ticket: any) => toUiTicket(ticket, [])), [supportRes.data]);
+  const unreadSupport = supportTickets.filter((ticket: any) => ticket.hasUnreadAdminMessages).length;
   // GET /api/admin/orders returns { orders: [...], printpay: {...} } (wrapped).
   // Normalise defensively so BOTH the wrapped shape and a legacy bare array work.
   const orders = useMemo(() => {
@@ -266,6 +290,7 @@ export default function AdminDashboard() {
             >
               <item.icon className="w-4 h-4" />
               {item.label}
+              {item.id === 'support' && unreadSupport > 0 && <span className="ml-auto bg-neutral-900 text-white text-xs rounded-full px-1.5 py-0.5">{unreadSupport}</span>}
             </button>
           ))}
         </nav>
@@ -306,7 +331,7 @@ export default function AdminDashboard() {
           {activeSection === 'products' && <AdminProducts />}
           {activeSection === 'customers' && <AdminCustomers />}
           {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
-          {activeSection === 'support' && <ComingSoon title="Support" />}
+          {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
           {activeSection === 'promotions' && <PromotionsPanel />}
           {activeSection === 'notifications' && <NotificationsPanel />}
           {activeSection === 'settings' && <DeliverySettings />}
