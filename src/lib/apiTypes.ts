@@ -155,6 +155,18 @@ export interface AdminDeliveryResponse {
   deliveryRates: CheckoutConfigResponse['deliveryRates'];
 }
 
+export interface AdminNotificationsResponse {
+  email: {
+    configured: boolean;
+    missingPurposes: string[];
+    missing: string[];
+    pending: number;
+    sent7d: number;
+    failed: { key: string; to: string | null; lastError: string | null }[];
+  };
+  telegram: { configured: boolean; missing: string[] };
+}
+
 // GET /api/products (+ /api/admin/products)
 export interface ProductsResponse {
   products: Record<string, unknown>[];
