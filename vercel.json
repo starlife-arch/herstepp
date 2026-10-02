@@ -137,6 +137,22 @@
       "destination": "/api/users?route=support/messages"
     },
     {
+      "source": "/api/admin/support",
+      "destination": "/api/admin?route=support"
+    },
+    {
+      "source": "/api/admin/support/status",
+      "destination": "/api/admin?route=support/status"
+    },
+    {
+      "source": "/api/admin/support/read",
+      "destination": "/api/admin?route=support/read"
+    },
+    {
+      "source": "/api/admin/support/notes",
+      "destination": "/api/admin?route=support/notes"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
