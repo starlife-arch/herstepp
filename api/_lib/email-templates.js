@@ -53,6 +53,10 @@ export function emailHtml(title, body, { ctaLabel, ctaUrl } = {}) {
 </body></html>`;
 }
 
+export function buildEmail(title, body, options = {}) {
+  return { subject: String(title), htmlContent: emailHtml(title, body, options) };
+}
+
 const money = n => `KSh ${(Number(n) || 0).toLocaleString('en-KE')}`;
 
 const STATUS_COLOURS = { PAID: '#1f6a53', PENDING: '#a25f20' };

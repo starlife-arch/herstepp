@@ -273,7 +273,7 @@ export async function cancel(req, res) {
         reason,
       });
     } catch (error) {
-      if (error?.status === 409) {
+      if (error?.statusCode === 409) {
         // Already terminalised concurrently (webhook race) — return the truth.
         const refreshed = await paymentRef.get();
         if (refreshed.exists) data = refreshed.data();

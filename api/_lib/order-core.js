@@ -8,6 +8,7 @@
 import { clientError } from './http.js';
 import { queuePaymentEmail, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
+import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 
 export const ORDER_STATUS = {
   PENDING: 'PENDING',
@@ -138,7 +139,7 @@ export function requireInventoryArray(productDocId, productData) {
 // POST /api/orders/create — all reads happen before all writes inside ONE
 // transaction; order numbers come from orderCounters/{year}.sequence.
 // ---------------------------------------------------------------------------
-export async function createOrderCore(db, deps, { uid, email, emailVerified, cart, delivery }) {
+export async function createOrderCore(db, deps, { uid, email, emailVerified, cart, delivery, promoCode }) {
   const { now = () => new Date(), constants } = deps;
   const LOCATION = constants?.LOCATION ?? 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12';
 
@@ -168,6 +169,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
 
   const year = now().getUTCFullYear();
   const groups = groupByProduct(lines);
+  const requestedPromo = promoCode == null || promoCode === '' ? null : normalisePromoCode(promoCode);
 
   return db.runTransaction(async tx => {
     // ---- ALL READS FIRST -------------------------------------------------
@@ -219,11 +221,24 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
     }
 
     const deliveryFee = method === 'COLLECTION' ? 0 : calculateDeliveryFee(settings, location);
-    const discount = 0; // promotions arrive in Phase 2 — always zero for now
+    let discount = 0; let promotion = null; let promoRef = null; let promoUsageRef = null; let promo = null; let promoUsage = 0;
+    if (requestedPromo) {
+      promoRef = db.collection('promoCodes').doc(requestedPromo); const promoSnap = await tx.get(promoRef);
+      if (!promoSnap.exists) throw clientError('This promo code is invalid.', 404); promo = promoSnap.data();
+      promoUsageRef = db.collection('promoCodeUsages').doc(`${requestedPromo}_${uid}`); const usageSnap = await tx.get(promoUsageRef); promoUsage = Number(usageSnap.exists ? usageSnap.data()?.usageCount : 0);
+      if (Number(promo.usageCount || 0) >= Number(promo.maximumUsage ?? Infinity)) throw clientError('This promo code has reached its usage limit.', 409);
+      if (promoUsage >= Number(promo.perCustomerUsage ?? 1)) throw clientError('You have already used this promo code.', 409);
+      const calculated = calculatePromoDiscount(promo, items, subtotal, now()); discount = Math.min(calculated.discount, Math.max(0, subtotal + deliveryFee - 1));
+      promotion = { code: requestedPromo, name: promo.name, discountType: promo.discountType, discountValue: promo.discountValue };
+    }
     const total = subtotal + deliveryFee - discount;
-    if (!Number.isInteger(total) || total <= 0) throw clientError('We could not calculate the order total.');
+    if (!Number.isInteger(total) || total < 1) throw clientError('We could not calculate the order total.');
 
     // ---- ALL WRITES SECOND -----------------------------------------------
+    if (promoRef && promoUsageRef && promo) {
+      tx.update(promoRef, { usageCount: Number(promo.usageCount || 0) + 1, updatedAt: deps.serverTimestamp() });
+      tx.set(promoUsageRef, { code: requestedPromo, customerId: uid, usageCount: promoUsage + 1, updatedAt: deps.serverTimestamp() }, { merge: true });
+    }
     tx.set(counterRef, { sequence, year }, { merge: true });
 
     const orderRef = db.collection('orders').doc();
@@ -241,6 +256,8 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       subtotal,
       deliveryFee,
       discount,
+      promoCode: requestedPromo,
+      promotion,
       total,
       currency: 'KES',
       // Exactly the AGENTS.md contract shape — payments/stk/initiate reads
@@ -445,6 +462,16 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       throw clientError(`Payment transition ${from} -> ${status} is not allowed.`, 409);
     }
 
+    // Fetch every stock document before the first transaction write. Firestore
+    // transactions reject reads after a write.
+    let preloadedRestoreRefs = [];
+    let preloadedRestoreSnaps = [];
+    if (status !== PAYMENT_STATUS.PAID && order.inventoryReserved === true) {
+      const ids = [...new Set((order.items || []).map(i => i.productId))];
+      preloadedRestoreRefs = ids.map(id => db.collection('products').doc(id));
+      preloadedRestoreSnaps = preloadedRestoreRefs.length ? await tx.getAll(...preloadedRestoreRefs) : [];
+    }
+
     // ---- WRITES ----
     tx.set(idemRef, {
       paymentId: paymentRef.id,
@@ -532,8 +559,8 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     let restored = [];
     if (status !== PAYMENT_STATUS.PAID && order.inventoryReserved === true) {
       const byProduct = groupByProduct((order.items || []).map(i => ({ productId: i.productId, size: i.size, quantity: i.quantity })));
-      const refs = [...byProduct.keys()].map(id => db.collection('products').doc(id));
-      const snaps = refs.length ? await tx.getAll(...refs) : [];
+      const refs = preloadedRestoreRefs;
+      const snaps = preloadedRestoreSnaps;
       for (let n = 0; n < snaps.length; n += 1) {
         const snap = snaps[n];
         if (!snap.exists) continue;
@@ -648,6 +675,15 @@ function flushPaymentEmails(db, result) {
   });
 }
 
+
+async function releasePromoUsage(tx, db, order, deps) {
+  if (!order.promoCode || order.promoReleased === true) return;
+  const promoRef = db.collection('promoCodes').doc(order.promoCode);
+  const usageRef = db.collection('promoCodeUsages').doc(`${order.promoCode}_${order.customerId}`);
+  const [promoSnap, usageSnap] = await Promise.all([tx.get(promoRef), tx.get(usageRef)]);
+  if (promoSnap.exists) tx.update(promoRef, { usageCount: Math.max(0, Number(promoSnap.data().usageCount || 0) - 1), updatedAt: deps.serverTimestamp() });
+  if (usageSnap.exists) tx.update(usageRef, { usageCount: Math.max(0, Number(usageSnap.data().usageCount || 0) - 1), updatedAt: deps.serverTimestamp() });
+}
 // ---------------------------------------------------------------------------
 // Admin PATCH /api/admin/orders — status transitions. Cancelling an UNPAID
 // order restores reserved stock in the same transaction (new inventory arrays
@@ -735,10 +771,12 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
       }
     }
 
+    if (orderStatus === 'CANCELLED') await releasePromoUsage(tx, db, order, deps);
     tx.update(orderRef, {
       orderStatus,
       ...(orderStatus === 'CANCELLED'
         ? {
+            promoReleased: order.promoReleased === true ? true : true,
             activePaymentId: null,
             // Never leave "Cancelled order + Pending payment" on screen.
             ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.CANCELLED } : {}),
@@ -905,8 +943,10 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
           }
         }
 
+        await releasePromoUsage(tx, db, order, deps);
         tx.update(orderRef, {
           orderStatus: 'CANCELLED',
+          promoReleased: order.promoReleased === true ? true : true,
           ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.TIMEOUT } : {}),
           activePaymentId: null,
           ...(restorePlan.length ? { inventoryReserved: false } : {}),

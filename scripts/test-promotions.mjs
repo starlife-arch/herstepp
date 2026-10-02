@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { calculatePromoDiscount, normalisePromoCode } from '../api/_lib/promotion.js';
+const base={active:true,startsAt:'2020-01-01',endsAt:'2099-01-01',minimumOrderValue:0,productIds:[],categoryIds:[],discountType:'PERCENTAGE',discountValue:10};
+const lines=[{productId:'heel',categoryId:'heels',lineTotal:1999},{productId:'boot',categoryId:'boots',lineTotal:1000}];
+assert.equal(calculatePromoDiscount({...base,productIds:['heel']},lines,2999).discount,199);
+assert.equal(calculatePromoDiscount({...base,categoryIds:['boots']},lines,2999).discount,100);
+assert.equal(calculatePromoDiscount(base,lines,2999).discount,299);
+assert.equal(calculatePromoDiscount({...base,discountType:'FIXED',discountValue:5000,productIds:['boot']},lines,2999).discount,1000);
+assert.throws(()=>calculatePromoDiscount({...base,active:false},lines,2999),/inactive/);
+assert.throws(()=>calculatePromoDiscount({...base,minimumOrderValue:3000},lines,2999),/higher order/);
+assert.equal(normalisePromoCode(' shoe-10 '),'SHOE-10');
+console.log('7 promotion calculation tests passed');
