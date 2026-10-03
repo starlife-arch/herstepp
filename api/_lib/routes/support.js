@@ -96,7 +96,7 @@ export async function adminMessage(req, res) {
     if (ticket.data().status === 'CLOSED') throw clientError('This support ticket has been closed.', 409);
     const messageRef = ref.collection('messages').doc(body.clientMessageId);
     if ((await tx.get(messageRef)).exists) return;
-    const senderName = admin.displayName || admin.email || '';
+    const senderName = 'HerStep Support';
     tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
     tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticket.data().messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
   });
