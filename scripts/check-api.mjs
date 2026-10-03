@@ -44,7 +44,7 @@ function walk(dir, out = []) {
     const full = path.join(dir, name);
     const st = statSync(full);
     if (st.isDirectory()) walk(full, out);
-    else if (/\.(js|mjs)$/.test(name)) out.push(full);
+    else if (/\.(js|mjs|ts|tsx)$/.test(name)) out.push(full);
   }
   return out;
 }
@@ -52,7 +52,7 @@ function walk(dir, out = []) {
 let failed = false;
 
 // ---- Phase 1: syntax check -------------------------------------------------
-const files = [...walk(path.join(root, 'api')), ...walk(path.join(root, 'scripts'))];
+const files = [...walk(path.join(root, 'api')), ...walk(path.join(root, 'scripts'))].filter(file => /\.(js|mjs)$/.test(file));
 for (const file of files) {
   const r = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   if (r.status !== 0) {
@@ -73,8 +73,8 @@ async function importCheck(file) {
 }
 
 const importTargets = [
-  ...walk(path.join(root, 'api')).filter(f => path.dirname(f) === path.join(root, 'api')), // api/*.js entries
-  ...walk(path.join(root, 'api', '_lib', 'routes')),                                        // all route modules
+  ...walk(path.join(root, 'api')).filter(f => /\.js$/.test(f) && path.dirname(f) === path.join(root, 'api')), // api/*.js entries
+  ...walk(path.join(root, 'api', '_lib', 'routes')).filter(f => /\.js$/.test(f)),                                        // all route modules
 ];
 
 let importFails = 0;
@@ -152,6 +152,16 @@ if (vercelJson) {
     }
   }
   console.log(`check-api: ${rewrites.length} rewrite(s) validated against area route maps: ${rewriteFails ? `${rewriteFails} FAILED` : 'all OK'}`);
+}
+
+// ---- Phase 4: readable source ---------------------------------------------
+const sourceFiles = [...walk(path.join(root, 'api')), ...walk(path.join(root, 'src'))].filter(file => /\.(js|mjs|ts|tsx)$/.test(file));
+for (const file of sourceFiles) {
+  const longLine = readFileSync(file, 'utf8').split(/\r?\n/).findIndex(line => line.length > 400);
+  if (longLine >= 0) {
+    failed = true;
+    console.error(`FORMAT FAIL: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
+  }
 }
 
 if (failed) {
