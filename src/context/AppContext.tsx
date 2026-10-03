@@ -391,7 +391,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }
 
         try {
-          const profile = await getDoc(doc(db, 'users', firebaseUser.uid));
+          let profile = await getDoc(doc(db, 'users', firebaseUser.uid));
+          for (let attempt = 0; !profile.exists() && attempt < 8; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            profile = await getDoc(doc(db, 'users', firebaseUser.uid));
+          }
           if (!profile.exists()) throw new Error('Profile not found.');
           const data = profile.data();
           if (!isRole(data.role)) throw new Error('Profile has an invalid role.');

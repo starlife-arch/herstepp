@@ -53,3 +53,5 @@ The Firestore rules already cover these collections; never loosen them.
 - Before editing any existing page, view the current file and make the smallest edit. A wholesale rewrite must keep the same JSX structure and classNames.
 - Never write minified or one-line code. Use normal formatting (2 spaces, one statement per line).
 - If a page was changed from the original design, restore the original markup from git history (git log --follow -p -- <file>) before wiring data.
+
+- Never pass `text-` or `bg-` colour classes to `Button`; select the appropriate Button variant instead.

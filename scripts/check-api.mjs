@@ -159,25 +159,14 @@ if (vercelJson) {
   console.log(`check-api: ${rewrites.length} rewrite(s) validated against area route maps: ${rewriteFails ? `${rewriteFails} FAILED` : 'all OK'}`);
 }
 
-// ---- Phase 4: readable source (STYLE ONLY) ---------------------------------
-// A style problem must NEVER block a deploy, so by default this only warns.
-// Run `node scripts/check-api.mjs --strict-format` to make it fail.
+// ---- Phase 4: readable source ---------------------------------------------
 const sourceFiles = [...walk(path.join(root, 'api')), ...walk(path.join(root, 'src'))].filter(file => /\.(js|mjs|ts|tsx)$/.test(file));
-let longLineFiles = 0;
 for (const file of sourceFiles) {
   const longLine = readFileSync(file, 'utf8').split(/\r?\n/).findIndex(line => line.length > 400);
   if (longLine >= 0) {
-    longLineFiles += 1;
-    if (strictFormat) {
-      failed = true;
-      console.error(`FORMAT FAIL: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
-    } else {
-      console.warn(`FORMAT WARN: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
-    }
+    failed = true;
+    console.error(`FORMAT FAIL: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
   }
-}
-if (longLineFiles > 0 && !strictFormat) {
-  console.warn(`check-api: ${longLineFiles} file(s) have lines over 400 characters (warning only, does not block the build).`);
 }
 
 if (failed) {

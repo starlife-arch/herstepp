@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 
+const SUPPORT_DISPLAY_NAME = 'HerStep Support';
 const categories = new Set(['Order Issue', 'Payment Issue', 'Delivery Issue', 'Product Issue', 'Return/Exchange', 'General Enquiry', 'Other']);
 const msgRe = /^[A-Za-z0-9_-]{8,80}$/;
 const createHits = new Map();
@@ -96,7 +97,7 @@ export async function adminMessage(req, res) {
     if (ticket.data().status === 'CLOSED') throw clientError('This support ticket has been closed.', 409);
     const messageRef = ref.collection('messages').doc(body.clientMessageId);
     if ((await tx.get(messageRef)).exists) return;
-    const senderName = 'HerStep Support';
+    const senderName = SUPPORT_DISPLAY_NAME;
     tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
     tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticket.data().messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
   });
