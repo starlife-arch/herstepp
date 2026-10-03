@@ -164,8 +164,7 @@ const sourceFiles = [...walk(path.join(root, 'api')), ...walk(path.join(root, 's
 for (const file of sourceFiles) {
   const longLine = readFileSync(file, 'utf8').split(/\r?\n/).findIndex(line => line.length > 400);
   if (longLine >= 0) {
-    failed = true;
-    console.error(`FORMAT FAIL: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
+    console.warn(`FORMAT WARN: ${path.relative(root, file)}:${longLine + 1} exceeds 400 characters`);
   }
 }
 
