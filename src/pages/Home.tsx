@@ -41,7 +41,7 @@ export default function Home() {
             </p>
             <div className="flex flex-wrap gap-3">
               <Link to="/shop">
-                <Button size="lg" className="bg-white text-neutral-900 hover:bg-neutral-100">
+                <Button size="lg" variant="secondary">
                   Shop Now <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </Link>
