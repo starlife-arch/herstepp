@@ -9,13 +9,18 @@
 // 3) Vercel Hobby limits: at most 12 files directly under /api (excluding
 //    _lib), and EVERY vercel.json rewrite must point to a ?route=<name> that
 //    is actually registered in the matching area file (parsed both ways).
-// Exits 1 if anything fails. Wired into "test" (first) and "prebuild".
+// 4) Readable source (STYLE ONLY): lines over 400 characters are reported as
+//    warnings. They never fail a deploy. Pass --strict-format to turn them
+//    into errors (used for local checks after the code has been formatted).
+// Exits 1 if checks 1-3 fail (or check 4 with --strict-format).
+// Wired into "test" (first) and "prebuild".
 import { spawnSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const strictFormat = process.argv.includes('--strict-format');
 
 // Generate a REAL (throwaway) RSA key pair so firebase-admin's cert() parses
 // successfully at import time — initializeApp does NOT contact any server, so
