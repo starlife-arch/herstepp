@@ -3,6 +3,12 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirestore } from 'firebase-admin/firestore';
 import { clientError } from './http.js';
 
+// Shared cache for the users/{uid} role lookup used by requireAdmin. Admin
+// sessions are few and roles change rarely, so a tiny TTL cache removes one
+// Firestore READ per admin API call (admin pages fan out to many calls).
+const roleCache = new Map(); // uid -> { role, expiresAt }
+const ROLE_CACHE_TTL_MS = 30_000;
+
 function requiredEnvironment(name) {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -26,34 +32,50 @@ const adminApp = getApps()[0] || initializeApp({
 export const adminAuth = getAuth(adminApp);
 export const adminDb = getFirestore(adminApp);
 
-export async function requireUser(req) {
-  const authorization = req.headers.authorization;
-  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
-  if (!token) {
-    throw clientError('Authentication is required.', 401);
-  }
-
+// verifyUserToken is requireUser's token check with an explicit revocation
+// policy: customer routes use checkRevoked=false (one less network call per
+// request); admin-only routes MUST pass checkRevoked=true.
+export async function verifyUserToken(token, checkRevoked) {
   try {
-    // email_verified / firebase.identities.email come from the verified token
-    // itself — order creation reads them instead of trusting any client field.
-    const decoded = await adminAuth.verifyIdToken(token, true);
-    // Expose the provider that signed this session in ('password',
-    // 'google.com', ...) as a flat claim so routes (e.g. sync-profile) can
-    // branch on it without digging into decoded.firebase each time.
+    const decoded = await adminAuth.verifyIdToken(token, checkRevoked);
     return { ...decoded, signInProvider: decoded.firebase?.sign_in_provider ?? '' };
   } catch {
     throw clientError('Authentication is required.', 401);
   }
 }
 
+function bearerToken(req) {
+  const authorization = req.headers.authorization;
+  const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!token) {
+    throw clientError('Authentication is required.', 401);
+  }
+  return token;
+}
+
+export async function requireUser(req) {
+  // FASTER AUTH: checkRevoked=false — see the note in verifyUserToken.
+  return verifyUserToken(bearerToken(req), false);
+}
+
 export async function requireAdmin(req) {
-  const user = await requireUser(req);
+  // Admin-only paths keep revocation checks (still one extra network call,
+  // but only for the handful of admin requests where it matters).
+  const user = await verifyUserToken(bearerToken(req), true);
+  // Role lookup is cached briefly so a dashboard fan-out of N admin calls
+  // costs ONE users/{uid} read instead of N.
+  const cached = roleCache.get(user.uid);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.role !== 'ADMIN' && cached.role !== 'SUPER_ADMIN') {
+      throw clientError('Administrator access is required.', 403);
+    }
+    return user;
+  }
   const userSnapshot = await adminDb.collection('users').doc(user.uid).get();
   const role = userSnapshot.data()?.role;
-
+  roleCache.set(user.uid, { role, expiresAt: Date.now() + ROLE_CACHE_TTL_MS });
   if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {
     throw clientError('Administrator access is required.', 403);
   }
-
   return user;
 }

@@ -24,6 +24,8 @@ import {
   applyVerifiedCallbackCore,
   reconcileBestEffort,
   publicPayment,
+  requireInventoryArray,
+  deriveStock,
 } from '../order-core.js';
 
 // Reconcile ONE payment immediately (used by GET /api/payments/status).
@@ -132,8 +134,71 @@ export async function initiate(req, res) {
     if (!orderSnap.exists) throw clientError('Order not found.', 404);
     const order = orderSnap.data();
     if (order.customerId !== u.uid) throw clientError('Forbidden.', 403);
-    if (order.paymentStatus !== PAYMENT_STATUS.PENDING || order.orderStatus === 'CANCELLED') {
+    // PAY NOW: a customer may retry payment whenever the ORDER is still alive.
+    // Allowed payment statuses to start from: PENDING (reuse/replace a fresh
+    // attempt), FAILED / CANCELLED / TIMEOUT (previous attempt died — start a
+    // new STK push and re-reserve stock below). PAID gets a specific message,
+    // CANCELLED orders get their own — never a generic 409.
+    if (order.orderStatus === 'CANCELLED') {
+      throw clientError('This order was cancelled or expired. Please place a new order.', 409);
+    }
+    if (order.paymentStatus === PAYMENT_STATUS.PAID) {
+      throw clientError('This order is already paid.', 409);
+    }
+    if (order.paymentStatus === PAYMENT_STATUS.REFUNDED) {
+      throw clientError('This order was refunded. Please place a new order.', 409);
+    }
+    if (![PAYMENT_STATUS.PENDING, PAYMENT_STATUS.FAILED, PAYMENT_STATUS.CANCELLED, PAYMENT_STATUS.TIMEOUT].includes(order.paymentStatus)) {
       throw clientError('This order cannot be paid right now.', 409);
+    }
+
+    // ---- Re-reserve stock INSIDE THIS SAME TRANSACTION (all reads before all
+    // writes). A previous cancel/timeout released the reservation, so paying
+    // again must put it back — exactly once, never twice. When stock is short
+    // we abort with a specific 409 BEFORE any write happens.
+    let restockPlan = null;
+    if (order.inventoryReserved !== true && order.orderStatus !== 'CANCELLED') {
+      const items = Array.isArray(order.items) ? order.items : [];
+      const refs = [];
+      const seen = new Set();
+      for (const item of items) {
+        const pid = typeof item?.productId === 'string' ? item.productId : '';
+        if (pid && !seen.has(pid)) {
+          seen.add(pid);
+          refs.push(adminDb.collection('products').doc(pid));
+        }
+      }
+      const productSnaps = refs.length > 0 ? await tx.getAll(...refs) : [];
+      const byId = new Map();
+      for (const snap of productSnaps) {
+        if (snap.exists) byId.set(snap.id, snap.data());
+      }
+      // Group quantities per (productId,size) first so two lines of the same
+      // size are checked against ONE pool.
+      const demand = new Map();
+      for (const item of items) {
+        const key = `${item.productId}::${String(item.size)}`;
+        const prev = demand.get(key) || { productId: item.productId, size: String(item.size), quantity: 0 };
+        prev.quantity += Number(item.quantity) || 0;
+        demand.set(key, prev);
+      }
+      const nextInventory = new Map();
+      const logs = [];
+      for (const need of demand.values()) {
+        if (!(need.quantity > 0)) continue;
+        const data = byId.get(need.productId);
+        if (!data) throw clientError(`${need.name || 'An item'} size ${need.size} is no longer in stock.`, 409);
+        const current = nextInventory.get(need.productId) || requireInventoryArray(need.productId, data);
+        const entry = current.find(i => String(i.size) === need.size);
+        if (!entry || (Number(entry.quantity) || 0) < need.quantity) {
+          throw clientError(`${data.name || need.name || 'An item'} size ${need.size} is no longer in stock.`, 409);
+        }
+        nextInventory.set(need.productId, current.map(i => (
+          String(i.size) === need.size ? { ...i, quantity: (Number(i.quantity) || 0) - need.quantity } : i
+        )));
+        logs.push({ productId: need.productId, size: need.size, change: -need.quantity, reason: 'PAYMENT_RETRY_RESTOCK', orderId: order.orderId });
+      }
+      restockPlan = { nextInventory, logs, byId };
     }
 
     const existing = await findActivePending(orderDocId);
@@ -142,9 +207,12 @@ export async function initiate(req, res) {
       const initiatedAtMs = data.initiatedAt?.toMillis ? data.initiatedAt.toMillis() : Date.now();
       const fresh = Date.now() - initiatedAtMs < RECONCILE_TIMEOUT_MS;
       if (fresh) {
-        if (order.activePaymentId !== existing.id) {
-          tx.update(orderRef, { activePaymentId: existing.id, updatedAt: FieldValue.serverTimestamp() });
-        }
+        const patch = {};
+        if (order.activePaymentId !== existing.id) patch.activePaymentId = existing.id;
+        // The order must mirror the live payment attempt's status (it can lag
+        // as FAILED/CANCELLED/TIMEOUT while a fresh PENDING payment exists).
+        if (order.paymentStatus !== PAYMENT_STATUS.PENDING) patch.paymentStatus = PAYMENT_STATUS.PENDING;
+        if (Object.keys(patch).length > 0) tx.update(orderRef, { ...patch, updatedAt: FieldValue.serverTimestamp() });
         // Reusing a fresh PENDING payment: send the STK push ONLY when it has
         // no providerReference yet (a previous attempt died before PrintPay
         // answered). Once a providerReference exists we NEVER push twice —
@@ -155,6 +223,11 @@ export async function initiate(req, res) {
       // start a NEW push. applyVerifiedCallbackCore restores any reserved
       // stock exactly once (guarded by order.inventoryReserved).
       tx.update(existing.ref, { status: PAYMENT_STATUS.TIMEOUT, failureReason: 'The M-Pesa request timed out or was cancelled.', completedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      // Mirror on the order: this attempt is dead. If its callback later lands
+      // verified PAID it still applies (late-success path); if it truly died,
+      // the order now honestly reads TIMEOUT and the reservation state below
+      // decides whether stock needs re-reserving for the NEW attempt.
+      tx.update(orderRef, { paymentStatus: PAYMENT_STATUS.TIMEOUT, updatedAt: FieldValue.serverTimestamp() });
     }
 
     const phone = typeof order.delivery?.phone === 'string' ? order.delivery.phone : '';
@@ -180,7 +253,27 @@ export async function initiate(req, res) {
       completedAt: null,
     };
     tx.set(paymentRef, paymentData);
-    tx.update(orderRef, { activePaymentId: paymentRef.id, updatedAt: FieldValue.serverTimestamp() });
+    const orderPatch = { activePaymentId: paymentRef.id, paymentStatus: PAYMENT_STATUS.PENDING, updatedAt: FieldValue.serverTimestamp() };
+    if (restockPlan) {
+      // Writes come AFTER every read above — required by Firestore transactions.
+      for (const [pid, inv] of restockPlan.nextInventory) {
+        const derived = deriveStock(inv);
+        tx.update(adminDb.collection('products').doc(pid), {
+          inventory: inv,
+          stockQuantity: derived.stockQuantity,
+          availableSizes: derived.availableSizes,
+        });
+      }
+      for (const log of restockPlan.logs) {
+        tx.set(adminDb.collection('inventoryLogs').doc(), {
+          ...log,
+          productName: restockPlan.byId.get(log.productId)?.name ?? null,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+      orderPatch.inventoryReserved = true;
+    }
+    tx.update(orderRef, orderPatch);
     return { paymentRef, data: paymentData, sendStk: true };
   });
 
