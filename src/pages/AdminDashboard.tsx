@@ -4,7 +4,7 @@
 // GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { apiFetch } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
@@ -260,6 +260,7 @@ export default function AdminDashboard() {
     { id: 'products', label: 'Products', icon: Package },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'payments', label: 'Payments', icon: CreditCard },
+    { id: 'tips', label: 'Tips', icon: Heart },
     { id: 'support', label: 'Support', icon: MessageSquare },
     { id: 'promotions', label: 'Promotions', icon: Tag },
     { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -331,6 +332,7 @@ export default function AdminDashboard() {
           {activeSection === 'products' && <AdminProducts />}
           {activeSection === 'customers' && <AdminCustomers />}
           {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
+          {activeSection === 'tips' && <AdminTips />}
           {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
           {activeSection === 'promotions' && <PromotionsPanel />}
           {activeSection === 'notifications' && <NotificationsPanel />}
@@ -1136,6 +1138,68 @@ function AdminPayments({ res, orders, printpay }: { res: ReturnType<typeof useAd
           )}
         </Card>
       )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tips — GET /api/admin/tips (in-app tipping). Same table styling as Payments.
+// Totals come ONLY from PAID tips (computed server-side in tip-core).
+// ---------------------------------------------------------------------------
+function AdminTips() {
+  const res = useAdminData<any>('/api/admin/tips');
+  const TREAT_LABELS: Record<string, string> = { SODA: 'Soda', COFFEE: 'Coffee', TEA: 'Tea', SNACK: 'Snack', TIP: 'Just a tip' };
+  if (res.loading) return <LoadingCard />;
+  if (res.error || !res.data) return <ErrorCard message={res.error || 'Could not load tips.'} onRetry={res.reload} />;
+  const tips: any[] = res.data.tips || [];
+  const totals = res.data.totals || { today: 0, thisMonth: 0, allTime: 0, paidCount: 0 };
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      <h1 className="text-2xl font-bold text-neutral-900">Tips</h1>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCard title="Today" value={money(totals.today)} icon={Heart} />
+        <StatCard title="This month" value={money(totals.thisMonth)} icon={TrendingUp} />
+        <StatCard title="All time" value={money(totals.allTime)} icon={CreditCard} />
+        <StatCard title="Number of tips" value={String(totals.paidCount)} icon={Tag} variant="info" />
+      </div>
+      <Card className="overflow-hidden">
+        {tips.length === 0 ? (
+          <EmptyState title="No tips yet" description="Tips from customers will appear here." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-neutral-50 border-b border-neutral-200">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600">Tip</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600">Customer</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Phone</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600">Treat</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600">Amount</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600">Receipt</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden md:table-cell">Message</th>
+                  <th className="text-left px-4 py-3 font-medium text-neutral-600 hidden sm:table-cell">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-100">
+                {tips.map(tip => (
+                  <tr key={tip.tipId} className="hover:bg-neutral-50">
+                    <td className="px-4 py-3 font-mono text-xs">{tip.tipId}</td>
+                    <td className="px-4 py-3 text-neutral-600">{tip.customerName || '—'}</td>
+                    <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{tip.phone ? `••• ${tip.phone}` : '—'}</td>
+                    <td className="px-4 py-3 text-neutral-600">{TREAT_LABELS[tip.treat] || tip.treat}</td>
+                    <td className="px-4 py-3 font-medium">{money(tip.amount)}</td>
+                    <td className="px-4 py-3"><Badge variant={getStatusBadge(tip.status).variant}>{getStatusBadge(tip.status).label}</Badge></td>
+                    <td className="px-4 py-3 text-neutral-500 font-mono text-xs">{tip.receiptNumber || '—'}</td>
+                    <td className="px-4 py-3 text-neutral-500 text-xs hidden md:table-cell max-w-[200px] truncate">{tip.message || '—'}</td>
+                    <td className="px-4 py-3 text-neutral-500 hidden sm:table-cell">{day(tip.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
     </div>
   );
 }

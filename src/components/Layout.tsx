@@ -130,6 +130,7 @@ export function Footer() {
             <ul className="space-y-2.5">
               <li><Link to="/track" className="text-neutral-400 text-sm hover:text-white transition-colors">Track Order</Link></li>
               <li><Link to="/support" className="text-neutral-400 text-sm hover:text-white transition-colors">Contact Support</Link></li>
+              <li><Link to="/tip" className="text-neutral-400 text-sm hover:text-white transition-colors">Treat the team</Link></li>
               <li><Link to="/about" className="text-neutral-400 text-sm hover:text-white transition-colors">About Us</Link></li>
               <li><Link to="/contact" className="text-neutral-400 text-sm hover:text-white transition-colors">Contact Us</Link></li>
               <li><Link to="/privacy" className="text-neutral-400 text-sm hover:text-white transition-colors">Privacy Policy</Link></li>
