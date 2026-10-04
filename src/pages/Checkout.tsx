@@ -34,6 +34,9 @@ export default function Checkout() {
     instructions: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  // "save to my profile" for the delivery/M-Pesa phone (used when the signed-in
+  // profile has no phone yet — e.g. Google sign-ups).
+  const [savePhoneToProfile, setSavePhoneToProfile] = useState(true);
   const { promoCode, setPromoCode, promo, promoError, applyPromo, removePromo } = usePromo(state.cart);
 
   // Delivery fees come ONLY from GET /api/checkout/config — never hardcoded.
@@ -119,7 +122,20 @@ export default function Checkout() {
   };
 
   const handleContinue = () => {
-    if (validate()) setStep('review');
+    if (!validate()) return;
+    // Google sign-ups have no phone on their profile. The delivery/M-Pesa
+    // phone collected here is saved back to users/{uid} — ALWAYS when the
+    // profile phone is empty, or when the user ticks "save to my profile" —
+    // so future checkouts and the M-Pesa prompt work without re-typing.
+    if (state.user) {
+      const wantsSave = savePhoneToProfile || !state.user.phone;
+      if (wantsSave && state.user.phone !== form.phone.replace(/\s/g, '')) {
+        void apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ phoneNumber: form.phone }) })
+          .then(() => dispatch({ type: 'SET_USER', payload: { ...state.user!, phone: form.phone.replace(/\s/g, '') } }))
+          .catch(() => { /* best-effort: checkout never blocks on profile sync */ });
+      }
+    }
+    setStep('review');
   };
 
   const sleep = (ms: number) => new Promise<void>((resolve, reject) => {
@@ -387,8 +403,21 @@ export default function Checkout() {
             <Card className="p-6">
               <h2 className="text-lg font-semibold text-neutral-900 mb-6">Delivery Details</h2>
               <div className="space-y-4">
+                {!state.user?.phone && (
+                  <div className="p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">
+                    Add your phone number so we can send the M-Pesa prompt
+                  </div>
+                )}
                 <Input label="Full Name" value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} error={errors.fullName} placeholder="Enter your full name" />
-                <Input label="Phone Number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} error={errors.phone} placeholder="+254 7XX XXX XXX" />
+                <div>
+                  <Input label="Phone Number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} error={errors.phone} placeholder="+254 7XX XXX XXX" />
+                  {state.user && (
+                    <label className="flex items-center gap-2 mt-2 text-sm text-neutral-600">
+                      <input type="checkbox" checked={savePhoneToProfile} onChange={e => setSavePhoneToProfile(e.target.checked)} className="rounded border-neutral-300" disabled={!state.user.phone} />
+                      Save to my profile{!state.user.phone ? ' (recommended — your profile has no phone yet)' : ''}
+                    </label>
+                  )}
+                </div>
                 <Input label="Email Address" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} error={errors.email} placeholder="your@email.com" />
 
                 <div>
