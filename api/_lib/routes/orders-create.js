@@ -13,8 +13,38 @@ import { normalizeKenyanPhone } from '../phone.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { createOrderCore, expireStaleOrders } from '../order-core.js';
 import { COLLECTION_LOCATION, normalizeDelivery } from '../delivery.js';
+import { setPublicCache } from '../route-dispatch.js';
 
 const LOCATION = COLLECTION_LOCATION;
+
+// Public checkout config (delivery fees + pickup location). Cached at the
+// edge like the catalogue — it changes only when an admin edits settings.
+const publicConfigCache = new Map(); // key -> { value, expiresAt }
+const PUBLIC_CONFIG_TTL_MS = 60_000;
+
+export async function publicConfig(req, res, buildPayload) {
+  if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
+  setPublicCache(res);
+  const key = 'settings/checkout:public';
+  const hit = publicConfigCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return res.json(hit.value);
+  const snapshot = await adminDb.doc('settings/checkout').get();
+  const payload = buildPayload(snapshot.exists ? snapshot.data() || {} : {});
+  publicConfigCache.set(key, { value: payload, expiresAt: Date.now() + PUBLIC_CONFIG_TTL_MS });
+  return res.json(payload);
+}
+
+export async function config(req, res) {
+  return publicConfig(req, res, data => {
+    const delivery = normalizeDelivery(data);
+    return {
+      collectionEnabled: true,
+      collectionLocation: LOCATION,
+      deliveryEnabled: delivery.deliveryEnabled,
+      deliveryRates: delivery.deliveryRates,
+    };
+  });
+}
 
 // Simple in-memory per-instance limiter (5 orders / minute / user). It is a
 // courtesy guard against hammering; prices and stock are still revalidated
@@ -60,14 +90,4 @@ export async function create(req, res) {
   return res.status(201).json(result);
 }
 
-export async function config(req, res) {
-  if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
-  const snapshot = await adminDb.doc('settings/checkout').get();
-  const delivery = normalizeDelivery(snapshot.exists ? snapshot.data() || {} : {});
-  return res.json({
-    collectionEnabled: true,
-    collectionLocation: LOCATION,
-    deliveryEnabled: delivery.deliveryEnabled,
-    deliveryRates: delivery.deliveryRates,
-  });
-}
+
