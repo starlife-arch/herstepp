@@ -36,7 +36,11 @@ export async function requireUser(req) {
   try {
     // email_verified / firebase.identities.email come from the verified token
     // itself — order creation reads them instead of trusting any client field.
-    return await adminAuth.verifyIdToken(token, true);
+    const decoded = await adminAuth.verifyIdToken(token, true);
+    // Expose the provider that signed this session in ('password',
+    // 'google.com', ...) as a flat claim so routes (e.g. sync-profile) can
+    // branch on it without digging into decoded.firebase each time.
+    return { ...decoded, signInProvider: decoded.firebase?.sign_in_provider ?? '' };
   } catch {
     throw clientError('Authentication is required.', 401);
   }
