@@ -1,6 +1,8 @@
 // Core logic of POST /api/auth/sync-profile, kept free of any Vercel-only
 // imports so scripts/test-sync-profile.mjs can exercise every branch against
 // the in-memory fake Firestore. sync-profile.js is the thin HTTP wrapper.
+// firebase-admin's FieldValue works offline (plain sentinel objects), and
+// notify.js only needs injectable deps for delivery — both are safe to import.
 import { FieldValue } from 'firebase-admin/firestore';
 import { clientError } from '../http.js';
 import { normalizeKenyanPhone } from '../phone.js';
@@ -19,7 +21,8 @@ export function isGoogleProvider(user) {
 }
 
 export async function syncProfileCore(deps, user, body) {
-  const { db, waitUntil, sendTelegramMessage, deliverQueuedEmailInline } = deps;
+  const { db, waitUntil, sendTelegramMessage } = deps;
+  const deliverQueuedEmailInline = deps.deliverQueuedEmailInline ?? (() => Promise.resolve());
   const userRef = db.collection('users').doc(user.uid);
   const snapshot = await userRef.get();
   let phoneNumber;

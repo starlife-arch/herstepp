@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import {
   createUserWithEmailAndPassword,
@@ -8,8 +8,92 @@ import {
   signInWithEmailAndPassword,
 } from 'firebase/auth';
 import { apiFetch } from '../lib/api';
-import { getFirebase } from '../lib/firebase';
+import { continueWithGoogle, getFirebase, handleGoogleRedirectResult } from '../lib/firebase';
 import { Button, Input, Card } from '../components/ui';
+
+// Google's multi-colour "G" as an inline SVG (no external image assets).
+export function GoogleLogo({ className = 'w-5 h-5' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 48 48" className={className} aria-hidden="true" focusable="false">
+      <path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.9z" />
+      <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34 6 29.3 4 24 4 15.4 4 7.8 8.9 4.3 16z" />
+      <path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2c-2 1.4-4.6 2.4-7.2 2.4-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C15.8 39 19.6 44 24 44z" />
+      <path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C36.9 39.2 44 34 44 24c0-1.3-.1-2.7-.4-3.9z" />
+    </svg>
+  );
+}
+
+function googleErrorMessage(error: unknown) {
+  const code = typeof error === 'object' && error && 'code' in error ? String((error as { code: unknown }).code) : '';
+  if (code === 'auth/account-exists-with-different-credential') {
+    return 'This email already has an account. Sign in with your password.';
+  }
+  if (code === 'auth/popup-blocked') return 'Your browser blocked the Google popup. Please allow popups and try again.';
+  if (code === 'auth/network-request-failed') return 'Network error. Check your connection and try again.';
+  return authErrorMessage(error);
+}
+
+// Shared "Continue with Google" button + "or" divider for Login and Register.
+// On success we sync the profile server-side and honour the F2 return-to-page
+// behaviour: go back where the user came from (location.state.from), else the
+// dashboard — exactly like a successful email sign-in.
+function GoogleSignInButton() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const from = (location.state as { from?: string } | null)?.from || '/dashboard';
+
+  // If a redirect fallback completed while this page was closed, surface its
+  // result on mount (handleGoogleRedirectResult never rejects).
+  useEffect(() => {
+    let active = true;
+    void handleGoogleRedirectResult()
+      .then(async (user) => {
+        if (!active || !user) return;
+        await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({}) });
+        if (active) navigate(from, { replace: true });
+      })
+      .catch(() => { /* sync retried on next sign-in */ });
+    return () => { active = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleClick = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const outcome = await continueWithGoogle();
+      if (outcome === 'signed-in') {
+        try {
+          await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({}) });
+        } catch { /* profile sync retries on the next sign-in */ }
+        navigate(from, { replace: true });
+      }
+      // 'cancelled': the user closed the popup — not an error, stay put.
+      // 'redirecting': the page is navigating to Google; handled on return.
+    } catch (caughtError) {
+      setError(googleErrorMessage(caughtError));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+      {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
+      <Button variant="outline" size="lg" className="w-full gap-2" onClick={handleClick} loading={loading}>
+        {!loading && <GoogleLogo className="w-5 h-5" />}
+        Continue with Google
+      </Button>
+      <div className="flex items-center gap-3">
+        <span className="h-px flex-1 bg-neutral-200" />
+        <span className="text-xs text-neutral-400 uppercase tracking-wide">or</span>
+        <span className="h-px flex-1 bg-neutral-200" />
+      </div>
+    </>
+  );
+}
 
 function normalizePhone(value: string) {
   let number = value.replace(/[\s()\-]/g, '');
@@ -78,6 +162,7 @@ export function Login() {
           <p className="text-sm text-neutral-500 mt-1">Sign in to your HerStep account</p>
         </div>
         <Card className="p-6">
+          <div className="space-y-4 mb-4"><GoogleSignInButton /></div>
           <form onSubmit={handleLogin} className="space-y-4">
             {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
             {notice && <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg text-sm text-emerald-700">{notice}</div>}
@@ -151,6 +236,7 @@ export function Register() {
           <p className="text-sm text-neutral-500 mt-1">Join HerStep Collection today</p>
         </div>
         <Card className="p-6">
+          <div className="space-y-4 mb-4"><GoogleSignInButton /></div>
           <form onSubmit={handleRegister} className="space-y-4">
             {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
             {verificationSent && <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">Verify your email before checkout. Check your inbox, then <button type="button" onClick={resendVerification} className="font-medium underline">resend the verification email</button>.</div>}

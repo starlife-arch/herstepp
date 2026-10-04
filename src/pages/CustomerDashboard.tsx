@@ -370,10 +370,49 @@ function NotificationsTab() {
 }
 
 function ProfileTab() {
-  const { state } = useApp();
+  const { state, dispatch } = useApp();
+  const [phoneDraft, setPhoneDraft] = useState('');
+  const [phoneSaving, setPhoneSaving] = useState(false);
+  const [phoneError, setPhoneError] = useState('');
+
+  const saveProfilePhone = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const raw = phoneDraft.replace(/[\s()\-]/g, '');
+    if (!/^(\+254|0)[17]\d{8}$/.test(raw)) {
+      setPhoneError('Enter a valid Kenyan phone number, e.g. 0712 345 678.');
+      return;
+    }
+    setPhoneError('');
+    setPhoneSaving(true);
+    try {
+      await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ phoneNumber: raw }) });
+      if (state.user) dispatch({ type: 'SET_USER', payload: { ...state.user, phone: raw.startsWith('+') ? raw : `+254${raw.slice(1)}` } });
+      setPhoneDraft('');
+    } catch (error) {
+      setPhoneError(error instanceof Error ? error.message : 'Could not save your phone number.');
+    } finally {
+      setPhoneSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <h2 className="text-xl font-bold text-neutral-900">Profile</h2>
+      {!state.user?.phone && (
+        <form onSubmit={saveProfilePhone} className="rounded-lg border border-yellow-200 bg-yellow-50 px-4 py-3 space-y-2">
+          <p className="text-sm text-yellow-800 font-medium">Add your phone number so we can send the M-Pesa prompt</p>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              value={phoneDraft}
+              onChange={event => setPhoneDraft(event.target.value)}
+              placeholder="+254 7XX XXX XXX"
+              className="flex-1 rounded-lg border border-yellow-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            />
+            <Button type="submit" size="sm" loading={phoneSaving}>Save phone</Button>
+          </div>
+          {phoneError && <p className="text-sm text-red-700">{phoneError}</p>}
+        </form>
+      )}
       <Card className="p-6">
         <div className="flex items-center gap-4 mb-6">
           <div className="w-16 h-16 bg-neutral-900 rounded-full flex items-center justify-center">
