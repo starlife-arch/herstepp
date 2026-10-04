@@ -32,4 +32,6 @@ export default (req, res) => dispatchRoute(req, res, {
   'notifications/retry': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationRetry }))),
   // GET/PATCH /api/admin/delivery
   delivery: lazyRoute(() => import('./_lib/routes/admin-delivery.js')),
+  // GET /api/admin/tips — in-app tipping overview (PAID-only totals)
+  tips: lazyRoute(() => import('./_lib/routes/tips-admin.js')),
 });

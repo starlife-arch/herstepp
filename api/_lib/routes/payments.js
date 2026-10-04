@@ -362,7 +362,63 @@ export async function mpesaCallback(req, res) {
   }
 
   try {
+    // ---- Lookup order: payments first, then tips. If neither knows this
+    // checkout id the webhook is acknowledged with 200 "ignored" — a tip
+    // callback must NEVER touch orders and vice versa.
+    const paymentsSnap = await adminDb.collection('payments')
+      .where('providerReference', '==', verified.providerReference)
+      .limit(1)
+      .get()
+      .catch(() => null);
+    let targetKind = paymentsSnap && !paymentsSnap.empty ? 'payment' : null;
+    if (!targetKind) {
+      const tipsMod = await import('./tips.js');
+      const knownTip = await tipsMod.findTipByProviderReference(verified.providerReference).catch(() => null);
+      if (knownTip) targetKind = 'tip';
+    }
+
     let applied;
+    if (targetKind === 'tip') {
+      // Tips branch — same rules as payments, own transaction in tip-core.
+      const tipsMod = await import('./tips.js');
+      if (verified.status === PAYMENT_STATUS.PAID) {
+        // NEVER trust the webhook alone for money: re-confirm with an
+        // explicit status query on the SAME checkout id first.
+        const provider = getMpesaProvider();
+        const confirmation = await provider.checkStatus(verified.providerReference);
+        if (confirmation.status !== PAYMENT_STATUS.PAID
+          || String(confirmation.providerReference) !== String(verified.providerReference)) {
+          console.error(`mpesa-callback: unconfirmed PAID tip for ${verified.providerReference} (provider says ${confirmation.status}) — acknowledged with 200`);
+          return send({ ok: true, received: true, applied: false });
+        }
+        applied = await tipsMod.applyTipCallback({
+          providerReference: verified.providerReference,
+          status: PAYMENT_STATUS.PAID,
+          amount: confirmation.amount ?? verified.amount,
+          transactionReference: confirmation.transactionReference || verified.transactionReference,
+          eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
+          source: 'PRINTPAY',
+          reason: confirmation.reason ?? verified.reason ?? null,
+        });
+      } else {
+        applied = await tipsMod.applyTipCallback({
+          providerReference: verified.providerReference,
+          status: verified.status,
+          amount: verified.amount,
+          transactionReference: verified.transactionReference,
+          eventId: verified.eventId || `callback:${verified.providerReference}:${verified.status}`,
+          source: 'PRINTPAY',
+          reason: verified.reason || null,
+        });
+      }
+      return send({ ok: true, kind: 'tip', applied: applied?.applied !== false, duplicate: applied?.duplicate === true });
+    }
+
+    if (!targetKind) {
+      console.error(`mpesa-callback: unknown checkout id ${verified.providerReference} (no payment, no tip) — acknowledged with 200 ignored`);
+      return send({ ok: true, received: true, applied: false, ignored: true });
+    }
+
     if (verified.status === PAYMENT_STATUS.PAID) {
       // NEVER trust the webhook alone: re-confirm with an explicit status query
       // and require the SAME checkout id before marking anything PAID.
