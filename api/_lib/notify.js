@@ -139,6 +139,39 @@ export async function telegramLowStock(db, changes) {
   }
 }
 
+// ---- Tips (in-app tipping) --------------------------------------------------
+// Thank-you email queued INSIDE the tip PAID transaction (deterministic key
+// <tipId>-TIP-THANKYOU means a replayed webhook/poll can never double-send).
+export function queueTipThankYouEmail(tx, db, { key, tip, receiptNumber }) {
+  try {
+    if (!tip?.customerEmail) return;
+    const label = tip.treatLabel || tip.treat || 'tip';
+    const { subject, htmlContent } = buildEmail(
+      'Thank you for treating the HerStep team!',
+      `Hi ${tip.customerName || 'there'},\n\nYour KSh ${(Number(tip.amount) || 0).toLocaleString('en-KE')} ${label} just made the whole team smile. Thank you so much for supporting HerStep Collection!\n\nReceipt: ${receiptNumber || '—'}${tip.message ? `\n\nYour message: "${tip.message}"` : ''}\n\nWith gratitude,\nThe HerStep team`,
+      { ctaLabel: 'Shop with us', ctaUrl: `${(globalThis.process?.env || {}).SITE_URL || 'https://herstepp.vercel.app'}/shop` },
+    );
+    queueEmail(tx, db, { key, purpose: 'payments', to: tip.customerEmail, subject, htmlContent });
+  } catch (error) {
+    console.error('[notify] queueTipThankYouEmail failed:', error?.message || error);
+  }
+}
+
+// Admin Telegram ping when a tip lands. Best-effort — NEVER affects orders or
+// the payment flow; returns a promise that always resolves.
+export function telegramTipReceived(tip) {
+  try {
+    const amount = `KSh ${(Number(tip?.amount) || 0).toLocaleString('en-KE')}`;
+    const label = tip?.treatLabel || tip?.treat || 'Tip';
+    const name = tip?.customerName || 'a customer';
+    const message = tip?.message ? ` · ${tip.message}` : '';
+    return sendTelegramMessage(`Tip received: ${amount} · ${label} · ${name}${message}`).catch(() => false);
+  } catch (error) {
+    console.error('[notify] telegramTipReceived failed:', error?.message || error);
+    return Promise.resolve(false);
+  }
+}
+
 // Fire-and-forget delivery of a just-queued email. MUST be passed to
 // waitUntil() in routes; never awaited on the response path, never throws.
 // Returns the (already error-swallowed) promise so callers can hand it to

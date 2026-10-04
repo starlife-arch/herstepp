@@ -93,6 +93,22 @@
       "destination": "/api/payments?route=receipt"
     },
     {
+      "source": "/api/tips/create",
+      "destination": "/api/payments?route=tips/create"
+    },
+    {
+      "source": "/api/tips/status",
+      "destination": "/api/payments?route=tips/status"
+    },
+    {
+      "source": "/api/tips/cancel",
+      "destination": "/api/payments?route=tips/cancel"
+    },
+    {
+      "source": "/api/tips",
+      "destination": "/api/payments?route=tips/list"
+    },
+    {
       "source": "/api/admin/customers",
       "destination": "/api/admin?route=customers"
     },
@@ -111,6 +127,10 @@
     {
       "source": "/api/admin/notifications/retry",
       "destination": "/api/admin?route=notifications/retry"
+    },
+    {
+      "source": "/api/admin/tips",
+      "destination": "/api/admin?route=tips"
     },
     {
       "source": "/api/promo/validate",

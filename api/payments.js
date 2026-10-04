@@ -14,4 +14,13 @@ export default (req, res) => dispatchRoute(req, res, {
   'mpesa/callback': lazyRoute(() => import('./_lib/routes/payments.js').then(m => ({ default: m.mpesaCallback }))),
   // GET /api/payments/receipt — owner only, PAID only
   receipt: lazyRoute(() => import('./_lib/routes/payments.js').then(m => ({ default: m.receipt }))),
+  // ---- In-app tipping (tips are NOT orders; see api/_lib/tip-core.js) ----
+  // POST /api/tips/create
+  'tips/create': lazyRoute(() => import('./_lib/routes/tips.js').then(m => ({ default: m.tipsCreate }))),
+  // GET /api/tips/status?tipId=
+  'tips/status': lazyRoute(() => import('./_lib/routes/tips.js').then(m => ({ default: m.tipsStatus }))),
+  // POST /api/tips/cancel {tipId}
+  'tips/cancel': lazyRoute(() => import('./_lib/routes/tips.js').then(m => ({ default: m.tipsCancel }))),
+  // GET /api/tips — the signed-in user's own tips
+  'tips/list': lazyRoute(() => import('./_lib/routes/tips.js').then(m => ({ default: m.tipsList }))),
 });
