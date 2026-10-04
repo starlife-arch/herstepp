@@ -23,7 +23,7 @@ const TIP_ID_RE = /^TIP-\d{6}$/;
 
 // HST-<tipId> receipt, only when PAID (mirrors HSP- for order payments).
 export function tipReceiptNumberFor(tipId) {
-  return `HST-${String(tipId || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase()}`;
+  return `HST-${String(tipId || '').toUpperCase()}`;
 }
 
 export function publicTip(id, data) {
@@ -60,7 +60,9 @@ export function validateTipInput(body) {
     if (!allowed.includes(key)) throw clientError('Unknown tip field.');
   }
   const rawAmount = source.amount;
-  const amount = typeof rawAmount === 'number' ? Math.trunc(rawAmount)
+  // Numbers must be integers as-is (no silent truncation: KSh 99.5 is not a
+  // valid tip); digit strings are accepted because the UI sends text input.
+  const amount = typeof rawAmount === 'number' ? rawAmount
     : (typeof rawAmount === 'string' && /^\d+$/.test(rawAmount.trim()) ? parseInt(rawAmount.trim(), 10) : NaN);
   if (!Number.isInteger(amount)) throw clientError('Enter a whole shilling amount between KSh 10 and KSh 150,000.');
   if (amount < TIP_AMOUNT_MIN || amount > TIP_AMOUNT_MAX) {

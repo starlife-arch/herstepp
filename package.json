@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "npm run check:api && node scripts/test-order-core.mjs && node scripts/test-notifications.mjs && node scripts/test-sync-profile.mjs",
+    "test": "npm run check:api && node scripts/test-order-core.mjs && node scripts/test-notifications.mjs && node scripts/test-sync-profile.mjs && node scripts/test-tips.mjs",
     "check:api": "node scripts/check-api.mjs",
     "prebuild": "npm run check:api"
   },
