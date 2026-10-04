@@ -33,6 +33,9 @@ export function toIso(value) {
   if (typeof value === 'object' && typeof value.toDate === 'function') return value.toDate().toISOString();
   if (typeof value === 'string') return value;
   if (typeof value === 'number') return new Date(value).toISOString();
+  // Plain Date instances (fake Firestore tests, ad-hoc reads) behave like the
+  // admin SDK Timestamp's toDate().
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
   return null;
 }
 

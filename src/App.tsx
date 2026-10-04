@@ -19,6 +19,7 @@ import About from './pages/About';
 import Contact from './pages/Contact';
 import { PrivacyPolicy, TermsOfService } from './pages/StaticPages';
 import AdminDashboard from './pages/AdminDashboard';
+import TipPage from './pages/Tip';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -80,6 +81,7 @@ function AppRoutes() {
         <Route path="/register" element={<Wrap><Register /></Wrap>} />
         <Route path="/dashboard" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} />
         <Route path="/dashboard/*" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} />
+        <Route path="/tip" element={<Wrap><TipPage /></Wrap>} />
         <Route path="/track" element={<Wrap><OrderTracking /></Wrap>} />
         <Route path="/support" element={<Wrap><Support /></Wrap>} />
         <Route path="/about" element={<Wrap><About /></Wrap>} />

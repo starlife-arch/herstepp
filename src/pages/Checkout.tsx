@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, CreditCard, MapPin, Store, Loader2, Check, AlertCircle } from 'lucide-react';
+import { ArrowLeft, CreditCard, MapPin, Store, Loader2, Check, AlertCircle, Heart } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Input, formatCurrency } from '../components/ui';
@@ -383,6 +383,16 @@ export default function Checkout() {
             <Link to={`/track?order=${encodeURIComponent(paidInfo.orderId)}`}><Button variant="outline">Track This Order</Button></Link>
           )}
           <Link to="/shop"><Button variant="outline">Continue Shopping</Button></Link>
+          {/* In-app tipping entry point — inline link, no popups. */}
+          <Link to="/tip" className="mt-2">
+            <Card className="p-4 flex items-center justify-between gap-3 hover:bg-neutral-50 text-left">
+              <div>
+                <p className="text-sm font-medium text-neutral-900">Loved the service? Treat the team</p>
+                <p className="text-xs text-neutral-500">A soda, a coffee or just a tip — completely optional.</p>
+              </div>
+              <Heart className="w-5 h-5 text-neutral-400 shrink-0" />
+            </Card>
+          </Link>
         </div>
       </div>
     );
