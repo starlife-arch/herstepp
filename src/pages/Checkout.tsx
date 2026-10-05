@@ -228,6 +228,13 @@ export default function Checkout() {
 
   const runFlow = async (existingOrderId?: string | null) => {
     setErrors({});
+    // Fresh orders require a verified email ("Verify your email to place
+    // orders"). Resuming an EXISTING order after FAILED/TIMEOUT is still
+    // allowed — the order was created while the account was in good standing.
+    if (!existingOrderId && !orderDocId && !state.emailVerified) {
+      setErrors({ payment: 'Verify your email to place orders.' });
+      return;
+    }
     // If we are not reusing an existing order, this attempt creates a fresh one.
     const reusingOrder = Boolean(existingOrderId || orderDocId);
     if (!reusingOrder) setServerTotal(null);
@@ -413,6 +420,17 @@ export default function Checkout() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 animate-fadeIn">
+      {/* Email must be verified before an order can be created. The server is
+          the authority (GET /api/dashboard → profile.emailVerified, mirrored
+          by state.emailVerified); orders/create refuses unverified accounts. */}
+      {state.user && !state.emailVerified && (
+        <div className="mb-6 p-3 rounded-lg bg-yellow-50 border border-yellow-200 flex items-center justify-between gap-3">
+          <p className="text-sm text-yellow-800">Verify your email to place orders</p>
+          <Link to="/verify-email" state={{ from: '/checkout' }}>
+            <Button size="sm" variant="secondary">Verify now</Button>
+          </Link>
+        </div>
+      )}
       <div className="flex items-center gap-3 mb-8">
         <button onClick={() => step === 'review' ? setStep('details') : navigate('/cart')} className="p-2 rounded-lg hover:bg-neutral-100">
           <ArrowLeft className="w-5 h-5" />

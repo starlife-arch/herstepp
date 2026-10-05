@@ -103,6 +103,11 @@ export interface DashboardResponse {
   payments: DashboardPayment[];
   notifications: DashboardNotification[];
   warnings: string[];
+  // Server mirror of the Auth email_verified claim (set by
+  // POST /api/auth/verify/confirm, or true at creation for Google accounts).
+  // Drives the "Verify your email to place orders" banner on Dashboard and
+  // Checkout. Absent on older payloads → treated as unverified.
+  profile?: { emailVerified?: boolean } | null;
 }
 
 export interface PaymentShape {
