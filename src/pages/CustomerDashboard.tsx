@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight } from 'lucide-react';
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { productImageUrl, orderItemImageUrl } from '../lib/productImage';
+import { apiFetch } from '../lib/api';
 
 // Real data only. GET /api/dashboard already returns ONLY the signed-in
 // customer's orders/payments/notifications (server filters by the verified
@@ -113,7 +114,16 @@ export default function CustomerDashboard() {
         </aside>
 
         {/* Content */}
-        <main className="lg:col-span-3">{state.dashboardWarnings.length > 0 && <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{state.dashboardWarnings.join(' ')}</div>}{content}</main>
+        <main className="lg:col-span-3">
+          {state.dashboardWarnings.length > 0 && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {state.dashboardWarnings.map((w: any) =>
+                typeof w === 'string' ? w : `${w.section}: ${w.reason}`
+              ).join(' · ')}
+            </div>
+          )}
+          {content}
+        </main>
       </div>
     </div>
   );
