@@ -188,7 +188,10 @@ export async function initiate(req, res) {
         if (!(need.quantity > 0)) continue;
         const data = byId.get(need.productId);
         if (!data) throw clientError(`${need.name || 'An item'} size ${need.size} is no longer in stock.`, 409);
-        const current = nextInventory.get(need.productId) || requireInventoryArray(need.productId, data);
+        // requireInventoryArray() only VALIDATES (it throws a 409 when the product's
+        // inventory is not an array and returns nothing), so use the array itself.
+        requireInventoryArray(need.productId, data);
+        const current = nextInventory.get(need.productId) || data.inventory;
         const entry = current.find(i => String(i.size) === need.size);
         if (!entry || (Number(entry.quantity) || 0) < need.quantity) {
           throw clientError(`${data.name || need.name || 'An item'} size ${need.size} is no longer in stock.`, 409);
