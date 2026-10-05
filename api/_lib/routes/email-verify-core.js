@@ -6,8 +6,10 @@
 //
 // SECURITY CONTRACT
 // - Only an HMAC-SHA256 digest of `${uid}:${code}` is ever stored
-//   (emailVerifications/{uid}.codeHash). The plain code never touches
-//   Firestore, the outbox payload or the logs.
+//   (emailVerifications/{uid}.codeHash). The plain code only ever appears in
+//   the customer's own email: it never touches Firestore state, route logs or
+//   response bodies (scripts/test-email-verify.mjs asserts this by spying on
+//   console.* and JSON.stringify-ing every stored doc / error message).
 // - The HMAC key comes from VERIFY_CODE_SECRET when that variable happens to
 //   be set; otherwise it is DERIVED from FIREBASE_ADMIN_PRIVATE_KEY with
 //   HKDF-SHA256 (salt 'herstep-verify-salt', info 'email-verify-code-v1',
@@ -135,7 +137,14 @@ export async function sendVerifyCode(deps, user, body = {}) {
   }
 
   const key = deps.verifyKey();
-  const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  // deps.generateCode is a TEST SEAM only: production always uses
+  // crypto.randomInt(0, 1000000) padded to 6 digits. The offline suite injects
+  // a known code so it can verify hashes and drive every confirm branch —
+  // the alternative would be brute-forcing random codes against a hash.
+  const generateCode = typeof deps.generateCode === 'function'
+    ? deps.generateCode
+    : () => String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+  const code = String(generateCode()).padStart(6, '0');
   const createdAt = millis(data?.createdAt) || now;
   const template = verificationCodeEmail(code);
 
