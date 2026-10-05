@@ -108,6 +108,16 @@ export default function CustomerDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 animate-fadeIn">
+      {/* Same yellow banner as Checkout — state.emailVerified comes from
+          GET /api/dashboard (profile.emailVerified, server-maintained). */}
+      {!state.emailVerified && (
+        <div className="mb-6 p-3 rounded-lg bg-yellow-50 border border-yellow-200 flex items-center justify-between gap-3">
+          <p className="text-sm text-yellow-800">Verify your email to place orders</p>
+          <Link to="/verify-email">
+            <Button size="sm" variant="secondary">Verify now</Button>
+          </Link>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Sidebar */}
         <aside className="lg:col-span-1">

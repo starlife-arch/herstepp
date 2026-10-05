@@ -12,6 +12,7 @@ import ProductDetail from './pages/ProductDetail';
 import Cart from './pages/Cart';
 import Checkout from './pages/Checkout';
 import { Login, Register } from './pages/Auth';
+import VerifyEmail from './pages/VerifyEmail';
 import CustomerDashboard from './pages/CustomerDashboard';
 import OrderTracking from './pages/OrderTracking';
 import Support from './pages/Support';
@@ -79,6 +80,7 @@ function AppRoutes() {
         <Route path="/checkout" element={<Wrap><Checkout /></Wrap>} />
         <Route path="/login" element={<Wrap><Login /></Wrap>} />
         <Route path="/register" element={<Wrap><Register /></Wrap>} />
+        <Route path="/verify-email" element={<Wrap><RequireAuth><VerifyEmail /></RequireAuth></Wrap>} />
         <Route path="/dashboard" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} />
         <Route path="/dashboard/*" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} />
         <Route path="/tip" element={<Wrap><TipPage /></Wrap>} />

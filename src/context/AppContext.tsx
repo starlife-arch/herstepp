@@ -64,6 +64,10 @@ interface AppState {
   authReady: boolean;
   catalogLoading: boolean;
   catalogError: string | null;
+  // Server mirror of the Auth email_verified claim from GET /api/dashboard
+  // (profile.emailVerified). Drives the "Verify your email to place orders"
+  // banner on Dashboard and Checkout. false until the dashboard has loaded.
+  emailVerified: boolean;
 }
 
 // The dashboard API returns warnings either as plain strings or as objects
@@ -100,7 +104,10 @@ type Action =
   | { type: 'SET_AUTH_READY'; payload: boolean }
   | { type: 'SET_CATALOG'; payload: { products: Product[]; categories: { id: string; name: string }[] } }
   | { type: 'SET_CATALOG_STATUS'; payload: { loading: boolean; error: string | null } }
-  | { type: 'SET_DASHBOARD'; payload: { orders: ServerOrder[]; payments: ServerPayment[]; notifications: Notification[]; warnings?: DashboardWarningInput[] } }
+  | { type: 'SET_DASHBOARD'; payload: { orders: ServerOrder[]; payments: ServerPayment[]; notifications: Notification[]; warnings?: DashboardWarningInput[]; emailVerified?: boolean } }
+  // Optimistic flip after a successful POST /api/auth/verify/confirm — the
+  // banner disappears immediately; reloadDashboard() confirms with server truth.
+  | { type: 'SET_EMAIL_VERIFIED'; payload: boolean }
   | { type: 'SET_DASHBOARD_STATUS'; payload: { loading: boolean; error: string | null } }
   | { type: 'ADD_TO_CART'; payload: CartItem }
   | { type: 'UPDATE_CART_QUANTITY'; payload: { productId: string; size: string; quantity: number } }
@@ -221,6 +228,7 @@ const initialState: AppState = {
   authReady: false,
   catalogLoading: true,
   catalogError: null,
+  emailVerified: false,
 };
 
 function clampQuantity(item: CartItem): CartItem {
@@ -251,7 +259,10 @@ function appReducer(state: AppState, action: Action): AppState {
         dashboardLoading: false,
         dashboardError: null,
         dashboardWarnings: normalizeDashboardWarnings(action.payload.warnings),
+        emailVerified: action.payload.emailVerified === true,
       };
+    case 'SET_EMAIL_VERIFIED':
+      return { ...state, emailVerified: action.payload === true };
     case 'SET_DASHBOARD_STATUS':
       return { ...state, dashboardLoading: action.payload.loading, dashboardError: action.payload.error };
     case 'ADD_TO_CART': {
@@ -372,7 +383,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     }
     if (!uid) {
-      dispatch({ type: 'SET_DASHBOARD', payload: { orders: [], payments: [], notifications: [] } });
+      dispatch({ type: 'SET_DASHBOARD', payload: { orders: [], payments: [], notifications: [], emailVerified: false } });
       return;
     }
     dispatch({ type: 'SET_DASHBOARD_STATUS', payload: { loading: true, error: null } });
@@ -385,6 +396,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
           payments: Array.isArray(data?.payments) ? data.payments : [],
           notifications: Array.isArray(data?.notifications) ? data.notifications.map(mapNotification) : [],
           warnings: Array.isArray(data?.warnings) ? data.warnings : [],
+          // Server truth for the verify banner (GET /api/dashboard → profile.emailVerified).
+          emailVerified: data?.profile?.emailVerified === true,
         },
       });
     } catch (error) {
@@ -470,7 +483,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     const { auth } = await getFirebase();
     await signOut(auth);
-    dispatch({ type: 'SET_DASHBOARD', payload: { orders: [], payments: [], notifications: [] } });
+    dispatch({ type: 'SET_DASHBOARD', payload: { orders: [], payments: [], notifications: [], emailVerified: false } });
   };
 
   return (

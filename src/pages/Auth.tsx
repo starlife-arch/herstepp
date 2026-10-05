@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import {
   createUserWithEmailAndPassword,
-  sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
 } from 'firebase/auth';
@@ -185,21 +184,10 @@ export function Login() {
 }
 
 export function Register() {
+  const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [verificationSent, setVerificationSent] = useState(false);
-
-  const resendVerification = async () => {
-    try {
-      const { auth } = await getFirebase();
-      if (!auth.currentUser) throw new Error('Sign in again to resend your verification email.');
-      await sendEmailVerification(auth.currentUser);
-      setVerificationSent(true);
-    } catch (caughtError) {
-      setError(authErrorMessage(caughtError));
-    }
-  };
 
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -213,13 +201,19 @@ export function Register() {
     setError('');
     try {
       const { auth } = await getFirebase();
-      const credential = await createUserWithEmailAndPassword(auth, form.email.trim(), form.password);
+      await createUserWithEmailAndPassword(auth, form.email.trim(), form.password);
       await apiFetch('/api/auth/sync-profile', {
         method: 'POST',
         body: JSON.stringify({ displayName: form.name, phoneNumber }),
       });
-      await sendEmailVerification(credential.user);
-      setVerificationSent(true);
+      // Firebase's verification LINK is gone for good — the server now emails
+      // a 6-digit code instead. Ask for it right away and land on /verify-email.
+      // A failure here must not lose the sign-up: the page re-requests the
+      // code on mount anyway.
+      try {
+        await apiFetch('/api/auth/verify/send', { method: 'POST', body: JSON.stringify({}) });
+      } catch { /* VerifyEmail retries the send when it mounts */ }
+      navigate('/verify-email', { replace: true });
     } catch (caughtError) {
       setError(authErrorMessage(caughtError));
     } finally {
@@ -239,7 +233,6 @@ export function Register() {
           <div className="space-y-4 mb-4"><GoogleSignInButton /></div>
           <form onSubmit={handleRegister} className="space-y-4">
             {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
-            {verificationSent && <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">Verify your email before checkout. Check your inbox, then <button type="button" onClick={resendVerification} className="font-medium underline">resend the verification email</button>.</div>}
             <Input label="Full Name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Your full name" required />
             <Input label="Email" type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="your@email.com" required />
             <Input label="Phone" value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} placeholder="+254 7XX XXX XXX" required />
