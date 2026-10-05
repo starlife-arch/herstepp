@@ -17,7 +17,10 @@
 import { FieldValue } from 'firebase-admin/firestore';
 
 const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
-const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions'];
+// 'verify' carries the 6-digit email-verification codes (POST /api/auth/verify/send).
+// It has NO fallback sender: when BREVO_SENDER_VERIFY is empty, missingSenderPurposes()
+// lists it and /verify/send answers 503 ("Verification emails are not configured yet.").
+const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify'];
 
 let warnedMissing = false;
 
