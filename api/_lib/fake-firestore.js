@@ -86,6 +86,7 @@ function makeDocRef(store, collection, id) {
     },
     set: async (value, options) => applyWrite(store, { type: 'set', collection, id, value: deepClone(value), options }),
     update: async (value) => applyWrite(store, { type: 'update', collection, id, value: deepClone(value) }),
+    delete: async () => applyWrite(store, { type: 'delete', collection, id }),
   };
 }
 
@@ -107,7 +108,9 @@ function makeDocSnap(store, collection, id, dataOrNull) {
 async function applyWrite(store, op) {
   if (!store.collections.has(op.collection)) store.collections.set(op.collection, new Map());
   const docs = store.collections.get(op.collection);
-  if (op.type === 'set') {
+  if (op.type === 'delete') {
+    docs.delete(op.id);
+  } else if (op.type === 'set') {
     const existing = docs.get(op.id) || {};
     docs.set(op.id, op.options?.merge ? { ...existing, ...op.value } : op.value);
   } else {
