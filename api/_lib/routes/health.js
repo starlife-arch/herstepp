@@ -17,11 +17,37 @@ const requiredEnvironmentVariables = [
   'PRINTPAY_API_BASE_URL',
 ];
 
-export default function health(req, res) {
+export default async function health(req, res) {
   if (req.method !== 'GET') {
     return methodNotAllowed(res, 'GET');
   }
 
   const missing = requiredEnvironmentVariables.filter((name) => !process.env[name]?.trim());
-  return res.status(200).json({ missing });
+  const queryDeep = Array.isArray(req.query.deep) ? req.query.deep[0] : req.query.deep;
+  const deep = queryDeep === '1' || queryDeep === 'true';
+
+  if (!deep) {
+    return res.status(200).json({ missing });
+  }
+
+  // Deep check: run one tiny Firestore read and report ONLY a safe error code.
+  // Never leak message text, stack traces or project details.
+  let firestore = { ok: true };
+  try {
+    const { adminDb } = await import('../firebase-admin.js');
+    await adminDb.collection('settings').doc('checkout').get();
+  } catch (error) {
+    const code = typeof error?.code === 'number' ? error.code : String(error?.code ?? error?.name ?? 'UNKNOWN');
+    firestore = { ok: false, code };
+  }
+
+  const body = {
+    ok: missing.length === 0 && firestore.ok,
+    missing,
+    firestore,
+  };
+  if (!firestore.ok) {
+    body.hint = 'Firestore is unreachable or its quota is exhausted. Check the Firebase console usage page.';
+  }
+  return res.status(firestore.ok ? 200 : 503).json(body);
 }

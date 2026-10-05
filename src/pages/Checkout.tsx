@@ -173,6 +173,19 @@ export default function Checkout() {
           return 'STILL_PENDING';
         }
       }
+      // Pause polling while the tab is hidden: no background requests.
+      if (document.visibilityState !== 'visible') {
+        await new Promise<void>((resolve) => {
+          const onVisible = () => {
+            if (document.visibilityState === 'visible') {
+              document.removeEventListener('visibilitychange', onVisible);
+              resolve();
+            }
+          };
+          document.addEventListener('visibilitychange', onVisible);
+        });
+        if (abortRef.current) return 'STILL_PENDING';
+      }
       try { await sleep(2000); } catch { return 'STILL_PENDING'; } // aborted
     }
     return 'STILL_PENDING';

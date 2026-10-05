@@ -36,8 +36,9 @@ function Toast({ message }: { message: string }) {
 
 type Async<T> = { loading: boolean; error: string | null; data: T | null };
 
-function useAdminData<T>(path: string): Async<T> & { reload: () => void } {
+function useAdminData<T>(path: string): Async<T> & { reload: () => void; loadMore?: (cursor: unknown) => Promise<void>; loadingMore?: boolean } {
   const [state, setState] = useState<Async<T>>({ loading: true, error: null, data: null });
+  const [loadingMore, setLoadingMore] = useState(false);
   const load = useCallback(async () => {
     setState(s => ({ ...s, loading: true, error: null }));
     try {
@@ -47,8 +48,28 @@ function useAdminData<T>(path: string): Async<T> & { reload: () => void } {
       setState({ loading: false, error: err?.message || 'Could not load data.', data: null });
     }
   }, [path]);
+  // Cursor "Load more": appends one more bounded page without refetching the
+  // whole list. Only used by routes that support ?cursor= (admin orders).
+  const loadMore = useCallback(async (cursor: unknown) => {
+    setLoadingMore(true);
+    try {
+      const sep = path.includes('?') ? '&' : '?';
+      const data: any = await apiFetch(`${path}${sep}cursor=${encodeURIComponent(String(cursor))}`);
+      setState(prev => {
+        const oldList: any[] = Array.isArray(prev.data) ? prev.data : (prev.data as any)?.orders ?? [];
+        const newOrders: any[] = Array.isArray(data) ? data : (data?.orders ?? []);
+        const merged = [...oldList, ...newOrders];
+        const base: any = prev.data && !Array.isArray(prev.data) ? prev.data : {};
+        return { loading: false, error: null, data: { ...base, ...data, orders: merged } as any };
+      });
+    } catch (err: any) {
+      setState(prev => ({ ...prev, error: err?.message || 'Could not load more.' }));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [path]);
   useEffect(() => { load(); }, [load]);
-  return { ...state, reload: load };
+  return { ...state, reload: load, loadMore, loadingMore };
 }
 
 function LoadingCard() {
@@ -445,7 +466,7 @@ function AdminOverview({ res, orders }: { res: ReturnType<typeof useAdminData<an
 // ---------------------------------------------------------------------------
 // Orders — GET /api/admin/orders, status change via PATCH /api/admin/orders.
 // ---------------------------------------------------------------------------
-function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[]>>; orders: any[] }) {
+function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>>; orders: any[] }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -556,6 +577,22 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any[
             </div>
           )}
         </Card>
+      )}
+      {!res.loading && !res.error && orders.length % 100 === 0 && orders.length > 0 && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={res.loadingMore}
+            onClick={() => {
+              const last = orders[orders.length - 1];
+              const c = last?.createdAt ?? last?.id;
+              if (c) void res.loadMore?.(c);
+            }}
+          >
+            {res.loadingMore ? 'Loading…' : 'Load more'}
+          </Button>
+        </div>
       )}
       {detail && <OrderDetailPanel order={detail} onClose={() => setDetailId(null)} />}
       {toast && <Toast message={toast} />}

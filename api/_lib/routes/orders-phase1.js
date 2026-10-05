@@ -150,7 +150,16 @@ export async function adminOrders(req, res) {
     let q = adminDb.collection('orders');
     const statusFilter = Array.isArray(req.query.orderStatus) ? req.query.orderStatus[0] : req.query.orderStatus;
     if (typeof statusFilter === 'string' && statusFilter) q = q.where('orderStatus', '==', statusFilter);
-    const s = await q.orderBy('createdAt', 'desc').limit(200).get();
+    // Bounded read: 100 newest orders with a createdAt cursor for "Load more".
+    const cursorRaw = Array.isArray(req.query.cursor) ? req.query.cursor[0] : req.query.cursor;
+    q = q.orderBy('createdAt', 'desc').limit(100);
+    if (typeof cursorRaw === 'string' && cursorRaw) {
+      let cursorValue = cursorRaw;
+      if (/^\d+$/.test(cursorRaw)) cursorValue = new Date(Number(cursorRaw));
+      else { const parsed = new Date(cursorRaw); if (!Number.isNaN(parsed.getTime())) cursorValue = parsed; }
+      q = q.startAfter(cursorValue);
+    }
+    const s = await q.get();
     const list = rows(s);
 
     // Batched lookups so each row carries receiptNumber + failureReason and a
@@ -198,7 +207,10 @@ export async function adminOrders(req, res) {
       }
     } catch (error) { console.error('[adminOrders] settings/printpay lookup failed:', error?.message || error); }
 
+    const lastRow = list[list.length - 1];
+    const nextCursor = list.length === 100 && lastRow ? (lastRow.createdAt ?? null) : null;
     return res.json({
+      nextCursor,
       orders: list.map(o => ({
       id: o.id,
       orderId: o.orderId ?? o.id,
