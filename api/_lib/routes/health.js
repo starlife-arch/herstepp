@@ -17,37 +17,82 @@ const requiredEnvironmentVariables = [
   'PRINTPAY_API_BASE_URL',
 ];
 
+// gRPC status numbers used by Firestore.
+const GRPC_NAMES = {
+  1: 'CANCELLED',
+  2: 'UNKNOWN',
+  3: 'INVALID_ARGUMENT',
+  4: 'DEADLINE_EXCEEDED',
+  5: 'NOT_FOUND',
+  7: 'PERMISSION_DENIED',
+  8: 'RESOURCE_EXHAUSTED',
+  9: 'FAILED_PRECONDITION',
+  14: 'UNAVAILABLE',
+  16: 'UNAUTHENTICATED',
+};
+
+// Fixed, human-readable hints. The raw error message is NEVER returned, so no
+// secret or internal detail can leak through this public endpoint.
+const HINTS = {
+  RESOURCE_EXHAUSTED:
+    'Firestore quota is used up (free plan: 50,000 reads per day, resets at 10:00 Nairobi time). Reduce reads or upgrade to the Blaze plan.',
+  UNAUTHENTICATED:
+    'Firebase rejected the service account key. It may be deleted or rotated: update FIREBASE_ADMIN_PRIVATE_KEY and FIREBASE_ADMIN_CLIENT_EMAIL in Vercel and redeploy.',
+  PERMISSION_DENIED:
+    'The service account has no permission to use Firestore. Check its roles in Google Cloud IAM.',
+  NOT_FOUND: 'The Firestore database was not found for this project id.',
+  UNAVAILABLE: 'Firestore could not be reached right now. Try again shortly.',
+  CONFIG: 'A server environment variable is missing or invalid.',
+};
+
+function describeError(error) {
+  const raw = error?.code;
+  let code = typeof raw === 'number' ? GRPC_NAMES[raw] || String(raw) : String(raw || 'UNKNOWN');
+  const message = String(error?.message || '');
+
+  // firebase-admin.js throws a 503 for missing/invalid env vars at import time.
+  if (error?.statusCode === 503) code = 'CONFIG';
+  // Expired or deleted keys often surface as an auth error without a clean code.
+  if (/invalid_grant|invalid jwt|private key|could not load the default credentials/i.test(message)) {
+    code = 'UNAUTHENTICATED';
+  }
+  if (/quota|resource_exhausted/i.test(message)) code = 'RESOURCE_EXHAUSTED';
+
+  return { firestore: 'error', code, hint: HINTS[code] || 'Check the Vercel function logs for this deployment.' };
+}
+
+// A deep check costs one Firestore read, so cache the result for 20 seconds to
+// stop anyone hammering the endpoint.
+let cached = null;
+
+async function checkFirestore() {
+  if (cached && Date.now() - cached.at < 20_000) return cached.result;
+
+  let result;
+  try {
+    const { adminDb } = await import('../firebase-admin.js');
+    await adminDb.collection('settings').doc('checkout').get();
+    result = { firestore: 'ok' };
+  } catch (error) {
+    result = describeError(error);
+  }
+
+  cached = { at: Date.now(), result };
+  return result;
+}
+
 export default async function health(req, res) {
   if (req.method !== 'GET') {
     return methodNotAllowed(res, 'GET');
   }
 
   const missing = requiredEnvironmentVariables.filter((name) => !process.env[name]?.trim());
-  const queryDeep = Array.isArray(req.query.deep) ? req.query.deep[0] : req.query.deep;
-  const deep = queryDeep === '1' || queryDeep === 'true';
+  const deep = req.query?.deep === '1' || req.query?.deep === 'true';
 
   if (!deep) {
     return res.status(200).json({ missing });
   }
 
-  // Deep check: run one tiny Firestore read and report ONLY a safe error code.
-  // Never leak message text, stack traces or project details.
-  let firestore = { ok: true };
-  try {
-    const { adminDb } = await import('../firebase-admin.js');
-    await adminDb.collection('settings').doc('checkout').get();
-  } catch (error) {
-    const code = typeof error?.code === 'number' ? error.code : String(error?.code ?? error?.name ?? 'UNKNOWN');
-    firestore = { ok: false, code };
-  }
-
-  const body = {
-    ok: missing.length === 0 && firestore.ok,
-    missing,
-    firestore,
-  };
-  if (!firestore.ok) {
-    body.hint = 'Firestore is unreachable or its quota is exhausted. Check the Firebase console usage page.';
-  }
-  return res.status(firestore.ok ? 200 : 503).json(body);
+  const firestore = await checkFirestore();
+  return res.status(200).json({ missing, ...firestore });
 }
