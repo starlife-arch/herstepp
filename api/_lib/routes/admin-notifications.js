@@ -58,6 +58,9 @@ export async function notificationStatus(req, res) {
       // BREVO_SENDER_VERIFY has no fallback: when it is empty the status page
       // lists it here and /api/auth/verify/send answers 503.
       verifyConfigured: verifySenderConfigured(cfg),
+      // BREVO_SENDER_TIPS is OPTIONAL: when empty, tip thank-you emails fall
+      // back to BREVO_SENDER_PAYMENTS (so 'tips' never shows up as missing).
+      tipsSenderConfigured: Boolean(String((globalThis.process?.env || {}).BREVO_SENDER_TIPS || '').trim()),
       missing,
       pending: stats.pending,
       sent7d: stats.sent7d,

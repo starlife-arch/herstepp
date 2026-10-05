@@ -1,1 +1,7 @@
-(empty)
+# Build artifacts
+dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
