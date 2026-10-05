@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Search, Package, Check, Truck, Clock, MapPin } from 'lucide-react';
+import { Search, Package, Check, Truck, Clock, MapPin, Heart } from 'lucide-react';
 import { Card, Button, Badge, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { apiFetch } from '../lib/api';
 import { useApp } from '../context/AppContext';
@@ -254,6 +254,26 @@ export default function OrderTracking() {
               <div className="flex justify-between font-semibold pt-2 border-t border-neutral-200"><span>Total</span><span>{formatCurrency(num(order.total))}</span></div>
             </div>
           </Card>
+
+          {/* Treat the team — shown once the order is delivered */}
+          {order.orderStatus === 'DELIVERED' && (
+            <Card className="p-5">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-rose-50 flex items-center justify-center shrink-0">
+                    <Heart className="w-5 h-5 text-rose-500" />
+                  </div>
+                  <div>
+                    <p className="font-medium text-sm text-neutral-900">Happy with your order? Treat the team</p>
+                    <p className="text-xs text-neutral-500">A small thank-you goes a long way in Juja.</p>
+                  </div>
+                </div>
+                <Link to="/tip">
+                  <Button size="sm">Treat the team</Button>
+                </Link>
+              </div>
+            </Card>
+          )}
         </div>
       )}
     </div>

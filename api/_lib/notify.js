@@ -151,7 +151,7 @@ export function queueTipThankYouEmail(tx, db, { key, tip, receiptNumber }) {
       `Hi ${tip.customerName || 'there'},\n\nYour KSh ${(Number(tip.amount) || 0).toLocaleString('en-KE')} ${label} just made the whole team smile. Thank you so much for supporting HerStep Collection!\n\nReceipt: ${receiptNumber || '—'}${tip.message ? `\n\nYour message: "${tip.message}"` : ''}\n\nWith gratitude,\nThe HerStep team`,
       { ctaLabel: 'Shop with us', ctaUrl: `${(globalThis.process?.env || {}).SITE_URL || 'https://herstepp.vercel.app'}/shop` },
     );
-    queueEmail(tx, db, { key, purpose: 'payments', to: tip.customerEmail, subject, htmlContent });
+    queueEmail(tx, db, { key, purpose: 'tips', to: tip.customerEmail, subject, htmlContent });
   } catch (error) {
     console.error('[notify] queueTipThankYouEmail failed:', error?.message || error);
   }
