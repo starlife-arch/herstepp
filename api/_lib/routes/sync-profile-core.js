@@ -54,6 +54,11 @@ export async function syncProfileCore(deps, user, body) {
         phoneNumber: phoneNumber || '',
         deliveryDetails: body.deliveryDetails ?? null,
         marketingConsent: false,
+        // Server-written mirror of the Auth token's email_verified claim — the
+        // dashboard banner and Checkout read it from GET /api/dashboard.
+        // Google accounts arrive verified; password sign-ups must confirm the
+        // 6-digit code (POST /api/auth/verify/confirm sets this to true).
+        emailVerified: user.email_verified === true || isGoogleProvider(user),
         role: 'CUSTOMER',
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),

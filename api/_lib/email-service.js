@@ -153,11 +153,22 @@ export async function deliverQueuedEmail(db, docId, { cfg = emailConfig(), fetch
 // waitUntil at the route layer). Missing config = skip quietly.
 export async function deliverQueuedEmailInline(db, key, options = {}) {
   const cfg = options.cfg || emailConfig();
+  // The 'verify' purpose has NO fallback sender: when BREVO_SENDER_VERIFY is
+  // missing, emailConfigured() is false and this stays quiet (the /verify/send
+  // route itself answers 503 before anything is queued — see
+  // api/_lib/routes/email-verify-core.js).
   if (!emailConfigured(cfg)) {
     warnMissingOnce(cfg);
     return { skipped: true, reason: 'not-configured' };
   }
   return deliverQueuedEmail(db, emailId(key), { ...options, cfg });
+}
+
+// True only when the 'verify' purpose can actually send: API key + a dedicated
+// BREVO_SENDER_VERIFY address. There is deliberately no fallback to another
+// sender for verification codes.
+export function verifySenderConfigured(cfg = emailConfig()) {
+  return Boolean(cfg.apiKey && cfg.senders.verify);
 }
 
 // Retry pass: deliver up to `limit` PENDING emails older than `olderThanMs`.
