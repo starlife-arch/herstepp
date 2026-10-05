@@ -16,7 +16,6 @@
 // - Google sign-ups already have a verified email: they get {verified:true}
 //   without any code being generated or emailed.
 import crypto from 'node:crypto';
-import { FieldValue } from 'firebase-admin/firestore';
 import { clientError } from '../http.js';
 import { queueEmail } from '../email-service.js';
 import { verificationCodeEmail } from '../email-templates.js';
@@ -105,12 +104,6 @@ export async function sendVerifyCode(deps, user, body = {}) {
   const email = String(body.email || user.email || profileSnap.data()?.email || '').trim().toLowerCase();
   if (!email) throw clientError('We could not find an email address on your account.', 400);
 
-  // No fallback sender for the 'verify' purpose: refuse loudly instead of
-  // silently dropping the only copy of the customer's code.
-  if (!deps.verifySenderConfigured()) {
-    throw clientError(NOT_CONFIGURED_MESSAGE, 503);
-  }
-
   const ref = db.collection('emailVerifications').doc(uid);
   const current = await ref.get();
   const data = current.data() || null;
@@ -134,6 +127,13 @@ export async function sendVerifyCode(deps, user, body = {}) {
     );
   }
 
+  // No fallback sender for the 'verify' purpose: refuse loudly BEFORE any
+  // code is generated or stored — a failed send must never overwrite a valid
+  // pending code. Rate-limit state stays untouched too.
+  if (!deps.verifySenderConfigured()) {
+    throw clientError(NOT_CONFIGURED_MESSAGE, 503);
+  }
+
   const key = deps.verifyKey();
   const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
   const createdAt = millis(data?.createdAt) || now;
@@ -142,6 +142,10 @@ export async function sendVerifyCode(deps, user, body = {}) {
   await db.runTransaction(async tx => {
     tx.set(ref, {
       codeHash: hashCode(key, uid, code),
+      // Plain numbers (not Firestore timestamps): the fake DB used by the
+      // offline tests deep-clones values with structuredClone(), which cannot
+      // copy a FieldValue sentinel. millis() below still tolerates Timestamps
+      // written by older data.
       expiresAt: now + CODE_TTL_MS,
       attempts: 0,
       lastSentAt: now,
@@ -215,7 +219,9 @@ export async function confirmVerifyCode(deps, user, body = {}) {
   // email_verified=true, mirror it on users/{uid}, drop the code.
   await deps.markAuthEmailVerified(uid);
   const userRef = db.collection('users').doc(uid);
-  await userRef.set({ emailVerified: true, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  // Plain number for updatedAt (see the note in sendVerifyCode): keeps the doc
+  // structuredClone-safe for the fake DB and matches the millis() readers.
+  await userRef.set({ emailVerified: true, updatedAt: now }, { merge: true });
   await ref.delete();
 
   return { verified: true };
