@@ -99,6 +99,19 @@ export default function TipPage() {
           return status as TipOutcome;
         }
       } catch { /* keep retrying within the window */ }
+      // Pause polling while the tab is hidden: no background requests.
+      if (document.visibilityState !== 'visible') {
+        await new Promise<void>((resolve) => {
+          const onVisible = () => {
+            if (document.visibilityState === 'visible') {
+              document.removeEventListener('visibilitychange', onVisible);
+              resolve();
+            }
+          };
+          document.addEventListener('visibilitychange', onVisible);
+        });
+        if (abortRef.current) return 'STILL_PENDING';
+      }
       await sleep(2000);
     }
     return 'STILL_PENDING';

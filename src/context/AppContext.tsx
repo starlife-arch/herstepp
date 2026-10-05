@@ -59,19 +59,48 @@ interface AppState {
   payments: ServerPayment[];
   dashboardLoading: boolean;
   dashboardError: string | null;
-  dashboardWarnings: string[];
+  dashboardWarnings: DashboardWarning[];
   toast: { message: string; type: 'success' | 'error' | 'info' } | null;
   authReady: boolean;
   catalogLoading: boolean;
   catalogError: string | null;
 }
 
+// The dashboard API returns warnings either as plain strings or as objects
+// { section, reason }. Normalise to readable text at the edge.
+export type DashboardWarning = string;
+type DashboardWarningInput = string | { section?: string; reason?: string };
+
+const friendlyWarningReason = (reason: string): string => {
+  const r = reason.toLowerCase();
+  if (r.includes('resource_exhausted') || r.includes('quota')) {
+    return 'The shop is very busy right now. Please try again in a few minutes.';
+  }
+  if (r.includes('index') || r.includes('indexes')) {
+    return 'Setting up your account data, try again shortly.';
+  }
+  return reason;
+};
+
+export const normalizeDashboardWarnings = (list: unknown): DashboardWarning[] => {
+  if (!Array.isArray(list)) return [];
+  return list.map((w: DashboardWarningInput) => {
+    if (typeof w === 'string') return friendlyWarningReason(w);
+    if (w && typeof w === 'object') {
+      const section = String(w.section ?? '').trim();
+      const reason = friendlyWarningReason(String(w.reason ?? '').trim());
+      return section ? `${section}: ${reason}` : reason;
+    }
+    return String(w);
+  }).filter(Boolean);
+};
+
 type Action =
   | { type: 'SET_USER'; payload: User | null }
   | { type: 'SET_AUTH_READY'; payload: boolean }
   | { type: 'SET_CATALOG'; payload: { products: Product[]; categories: { id: string; name: string }[] } }
   | { type: 'SET_CATALOG_STATUS'; payload: { loading: boolean; error: string | null } }
-  | { type: 'SET_DASHBOARD'; payload: { orders: ServerOrder[]; payments: ServerPayment[]; notifications: Notification[]; warnings?: string[] } }
+  | { type: 'SET_DASHBOARD'; payload: { orders: ServerOrder[]; payments: ServerPayment[]; notifications: Notification[]; warnings?: DashboardWarningInput[] } }
   | { type: 'SET_DASHBOARD_STATUS'; payload: { loading: boolean; error: string | null } }
   | { type: 'ADD_TO_CART'; payload: CartItem }
   | { type: 'UPDATE_CART_QUANTITY'; payload: { productId: string; size: string; quantity: number } }
@@ -221,7 +250,7 @@ function appReducer(state: AppState, action: Action): AppState {
         notifications: Array.isArray(action.payload.notifications) ? action.payload.notifications : [],
         dashboardLoading: false,
         dashboardError: null,
-        dashboardWarnings: Array.isArray(action.payload.warnings) ? action.payload.warnings : [],
+        dashboardWarnings: normalizeDashboardWarnings(action.payload.warnings),
       };
     case 'SET_DASHBOARD_STATUS':
       return { ...state, dashboardLoading: action.payload.loading, dashboardError: action.payload.error };
@@ -318,7 +347,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         .filter((p): p is Product => p !== null);
       dispatch({ type: 'SET_CATALOG', payload: { products, categories: Array.isArray(categories) ? categories : [] } });
     } catch (error) {
-      dispatch({ type: 'SET_CATALOG_STATUS', payload: { loading: false, error: error instanceof Error ? error.message : 'We could not load the catalogue.' } });
+      const raw = error instanceof Error ? error.message : 'We could not load the catalogue.';
+      // Friendly copy on public pages: never show raw server/Firestore errors.
+      const friendly = /resource_exhausted|quota|500|503|unavailable|Failed to fetch|NetworkError|fetch/i.test(raw)
+        ? 'The shop is busy, please try again in a minute.'
+        : raw;
+      dispatch({ type: 'SET_CATALOG_STATUS', payload: { loading: false, error: friendly } });
     }
   };
 

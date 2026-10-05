@@ -7,13 +7,14 @@
 // whole arrays/objects instead.
 
 class Query {
-  constructor(store, collection, conditions, orderField, orderDir, limitCount) {
+  constructor(store, collection, conditions, orderField, orderDir, limitCount, afterValues) {
     this.store = store;
     this.collection = collection;
     this.conditions = conditions;
     this.orderField = orderField;
     this.orderDir = orderDir;
     this.limitCount = limitCount;
+    this.afterValues = afterValues || null;
   }
 
   where(field, op, value) {
@@ -27,7 +28,11 @@ class Query {
   }
 
   limit(n) {
-    return new Query(this.store, this.collection, this.conditions, this.orderField, this.orderDir, n);
+    return new Query(this.store, this.collection, this.conditions, this.orderField, this.orderDir, n, this.afterValues);
+  }
+
+  startAfter(...values) {
+    return new Query(this.store, this.collection, this.conditions, this.orderField, this.orderDir, this.limitCount, values);
   }
 
   _rows(merged) {
@@ -44,6 +49,17 @@ class Query {
         if (av > bv) return this.orderDir === 'desc' ? -1 : 1;
         return 0;
       });
+    }
+    if (this.afterValues && this.orderField) {
+      const rank = (v) => (v && typeof v === 'object' && v.__serverTs ? v.n : v);
+      const target = rank(this.afterValues[0]);
+      // startAfter keeps only rows that come strictly AFTER the cursor in the
+      // query's own sort direction (entries are already sorted here).
+      let cursorIndex = -1;
+      for (let i = 0; i < entries.length; i += 1) {
+        if (rank(entries[i][1][this.orderField]) === target) { cursorIndex = i; break; }
+      }
+      if (cursorIndex >= 0) entries = entries.slice(cursorIndex + 1);
     }
     if (this.limitCount != null) entries = entries.slice(0, this.limitCount);
     return entries;

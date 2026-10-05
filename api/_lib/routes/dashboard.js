@@ -8,7 +8,7 @@
 // `warnings` so the UI can show them instead of silently rendering "No orders yet".
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { methodNotAllowed, clientError } from '../http.js';
-import { reconcileBestEffort } from '../order-core.js';
+import { reconcileBestEffort, PAYMENT_STATUS } from '../order-core.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
@@ -44,54 +44,43 @@ export async function dashboard(req, res) {
   const t0 = Date.now();
   const warnings = [];
 
-  // Lazy reconciliation (best effort, NEVER throws — reconcileBestEffort wraps
-  // it): refresh dead PENDING payments for this user so paid/failed/cancelled/
-  // timeout shows correctly without any cron.
-  await reconcileBestEffort(adminDb, { customerId: u.uid });
-  console.log(`[dashboard] reconcile took ${Date.now() - t0}ms uid=${u.uid}`);
+  // CUT DASHBOARD READS: reconciliation now runs ONLY when a cheap probe
+  // (customerId + status equality, limit 3 — at most 3 index reads) actually
+  // finds a pending payment for this customer. No pending → zero provider
+  // work, zero extra reads.
+  const pendingProbe = await settle(
+    () => adminDb.collection('payments')
+      .where('customerId', '==', u.uid)
+      .where('status', '==', PAYMENT_STATUS.PENDING)
+      .limit(3)
+      .get(),
+    'pending-probe',
+    warnings,
+  );
+  if (pendingProbe && !pendingProbe.empty) {
+    await reconcileBestEffort(adminDb, { customerId: u.uid });
+    console.log(`[dashboard] reconcile took ${Date.now() - t0}ms uid=${u.uid}`);
+  }
 
   const t1 = Date.now();
   // Single-field equality queries only — no orderBy, no composite index dependency.
+  // Limits are applied IN THE QUERY (50 orders / 20 payments / 30 notifications).
   const [profileSnap, ordersSnap, paymentsSnap, notificationsSnap] = await Promise.all([
     settle(() => adminDb.collection('users').doc(u.uid).get(), 'profile', warnings),
-    settle(() => adminDb.collection('orders').where('customerId', '==', u.uid).limit(200).get(), 'orders', warnings),
-    settle(() => adminDb.collection('payments').where('customerId', '==', u.uid).limit(100).get(), 'payments', warnings),
-    settle(() => adminDb.collection('notifications').where('customerId', '==', u.uid).limit(100).get(), 'notifications', warnings),
+    settle(() => adminDb.collection('orders').where('customerId', '==', u.uid).limit(50).get(), 'orders', warnings),
+    settle(() => adminDb.collection('payments').where('customerId', '==', u.uid).limit(20).get(), 'payments', warnings),
+    settle(() => adminDb.collection('notifications').where('customerId', '==', u.uid).limit(30).get(), 'notifications', warnings),
   ]);
   console.log(`[dashboard] queries took ${Date.now() - t1}ms uid=${u.uid}`);
 
-  // In-memory sort + slice (50 orders / 20 payments / 20 notifications).
+  // In-memory sort + defensive slice (the query limits above already bound the reads).
   const ordersAll = sortDescByCreatedAt(ordersSnap ? rows(ordersSnap) : []).slice(0, 50);
   const payments = sortDescByCreatedAt(paymentsSnap ? rows(paymentsSnap) : []).slice(0, 20);
-  const notifications = sortDescByCreatedAt(notificationsSnap ? rows(notificationsSnap) : []).slice(0, 20);
+  const notifications = sortDescByCreatedAt(notificationsSnap ? rows(notificationsSnap) : []).slice(0, 30);
 
-  // Attach each order's status history in batched queries of 30 doc ids, WITHOUT orderBy
-  // (composite index not required); sort ascending in memory. A failure leaves histories empty.
-  const historyByDoc = {};
-  const orderIds = ordersAll.map(o => o.id).filter(Boolean);
-  if (orderIds.length > 0) {
-    const chunks = [];
-    for (let i = 0; i < orderIds.length; i += 30) chunks.push(orderIds.slice(i, i + 30));
-    const results = await Promise.allSettled(
-      chunks.map(chunk => adminDb.collection('orderStatusHistory').where('orderDocumentId', 'in', chunk).limit(500).get()),
-    );
-    results.forEach((r, idx) => {
-      if (r.status === 'fulfilled') {
-        for (const h of r.value.docs) {
-          const hd = h.data();
-          const key = hd.orderDocumentId;
-          if (!historyByDoc[key]) historyByDoc[key] = [];
-          historyByDoc[key].push({ ...hd, createdAt: iso(hd.createdAt) });
-        }
-      } else {
-        logQueryFailure(warnings, `status-history-chunk-${idx}`, r.reason);
-      }
-    });
-    for (const key of Object.keys(historyByDoc)) {
-      historyByDoc[key].sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime());
-    }
-  }
-
+  // CUT DASHBOARD READS: status history is NO LONGER attached here (it cost
+  // one batched orderStatusHistory query per page load). The UI loads history
+  // lazily through GET /api/orders/track only when an order is expanded.
   const p = profileSnap?.data?.() || {};
   return res.json({
     profile: {
@@ -100,7 +89,7 @@ export async function dashboard(req, res) {
       phoneNumber: p.phoneNumber ?? '',
       deliveryDetails: p.deliveryDetails ?? null,
     },
-    orders: ordersAll.map(o => ({ ...o, statusHistory: historyByDoc[o.id] ?? [] })),
+    orders: ordersAll.map(o => ({ ...o, statusHistory: undefined })),
     payments,
     notifications,
     warnings,

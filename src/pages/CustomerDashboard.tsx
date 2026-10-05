@@ -4,6 +4,7 @@ import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, Lo
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { productImageUrl, orderItemImageUrl } from '../lib/productImage';
+import { apiFetch } from '../lib/api';
 
 // Real data only. GET /api/dashboard already returns ONLY the signed-in
 // customer's orders/payments/notifications (server filters by the verified
@@ -25,15 +26,49 @@ export default function CustomerDashboard() {
   const pendingOrders = userOrders.filter(o => ['PENDING', 'PROCESSING'].includes(up(o.orderStatus)));
   const completedOrders = userOrders.filter(o => up(o.orderStatus) === 'DELIVERED');
   const unreadNotifs = state.notifications.filter(n => !n.read);
+  // Polling: only while the tab is visible AND a payment is PENDING. We poll
+  // GET /api/payments/status for the pending payment ids only (never the full
+  // dashboard), back off 5 s, 10 s, 20 s, 30 s and stop after 3 minutes. When
+  // a status changes we refetch the dashboard once. No background polling.
+  const pendingPaymentIds = userOrders
+    .filter(order => up(order.paymentStatus) === 'PENDING' && order.paymentId)
+    .map(order => String(order.paymentId));
   useEffect(() => {
-    if (!userOrders.some(order => up(order.paymentStatus) === 'PENDING')) return;
+    if (pendingPaymentIds.length === 0) return;
+    const ids = pendingPaymentIds;
     const started = Date.now();
-    const timer = window.setInterval(() => {
-      if (Date.now() - started > 5 * 60_000) return window.clearInterval(timer);
-      void reloadDashboard();
-    }, 5000);
-    return () => window.clearInterval(timer);
-  }, [reloadDashboard, userOrders]);
+    const delays = [5000, 10000, 20000, 30000];
+    let cancelled = false;
+    let timer = 0;
+    let step = 0;
+    const tick = async () => {
+      if (cancelled) return;
+      if (Date.now() - started > 180_000 || document.visibilityState !== 'visible') {
+        if (Date.now() - started <= 180_000) {
+          // Hidden tab: skip this round but keep the window alive.
+          timer = window.setTimeout(tick, delays[Math.min(step, delays.length - 1)]);
+        }
+        return;
+      }
+      try {
+        const results = await Promise.all(ids.map((id: string) => apiFetch(`/api/payments/status?paymentId=${encodeURIComponent(id)}`)));
+        const changed = results.some((res: any) => up(res?.payment?.status) !== 'PENDING');
+        if (changed) void reloadDashboard();
+      } catch { /* transient: keep backing off */ }
+      step += 1;
+      if (!cancelled && Date.now() - started <= 180_000) {
+        timer = window.setTimeout(tick, delays[Math.min(step, delays.length - 1)]);
+      }
+    };
+    timer = window.setTimeout(tick, delays[0]);
+    const onVisible = () => { if (document.visibilityState === 'visible') void tick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [reloadDashboard, pendingPaymentIds.join(',')]);
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -113,7 +148,7 @@ export default function CustomerDashboard() {
         </aside>
 
         {/* Content */}
-        <main className="lg:col-span-3">{state.dashboardWarnings.length > 0 && <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{state.dashboardWarnings.join(' ')}</div>}{content}</main>
+        <main className="lg:col-span-3">{state.dashboardWarnings.length > 0 && <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 space-y-1">{state.dashboardWarnings.map((w, i) => <p key={i}>{String(w)}</p>)}</div>}{content}</main>
       </div>
     </div>
   );
