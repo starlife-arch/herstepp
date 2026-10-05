@@ -23,9 +23,12 @@ const BRAND_TEXT = '#40516a';
 const FOOTER_LINE = 'HerStep Collection · Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12 · +254 799 021 089 · herstepcollection@gmail.com';
 
 // Responsive table layout: header band, body, optional CTA button, footer.
-export function emailHtml(title, body, { ctaLabel, ctaUrl } = {}) {
+// options.rawBody = true keeps the body as pre-built (already escaped) HTML —
+// used by the verification-code template, which renders the code in a styled
+// block. Every other caller passes plain text, which is escaped here.
+export function emailHtml(title, body, { ctaLabel, ctaUrl, rawBody = false } = {}) {
   const safeTitle = escapeHtml(title);
-  const safeBody = escapeHtml(body).replace(/\n/g, '<br>');
+  const safeBody = rawBody ? String(body ?? '') : escapeHtml(body).replace(/\n/g, '<br>');
   const button = ctaLabel && ctaUrl
     ? `<tr><td align="center" style="padding:24px 0 8px;">
          <a href="${escapeHtml(String(ctaUrl))}" target="_blank" rel="noopener"
@@ -55,6 +58,24 @@ export function emailHtml(title, body, { ctaLabel, ctaUrl } = {}) {
 
 export function buildEmail(title, body, options = {}) {
   return { subject: String(title), htmlContent: emailHtml(title, body, options) };
+}
+
+// 6-digit email-verification code email. Deliberately has NO links and NO CTA
+// button (the branded shell is reused without ctaLabel/ctaUrl) — a phishing
+// email copy would be useless. The code is rendered as large spaced digits;
+// each digit goes through escapeHtml like every other user-supplied value.
+export function verificationCodeEmail(code) {
+  const safeCode = escapeHtml(String(code ?? '').replace(/\D/g, '').slice(0, 6));
+  const digits = safeCode.split('').join('&#8202;'); // thin spaces between digits
+  const body = [
+    'Enter this code on the HerStep website to verify your email address:',
+    `<div style="margin:22px 0;text-align:center;font-family:Arial,sans-serif;font-size:34px;font-weight:bold;letter-spacing:8px;color:${BRAND_NAVY};">${digits}</div>`,
+    'It expires in 10 minutes. If you did not request this, ignore this email.',
+  ].join('\n');
+  return {
+    subject: `Your HerStep verification code: ${safeCode}`,
+    htmlContent: emailHtml('Verify your email', body, { rawBody: true }),
+  };
 }
 
 const money = n => `KSh ${(Number(n) || 0).toLocaleString('en-KE')}`;

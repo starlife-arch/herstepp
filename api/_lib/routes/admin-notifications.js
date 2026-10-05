@@ -9,14 +9,7 @@
 import { waitUntil } from '@vercel/functions';
 import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import {
-  emailConfig,
-  missingSenderPurposes,
-  deliverQueuedEmailInline,
-  retryPendingEmails,
-  emailId,
-  queueEmail,
-} from '../email-service.js';
+import { emailConfig, missingSenderPurposes, verifySenderConfigured, deliverQueuedEmailInline, retryPendingEmails, emailId, queueEmail } from '../email-service.js';
 import { buildEmail } from '../email-templates.js';
 import { telegramConfig, sendTelegramMessage } from '../telegram.js';
 
@@ -62,6 +55,9 @@ export async function notificationStatus(req, res) {
     email: {
       configured: Boolean(cfg.apiKey && missingSenderPurposes(cfg).length === 0),
       missingPurposes: missingSenderPurposes(cfg),
+      // BREVO_SENDER_VERIFY has no fallback: when it is empty the status page
+      // lists it here and /api/auth/verify/send answers 503.
+      verifyConfigured: verifySenderConfigured(cfg),
       missing,
       pending: stats.pending,
       sent7d: stats.sent7d,

@@ -88,6 +88,9 @@ export async function dashboard(req, res) {
       email: p.email ?? u.email ?? '',
       phoneNumber: p.phoneNumber ?? '',
       deliveryDetails: p.deliveryDetails ?? null,
+      // Mirror of the Auth claim maintained by /api/auth/verify/* and
+      // sync-profile. Drives the "Verify your email to place orders" banner.
+      emailVerified: p.emailVerified === true || u.email_verified === true,
     },
     orders: ordersAll.map(o => ({ ...o, statusHistory: undefined })),
     payments,

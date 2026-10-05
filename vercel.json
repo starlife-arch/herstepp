@@ -13,6 +13,14 @@
       "destination": "/api/users?route=auth/sync-profile"
     },
     {
+      "source": "/api/auth/verify/send",
+      "destination": "/api/users?route=auth/verify/send"
+    },
+    {
+      "source": "/api/auth/verify/confirm",
+      "destination": "/api/users?route=auth/verify/confirm"
+    },
+    {
       "source": "/api/products",
       "destination": "/api/catalog?route=products"
     },
