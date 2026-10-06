@@ -159,6 +159,27 @@ if (vercelJson) {
   console.log(`check-api: ${rewrites.length} rewrite(s) validated against area route maps: ${rewriteFails ? `${rewriteFails} FAILED` : 'all OK'}`);
 }
 
+// ---- Phase 3b: ONE site URL — no stale deployment hosts --------------------
+// 'herstepp.vercel.app' is a retired preview deploy. Every email/PDF link must
+// be built from api/_lib/site-url.js (SITE_URL env). Docs may mention it; code
+// in api/ and src/ may not.
+{
+  const staleHits = [];
+  for (const dir of ['api', 'src']) {
+    for (const file of walk(path.join(root, dir))) {
+      if (!/\.(js|mjs|ts|tsx|json)$/.test(file)) continue;
+      const text = readFileSync(file, 'utf8');
+      if (text.includes('herstepp.vercel.app')) staleHits.push(path.relative(root, file));
+    }
+  }
+  if (staleHits.length) {
+    failed = true;
+    console.error(`STALE-URL FAIL: 'herstepp.vercel.app' found in ${staleHits.join(', ')} — use siteUrl() from api/_lib/site-url.js`);
+  } else {
+    console.log('check-api: no stale herstepp.vercel.app references in api/ or src/');
+  }
+}
+
 // ---- Phase 4: readable source ---------------------------------------------
 const sourceFiles = [...walk(path.join(root, 'api')), ...walk(path.join(root, 'src'))].filter(file => /\.(js|mjs|ts|tsx)$/.test(file));
 for (const file of sourceFiles) {
