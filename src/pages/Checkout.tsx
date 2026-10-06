@@ -56,7 +56,7 @@ export default function Checkout() {
   // Countdown + "I cancelled / I didn't get the prompt" UX state.
   const [secondsElapsed, setSecondsElapsed] = useState(0);
   const [cancelling, setCancelling] = useState(false);
-  const [paidInfo, setPaidInfo] = useState<{ orderId: string; receiptNumber: string | null } | null>(null);
+  const [paidInfo, setPaidInfo] = useState<{ orderId: string; orderDocumentId: string | null; receiptNumber: string | null } | null>(null);
   // Ref mirrors so the async flow always sees the latest values (state lags).
   const orderNumberRef = useRef<string | null>(null);
   const failureReasonRef = useRef<string | null>(null);
@@ -211,7 +211,7 @@ export default function Checkout() {
       if (status === 'PAID') {
         abortRef.current = true; // stop polling; the payment actually went through
         dispatch({ type: 'CLEAR_CART' });
-        setPaidInfo({ orderId: orderNumberRef.current || 'your order', receiptNumber: res?.payment?.receiptNumber ?? null });
+        setPaidInfo({ orderId: orderNumberRef.current || 'your order', orderDocumentId: orderDocId, receiptNumber: res?.payment?.receiptNumber ?? null });
         setStep('success');
       } else {
         abortRef.current = true;
@@ -295,7 +295,7 @@ export default function Checkout() {
         // Only clear the cart AFTER PAID.
         dispatch({ type: 'CLEAR_CART' });
         // Show the human HS-... order number, NEVER the Firestore document id.
-        setPaidInfo({ orderId: currentNumber || 'your order', receiptNumber });
+        setPaidInfo({ orderId: currentNumber || 'your order', orderDocumentId: currentDocId, receiptNumber });
         setStep('success');
         return;
       }

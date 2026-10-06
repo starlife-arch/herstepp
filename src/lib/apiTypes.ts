@@ -51,6 +51,7 @@ export interface AdminOrderRow {
   receiptNumber: string | null;
   failureReason: string | null;
   needsReview?: boolean;
+  invoiceNumber?: string | null; // INV-YYYY-NNNNNN — present once the payment is PAID
   createdAt: IsoDate;
   history?: StatusHistoryEntry[];
 }
