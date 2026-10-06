@@ -4,9 +4,9 @@
 // GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiDownload } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { SupportChat } from '../components/SupportChat';
 import { toUiTicket } from '../lib/supportAdapter';
@@ -481,7 +481,7 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
   }, [toast]);
 
   const filtered = orders.filter(o => {
-    const text = `${o.orderId} ${o.customerName || ''} ${o.customerEmail || ''}`.toLowerCase();
+    const text = `${o.orderId} ${o.invoiceNumber || ''} ${o.customerName || ''} ${o.customerEmail || ''}`.toLowerCase();
     return (!search || text.includes(search.toLowerCase())) && (!statusFilter || o.orderStatus === statusFilter);
   });
   const detail = detailId ? orders.find(o => o.id === detailId) ?? null : null;
@@ -540,6 +540,9 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                     return (
                       <tr key={order.id} className="hover:bg-neutral-50 cursor-pointer" onClick={() => setDetailId(order.id)}>
                         <td className="px-4 py-3 font-medium">{order.orderId}
+                          {order.invoiceNumber && (
+                            <p className="text-xs font-normal text-neutral-500">Invoice {order.invoiceNumber}</p>
+                          )}
                           {order.needsReview === true && (
                             <span title={order.needsReviewNote || 'Late payment after the reservation was released — check stock.'}
                               className="ml-2 inline-flex items-center rounded-full bg-amber-100 text-amber-800 border border-amber-300 px-2 py-0.5 text-[10px] font-semibold align-middle">
@@ -600,6 +603,55 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
   );
 }
 
+// Invoice actions for PAID orders in the admin detail panel: download the PDF
+// and resend the invoice email. Success/error messages are inline — no
+// alert/confirm/popups.
+function AdminInvoiceActions({ order }: { order: any }) {
+  const [busyDl, setBusyDl] = useState(false);
+  const [busySend, setBusySend] = useState(false);
+  const [msg, setMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const invoiceNumber = String(order.invoiceNumber || '').trim()
+    || String(order.orderId || '').replace(/^HS-/, 'INV-');
+  const download = async () => {
+    setBusyDl(true); setMsg(null);
+    try {
+      await apiDownload(
+        `/api/invoices/download?orderDocumentId=${encodeURIComponent(String(order.id))}`,
+        `HerStep-Invoice-${invoiceNumber}.pdf`,
+      );
+      setMsg({ kind: 'ok', text: 'Invoice downloaded.' });
+    } catch (e: any) {
+      setMsg({ kind: 'err', text: e?.message || 'We could not download the invoice.' });
+    } finally { setBusyDl(false); }
+  };
+  const resend = async () => {
+    setBusySend(true); setMsg(null);
+    try {
+      await apiFetch('/api/admin/invoices/resend', {
+        method: 'POST',
+        body: JSON.stringify({ orderDocumentId: String(order.id) }),
+      });
+      setMsg({ kind: 'ok', text: `Invoice email for ${invoiceNumber} queued for delivery.` });
+    } catch (e: any) {
+      setMsg({ kind: 'err', text: e?.message || 'We could not resend the invoice email.' });
+    } finally { setBusySend(false); }
+  };
+  return (
+    <div className="pt-2">
+      <div className="flex flex-wrap gap-3">
+        <Button variant="outline" size="sm" onClick={download} disabled={busyDl}>
+          <FileText className="w-4 h-4 mr-2" />
+          {busyDl ? 'Preparing…' : `Download invoice ${invoiceNumber}`}
+        </Button>
+        <Button variant="outline" size="sm" onClick={resend} disabled={busySend}>
+          {busySend ? 'Sending…' : 'Resend invoice email'}
+        </Button>
+      </div>
+      {msg && <p role="alert" className={`text-xs mt-2 ${msg.kind === 'ok' ? 'text-emerald-700' : 'text-red-600'}`}>{msg.text}</p>}
+    </div>
+  );
+}
+
 // Order detail panel — everything the customer ordered plus delivery notes and
 // the full status-history timeline. Names and HS order numbers only, never ids.
 function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void }) {
@@ -653,6 +705,10 @@ function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void 
             <div className="flex justify-between"><span className="text-neutral-500">Discount</span><span>{money(order.discount)}</span></div>
             <div className="flex justify-between font-bold text-neutral-900 border-t border-neutral-200 pt-2"><span>Total</span><span>{money(order.total)}</span></div>
           </div>
+
+          {String(order.paymentStatus).toUpperCase() === 'PAID' && (
+            <AdminInvoiceActions order={order} />
+          )}
 
           <div>
             <h3 className="text-sm font-semibold text-neutral-900 mb-2">Delivery</h3>
