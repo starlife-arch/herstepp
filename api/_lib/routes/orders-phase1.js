@@ -109,6 +109,12 @@ export async function track(req, res) {
       orderId: d.orderId,
       orderStatus: d.orderStatus,
       paymentStatus: d.paymentStatus,
+      // Invoice number exists as soon as the payment is PAID (set in the same
+      // transaction). Derive defensively for legacy paid orders.
+      invoiceNumber: d.invoiceNumber
+        || (String(d.paymentStatus).toUpperCase() === 'PAID' && typeof d.orderId === 'string'
+          ? d.orderId.replace(/^HS-/, 'INV-')
+          : null),
       // Names everywhere — never a uid. Legacy docs without a stored name
       // fall back to the delivery name on the order itself.
       customerName: d.customerName || d.delivery?.fullName || '',

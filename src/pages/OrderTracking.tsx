@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Search, Package, Check, Truck, Clock, MapPin, Heart } from 'lucide-react';
+import { Search, Package, Check, Truck, Clock, MapPin, Heart, FileText } from 'lucide-react';
 import { Card, Button, Badge, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiDownload } from '../lib/api';
 import { useApp } from '../context/AppContext';
 
 // Real data only: GET /api/orders/track (server-verified, owner-only).
@@ -14,6 +14,7 @@ type TrackOrder = {
   paymentStatus: string;
   customerName?: string;
   receiptNumber?: string | null;
+  invoiceNumber?: string | null;
   subtotal: number;
   deliveryFee: number;
   discount: number;
@@ -25,6 +26,49 @@ type TrackOrder = {
 };
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+
+// "Download invoice" outline button for the signed-in owner of a PAID order.
+// Errors are shown inline — no alert/confirm/popups.
+function InvoiceDownloadButton({ order }: { order: TrackOrder }) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const invoiceNumber = String(order.invoiceNumber || '').trim()
+    || String(order.orderId || '').replace(/^HS-/, 'INV-');
+  const download = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDownload(
+        `/api/invoices/download?orderDocumentId=${encodeURIComponent(order.id)}`,
+        `HerStep-Invoice-${invoiceNumber}.pdf`,
+      );
+    } catch (e: any) {
+      setError(e?.message || 'We could not download your invoice.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Card className="p-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-neutral-100 flex items-center justify-center shrink-0">
+            <FileText className="w-5 h-5 text-neutral-600" />
+          </div>
+          <div>
+            <p className="font-medium text-sm text-neutral-900">Invoice {invoiceNumber}</p>
+            <p className="text-xs text-neutral-500">A PDF copy of your paid invoice.</p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={download} disabled={busy}>
+          <FileText className="w-4 h-4 mr-2" />
+          {busy ? 'Preparing…' : `Download invoice ${invoiceNumber}`}
+        </Button>
+      </div>
+      {error && <p role="alert" className="text-xs text-red-600 mt-3">{error}</p>}
+    </Card>
+  );
+}
 
 export default function OrderTracking() {
   const [searchParams] = useSearchParams();
@@ -254,6 +298,12 @@ export default function OrderTracking() {
               <div className="flex justify-between font-semibold pt-2 border-t border-neutral-200"><span>Total</span><span>{formatCurrency(num(order.total))}</span></div>
             </div>
           </Card>
+
+          {/* Invoice download — signed-in owner of a PAID order only. The
+              server re-checks ownership + payment state on every request. */}
+          {state.user && String(order.paymentStatus).toUpperCase() === 'PAID' && (
+            <InvoiceDownloadButton order={order} />
+          )}
 
           {/* Treat the team — shown once the order is delivered */}
           {order.orderStatus === 'DELIVERED' && (

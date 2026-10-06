@@ -4,7 +4,7 @@ import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, Lo
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { productImageUrl, orderItemImageUrl } from '../lib/productImage';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiDownload } from '../lib/api';
 
 // Real data only. GET /api/dashboard already returns ONLY the signed-in
 // customer's orders/payments/notifications (server filters by the verified
@@ -315,6 +315,7 @@ function OrdersTab({ orders }: any) {
                       <span className="text-sm text-neutral-500">Placed {formatDate(order.createdAt)}</span>
                       <div className="flex gap-3"><Link to={`/track?order=${encodeURIComponent(order.orderId)}`} className="text-sm font-medium text-neutral-700 hover:text-neutral-900">Track Order</Link>{up(order.paymentStatus) !== 'PAID' && up(order.paymentStatus) !== 'CANCELLED' && up(order.orderStatus) !== 'CANCELLED' && <Link to={`/checkout?order=${encodeURIComponent(order.id)}`}><Button size="sm">Pay now</Button></Link>}</div>
                     </div>
+                    {up(order.paymentStatus) === 'PAID' && <InvoiceButton order={order} />}
                   </div>
                 )}
               </Card>
@@ -500,5 +501,38 @@ function StatCard({ label, value }: { label: string; value: string | number }) {
       <p className="text-xs text-neutral-500 mb-1">{label}</p>
       <p className="text-xl font-bold text-neutral-900">{value}</p>
     </Card>
+  );
+}
+
+// Shared "Download invoice" outline button for PAID orders. Errors are shown
+// inline under the button — no alert/confirm/popups. Reused by the My Orders
+// accordion and the Overview order list.
+function InvoiceButton({ order }: { order: any }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const invoiceNumber = String(order.invoiceNumber || '').trim()
+    || String(order.orderId || '').replace(/^HS-/, 'INV-');
+  const download = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDownload(
+        `/api/invoices/download?orderDocumentId=${encodeURIComponent(String(order.id))}`,
+        `HerStep-Invoice-${invoiceNumber}.pdf`,
+      );
+    } catch (e: any) {
+      setError(e?.message || 'We could not download your invoice.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="pt-3">
+      <Button variant="outline" size="sm" onClick={download} disabled={busy}>
+        <FileText className="w-4 h-4 mr-2" />
+        {busy ? 'Preparing…' : `Download invoice ${invoiceNumber}`}
+      </Button>
+      {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}
+    </div>
   );
 }
