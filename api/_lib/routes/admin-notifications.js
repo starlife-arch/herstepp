@@ -60,7 +60,8 @@ export async function notificationStatus(req, res) {
       verifyConfigured: verifySenderConfigured(cfg),
       // BREVO_SENDER_TIPS is OPTIONAL: when empty, tip thank-you emails fall
       // back to BREVO_SENDER_PAYMENTS (so 'tips' never shows up as missing).
-      tipsSenderConfigured: Boolean(String((globalThis.process?.env || {}).BREVO_SENDER_TIPS || '').trim()),
+      tipsSenderConfigured: Boolean(String((globalThis.process?.env || {}).BREVO_SENDER_TIPS || (globalThis.process?.env || {}).BREVO_SENDER_PAYMENTS || '').trim()),
+      invoicesSenderConfigured: Boolean(String((globalThis.process?.env || {}).BREVO_SENDER_INVOICES || (globalThis.process?.env || {}).BREVO_SENDER_PAYMENTS || '').trim()),
       missing,
       pending: stats.pending,
       sent7d: stats.sent7d,
