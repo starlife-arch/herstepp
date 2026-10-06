@@ -1,6 +1,5 @@
-# Build output
-dist/
+# Dependencies
+node_modules/
 
-# Environment files
-.env.local
-.env.*.local
+# Logs and temp files
+*.log

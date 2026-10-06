@@ -5,7 +5,8 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { queueEmail, deliverQueuedEmailInline } from './email-service.js';
 import { sendTelegramMessage } from './telegram.js';
-import { buildEmail, orderReceiptEmail, escapeHtml } from './email-templates.js';
+import { buildEmail, orderReceiptEmail, invoiceEmail, escapeHtml } from './email-templates.js';
+import { siteUrl } from './site-url.js';
 
 const money = n => `KSh ${(Number(n) || 0).toLocaleString('en-KE')}`;
 
@@ -16,7 +17,7 @@ export function queueWelcomeEmail(tx, db, { uid, email, displayName }) {
     const { subject, htmlContent } = buildEmail(
       'Welcome to HerStep Collection',
       `Hi ${displayName || 'there'},\n\nWelcome to HerStep Collection — Step Into Your Style.\nYour account is ready. Browse our latest heels, boots and sneakers any time, and pay conveniently with M-Pesa.\n\nCollection is always available at Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12.`,
-      { ctaLabel: 'Start shopping', ctaUrl: `${(globalThis.process?.env || {}).SITE_URL || 'https://herstepp.vercel.app'}/shop` },
+      { ctaLabel: 'Start shopping', ctaUrl: ${siteUrl()}/shop` },
     );
     queueEmail(tx, db, { key: `${uid}-WELCOME`, purpose: 'hello', to: email, subject, htmlContent });
   } catch (error) {
@@ -65,6 +66,21 @@ export function queuePaymentEmail(tx, db, { orderDocumentId, order, status, fail
       failureReason: failureReason ?? order.failureReason ?? null,
       receiptNumber: receiptNumber ?? order.receiptNumber ?? null,
     };
+    // PAID orders get the INVOICE-STYLE email (PDF generated at send time —
+    // never stored in the outbox doc). Failed / cancelled / timeout notices
+    // keep the previous plain receipt template.
+    if (st === 'PAID') {
+      const { subject, htmlContent } = invoiceEmail(emailOrder);
+      queueEmail(tx, db, {
+        key: `${orderDocumentId}-PAYMENT-${st}`,
+        purpose: 'invoices',
+        to: order.customerEmail,
+        subject,
+        htmlContent,
+        attachInvoiceFor: orderDocumentId,
+      });
+      return;
+    }
     const { subject, htmlContent } = orderReceiptEmail(emailOrder, st);
     queueEmail(tx, db, { key: `${orderDocumentId}-PAYMENT-${st}`, purpose: 'payments', to: order.customerEmail, subject, htmlContent });
   } catch (error) {
@@ -104,7 +120,7 @@ export function queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderSta
     const { subject, htmlContent } = buildEmail(
       `Order ${order.orderId} — ${st.replace(/_/g, ' ').toLowerCase()}`,
       `Hi ${order.delivery?.fullName || order.customerName || 'there'},\n\n${line}`,
-      { ctaLabel: 'View your order', ctaUrl: `${(globalThis.process?.env || {}).SITE_URL || 'https://herstepp.vercel.app'}/dashboard` },
+      { ctaLabel: 'View your order', ctaUrl: ${siteUrl()}/dashboard` },
     );
     queueEmail(tx, db, { key: `${orderDocumentId}-ORDER-${st}`, purpose: 'orders', to: order.customerEmail, subject, htmlContent });
   } catch (error) {
@@ -149,7 +165,7 @@ export function queueTipThankYouEmail(tx, db, { key, tip, receiptNumber }) {
     const { subject, htmlContent } = buildEmail(
       'Thank you for treating the HerStep team!',
       `Hi ${tip.customerName || 'there'},\n\nYour KSh ${(Number(tip.amount) || 0).toLocaleString('en-KE')} ${label} just made the whole team smile. Thank you so much for supporting HerStep Collection!\n\nReceipt: ${receiptNumber || '—'}${tip.message ? `\n\nYour message: "${tip.message}"` : ''}\n\nWith gratitude,\nThe HerStep team`,
-      { ctaLabel: 'Shop with us', ctaUrl: `${(globalThis.process?.env || {}).SITE_URL || 'https://herstepp.vercel.app'}/shop` },
+      { ctaLabel: 'Shop with us', ctaUrl: ${siteUrl()}/shop` },
     );
     queueEmail(tx, db, { key, purpose: 'tips', to: tip.customerEmail, subject, htmlContent });
   } catch (error) {
