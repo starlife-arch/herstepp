@@ -9,6 +9,7 @@ import { clientError } from './http.js';
 import { queuePaymentEmail, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
+import { invoiceNumberFor } from './invoice-number.js';
 
 export const ORDER_STATUS = {
   PENDING: 'PENDING',
@@ -505,6 +506,14 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       // Denormalise the receipt onto the order so /api/orders/track and the
       // dashboard can show it without a second payments query.
       orderUpdate.receiptNumber = receiptNumberFor(paymentRef.id);
+      // Invoice number lives in the SAME transaction that marks the payment
+      // PAID and is written only once (orderId is unique, so INV-<suffix> is
+      // too — no separate counter needed). A duplicate/late callback must not
+      // re-issue or change it.
+      if (!order.invoiceNumber) {
+        orderUpdate.invoiceNumber = invoiceNumberFor(order.orderId);
+        orderUpdate.invoiceIssuedAt = deps.serverTimestamp();
+      }
       if (LATE_SUCCESS) {
         // The order may have been auto-cancelled while we waited for this money.
         orderUpdate.orderStatus = order.orderStatus === 'CANCELLED' ? 'PENDING' : order.orderStatus;
