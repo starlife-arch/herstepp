@@ -34,4 +34,6 @@ export default (req, res) => dispatchRoute(req, res, {
   delivery: lazyRoute(() => import('./_lib/routes/admin-delivery.js')),
   // GET /api/admin/tips — in-app tipping overview (PAID-only totals)
   tips: lazyRoute(() => import('./_lib/routes/tips-admin.js')),
+  // POST /api/admin/invoices/resend { orderDocumentId } (requireAdmin; PAID only)
+  'invoices/resend': lazyRoute(() => import('./_lib/routes/invoice-resend.js')),
 });

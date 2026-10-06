@@ -189,6 +189,14 @@
       "destination": "/api/admin?route=support/notes"
     },
     {
+      "source": "/api/invoices/download",
+      "destination": "/api/orders?route=invoices/download"
+    },
+    {
+      "source": "/api/admin/invoices/resend",
+      "destination": "/api/admin?route=invoices/resend"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }
