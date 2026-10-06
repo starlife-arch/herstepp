@@ -1,11 +1,11 @@
 // HTML email templates (HerStep Collection brand). Pure functions — no DB, no
 // network — so they are unit-testable offline. EVERY user-supplied value is
 // escaped; nothing from Firestore ever reaches the template unescaped.
-const SITE_URL_DEFAULT = 'https://herstepp.vercel.app';
+// ONE site URL for every link: api/_lib/site-url.js (no hardcoded deploys).
+import { siteUrl } from './site-url.js';
+import { invoiceNumberFor } from './invoice-number.js';
 
-export function siteUrl() {
-  return String((globalThis.process?.env || {}).SITE_URL || SITE_URL_DEFAULT).replace(/\/+$/, '');
-}
+export { siteUrl };
 
 export function escapeHtml(value) {
   return String(value ?? '')
@@ -174,4 +174,104 @@ export function orderReceiptEmail(order, status) {
     ? `Payment received — order ${orderId} | HerStep Collection`
     : `Payment ${st.toLowerCase()} — order ${orderId} | HerStep Collection`;
   return { subject, htmlContent: html };
+}
+
+// Invoice-style email sent for PAID orders (replaces the old plain receipt).
+// ONE email per paid order (deterministic outbox key upstream). The PDF is NOT
+// embedded here — the outbox record carries attachInvoiceFor and the delivery
+// pass generates it at send time (see api/_lib/invoice-pdf.js).
+export function invoiceEmail(order) {
+  const o = order || {};
+  const orderId = o.orderId || '';
+  const invoiceNumber = o.invoiceNumber || invoiceNumberFor(orderId);
+  const name = o.delivery?.fullName || o.customerName || 'there';
+  const delivery = o.delivery || {};
+  const method = String(delivery.deliveryMethod || 'COLLECTION').toUpperCase();
+  const items = Array.isArray(o.items) ? o.items : [];
+  const date = (() => {
+    const ms = (() => {
+      const v = o.paidAt || o.paymentCompletedAt || o.createdAt;
+      if (!v) return Date.now();
+      if (typeof v === 'number') return v;
+      if (typeof v === 'string') return Date.parse(v) || Date.now();
+      if (typeof v.toDate === 'function') return v.toDate().getTime();
+      return Date.now();
+    })();
+    return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' }).format(new Date(ms));
+  })();
+
+  const th = 'align="left" style="padding:8px 10px;background:#f7f8fa;font-family:Arial,sans-serif;font-size:12px;color:' + BRAND_NAVY + ';"';
+  const itemRows = items.map(i => `
+<tr>
+  <td style="padding:8px 10px;border-bottom:1px solid #eceef1;font-family:Arial,sans-serif;font-size:13px;color:${BRAND_TEXT};">${escapeHtml(i.name || 'Item')}</td>
+  <td align="center" style="padding:8px 10px;border-bottom:1px solid #eceef1;font-family:Arial,sans-serif;font-size:13px;color:${BRAND_TEXT};">Size ${escapeHtml(i.size)}</td>
+  <td align="center" style="padding:8px 10px;border-bottom:1px solid #eceef1;font-family:Arial,sans-serif;font-size:13px;color:${BRAND_TEXT};">${Number(i.quantity) || 0}</td>
+  <td align="right" style="padding:8px 10px;border-bottom:1px solid #eceef1;font-family:Arial,sans-serif;font-size:13px;color:${BRAND_TEXT};">${escapeHtml(money(i.unitPrice))}</td>
+  <td align="right" style="padding:8px 10px;border-bottom:1px solid #eceef1;font-family:Arial,sans-serif;font-size:13px;color:${BRAND_TEXT};">${escapeHtml(money(i.lineTotal))}</td>
+</tr>`).join('');
+
+  const totals = [];
+  totals.push(['Subtotal', o.subtotal]);
+  if (Number(o.discount) > 0) totals.push([`Discount${o.promoCode ? ` (${o.promoCode})` : ''}`, -(Number(o.discount) || 0)]);
+  totals.push(['Delivery', o.deliveryFee]);
+  totals.push(['TOTAL PAID', o.total]);
+  const totalRows = totals.map(([label, v], idx) => `
+<tr>
+  <td align="left" style="padding:6px 10px;font-family:Arial,sans-serif;font-size:13px;color:${idx === totals.length - 1 ? '#1f6a53' : BRAND_TEXT};${idx === totals.length - 1 ? 'font-weight:bold;' : ''}">${escapeHtml(label)}</td>
+  <td align="right" style="padding:6px 10px;font-family:Arial,sans-serif;font-size:13px;color:${idx === totals.length - 1 ? '#1f6a53' : BRAND_TEXT};${idx === totals.length - 1 ? 'font-weight:bold;' : ''}">${escapeHtml(money(v))}</td>
+</tr>`).join('');
+
+  const label = l => `<div style="font-family:Arial,sans-serif;font-size:11px;letter-spacing:1px;color:#8a93a2;margin-top:14px;">${escapeHtml(l)}</div>`;
+  const row = (k, v) => `<div style="font-family:Arial,sans-serif;font-size:13px;line-height:1.7;color:${BRAND_TEXT};"><strong>${escapeHtml(k)}:</strong> ${escapeHtml(v ?? '—')}</div>`;
+
+  const html = `<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Invoice ${escapeHtml(invoiceNumber)}</title></head>
+<body style="margin:0;padding:0;background:#f4f5f7;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f5f7;">
+<tr><td align="center" style="padding:24px 12px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e6e8ec;">
+<tr><td style="background:${BRAND_NAVY};padding:22px 28px;">
+  <div style="font-family:Arial,sans-serif;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">HERSTEP COLLECTION</div>
+  <div style="font-family:Arial,sans-serif;color:${BRAND_ACCENT};font-size:12px;margin-top:4px;">Payment receipt / Invoice</div>
+</td></tr>
+<tr><td style="padding:28px;font-family:Arial,sans-serif;">
+  <p style="margin:0 0 18px;font-size:14px;line-height:1.6;color:${BRAND_TEXT};">Hi ${escapeHtml(name)},<br>Payment received successfully. Your invoice for order ${escapeHtml(orderId)} is attached.</p>
+  ${row('Invoice number', invoiceNumber)}
+  ${row('Order number', orderId)}
+  <div style="margin:10px 0;"><span style="display:inline-block;padding:3px 10px;border-radius:4px;background:#1f6a53;color:#fff;font-size:12px;font-weight:bold;">PAID</span></div>
+  ${row('Date', date)}
+  ${label('CUSTOMER')}
+  ${row('Name', o.delivery?.fullName || o.customerName)}
+  ${row('Phone', delivery.phone)}
+  ${row('Email', o.customerEmail)}
+  ${label('DELIVERY / COLLECTION')}
+  ${row('Method', method === 'COLLECTION' ? 'Collection at the store' : 'Delivery')}
+  ${method === 'COLLECTION' ? row('Pickup address', PICKUP_ADDRESS) : row('Location', delivery.location || '—')}
+  ${delivery.instructions ? row('Delivery instructions', delivery.instructions) : ''}
+  ${label('ORDER DETAILS')}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:6px;margin-top:6px;">
+    <tr>
+      <th ${th}>Item</th>
+      <th align="center" style="padding:8px 10px;background:#f7f8fa;font-family:Arial,sans-serif;font-size:12px;color:${BRAND_NAVY};">Size</th>
+      <th align="center" style="padding:8px 10px;background:#f7f8fa;font-family:Arial,sans-serif;font-size:12px;color:${BRAND_NAVY};">Qty</th>
+      <th align="right" style="padding:8px 10px;background:#f7f8fa;font-family:Arial,sans-serif;font-size:12px;color:${BRAND_NAVY};">Unit</th>
+      <th align="right" style="padding:8px 10px;background:#f7f8fa;font-family:Arial,sans-serif;font-size:12px;color:${BRAND_NAVY};">Total</th>
+    </tr>${itemRows}
+  </table>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:14px 0 20px;">${totalRows}</table>
+  ${label('PAYMENT')}
+  ${row('Method', 'M-Pesa')}
+  ${row('M-Pesa receipt', o.receiptNumber || o.paymentReference || '—')}
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+    <td align="center" style="padding:16px 6px 4px;">
+      <a href="${escapeHtml(`${siteUrl()}/dashboard`)}" target="_blank" rel="noopener" style="display:inline-block;background:${BRAND_NAVY};color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:6px;">View your order</a>
+    </td>
+  </tr></table>
+</td></tr>
+<tr><td style="padding:16px 28px;border-top:1px solid #eceef1;font-family:Arial,sans-serif;font-size:11px;line-height:1.6;color:#8a93a2;">${escapeHtml(FOOTER_LINE)}</td></tr>
+</table>
+</td></tr></table>
+</body></html>`;
+
+  return { subject: `Invoice ${invoiceNumber} - payment received for order ${orderId}`, htmlContent: html };
 }

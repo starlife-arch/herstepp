@@ -22,10 +22,12 @@ const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 // lists it and /verify/send answers 503 ("Verification emails are not configured yet.").
 // 'tips' sends the tip thank-you email. It falls back to the payments sender when
 // BREVO_SENDER_TIPS is empty (optional purpose — never blocks anything).
-const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify', 'tips'];
+// 'invoices' sends the invoice-style payment email. BREVO_SENDER_INVOICES is
+// optional too: it falls back to the payments sender when empty.
+const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify', 'tips', 'invoices'];
 
 // Purposes that fall back to BREVO_SENDER_PAYMENTS when their own sender env is empty.
-const PAYMENTS_FALLBACK_PURPOSES = new Set(['tips']);
+const PAYMENTS_FALLBACK_PURPOSES = new Set(['tips', 'invoices']);
 
 let warnedMissing = false;
 
@@ -78,7 +80,10 @@ export function emailId(key) {
 // Queue an email INSIDE a Firestore transaction. tx.set on a deterministic id
 // is safe to replay: re-running the same event writes the same doc (the
 // delivery pass only picks up PENDING ones).
-export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent }) {
+// attachInvoiceFor: order document id whose invoice PDF must be generated AT
+// SEND TIME and attached. The PDF bytes are NEVER stored in this outbox doc
+// (Firestore ~1 MiB document limit) — regeneration also makes retries work.
+export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, attachInvoiceFor = null }) {
   if (!key || !to || !subject || !htmlContent) {
     throw new Error('queueEmail requires key, purpose, to, subject and htmlContent.');
   }
@@ -90,6 +95,7 @@ export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent }) {
     subject: String(subject),
     htmlContent: String(htmlContent),
     status: 'PENDING',
+    attachInvoiceFor: attachInvoiceFor ? String(attachInvoiceFor) : null,
     createdAt: FieldValue.serverTimestamp(),
     sentAt: null,
     lastError: null,
@@ -97,7 +103,8 @@ export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent }) {
 }
 
 // POST to Brevo. Throws on any failure — callers catch.
-export async function sendEmail({ purpose, to, subject, htmlContent }, cfg = emailConfig(), fetchImpl = globalThis.fetch) {
+// attachments: [{ name, content: <base64 string> }] (Brevo v3 smtp/email shape).
+export async function sendEmail({ purpose, to, subject, htmlContent, attachments }, cfg = emailConfig(), fetchImpl = globalThis.fetch) {
   const senderEmail = cfg.senders[purpose];
   if (!cfg.apiKey || !senderEmail) {
     throw new Error(`Email not configured for purpose "${purpose}".`);
@@ -108,6 +115,7 @@ export async function sendEmail({ purpose, to, subject, htmlContent }, cfg = ema
     subject,
     htmlContent,
   };
+  if (Array.isArray(attachments) && attachments.length) body.attachment = attachments;
   if (cfg.replyTo) body.replyTo = { email: cfg.replyTo };
   const response = await fetchImpl(BREVO_URL, {
     method: 'POST',
@@ -122,10 +130,35 @@ export async function sendEmail({ purpose, to, subject, htmlContent }, cfg = ema
   return true;
 }
 
+// Default invoice source loader used by deliverQueuedEmail when the caller did
+// not inject one: order + its PAID payment, straight from Firestore. Kept here
+// (not in invoice-pdf.js) so the PDF builder stays a pure function.
+async function loadInvoiceSource(db, orderDocumentId) {
+  const orderSnap = await db.collection('orders').doc(orderDocumentId).get();
+  if (!orderSnap.exists) return null;
+  const order = orderSnap.data();
+  let payment = null;
+  const payRef = order.paymentId ? db.collection('payments').doc(order.paymentId) : null;
+  if (payRef) {
+    const paySnap = await payRef.get();
+    if (paySnap.exists) payment = { id: paySnap.id, ...paySnap.data() };
+  }
+  if (!payment) {
+    const q = await db.collection('payments').where('orderDocumentId', '==', orderDocumentId).limit(1).get();
+    if (!q.empty) payment = { id: q.docs[0].id, ...q.docs[0].data() };
+  }
+  return { order: { id: orderDocumentId, ...order }, payment };
+}
+
 // Move one outbox doc PENDING -> SENDING (transaction, so two concurrent
 // workers cannot both grab it), send, then SENT; on failure back to PENDING
 // with lastError. NEVER throws into the caller.
-export async function deliverQueuedEmail(db, docId, { cfg = emailConfig(), fetchImpl = globalThis.fetch } = {}) {
+// options.invoiceLoader(orderDocId) -> { order, payment } | null (default:
+// reads from db). The invoice PDF is generated HERE, at send time — never
+// stored in the outbox document (size limit). If generation fails the email
+// still sends WITHOUT the attachment and the error is logged; a PDF problem
+// must never fail delivery or the payment flow.
+export async function deliverQueuedEmail(db, docId, { cfg = emailConfig(), fetchImpl = globalThis.fetch, invoiceLoader = null, buildPdf = null } = {}) {
   try {
     const ref = db.collection('emailOutbox').doc(docId);
     const claimed = await db.runTransaction(async tx => {
@@ -138,9 +171,27 @@ export async function deliverQueuedEmail(db, docId, { cfg = emailConfig(), fetch
     });
     if (!claimed) return { skipped: true };
 
+    let attachments = null;
+    if (claimed.attachInvoiceFor) {
+      try {
+        const loaded = invoiceLoader
+          ? await invoiceLoader(claimed.attachInvoiceFor)
+          : await loadInvoiceSource(db, claimed.attachInvoiceFor);
+        if (loaded?.order) {
+          const build = buildPdf || (await import('./invoice-pdf.js')).buildInvoicePdf;
+          const pdfBytes = await build(loaded);
+          const invNo = loaded.order.invoiceNumber || '';
+          attachments = [{ name: `HerStep-Invoice-${invNo}.pdf`, content: Buffer.from(pdfBytes).toString('base64') }];
+        }
+      } catch (error) {
+        console.error(`[email] invoice PDF generation failed for ${claimed.attachInvoiceFor}:`, error?.message || error);
+        attachments = null; // send without the attachment — never block the email
+      }
+    }
+
     try {
       await sendEmail(
-        { purpose: claimed.purpose, to: claimed.to, subject: claimed.subject, htmlContent: claimed.htmlContent },
+        { purpose: claimed.purpose, to: claimed.to, subject: claimed.subject, htmlContent: claimed.htmlContent, attachments },
         cfg,
         fetchImpl,
       );
