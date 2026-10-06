@@ -220,6 +220,7 @@ export async function adminOrders(req, res) {
       orders: list.map(o => ({
       id: o.id,
       orderId: o.orderId ?? o.id,
+      invoiceNumber: o.invoiceNumber ?? null,
       customerName: o.customerName ?? '',
       customerPhone: o.customerPhone ?? o.delivery?.phone ?? '',
       customerEmail: o.customerEmail ?? '',

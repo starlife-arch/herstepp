@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
-import { ArrowLeft, CreditCard, MapPin, Store, Loader2, Check, AlertCircle, Heart } from 'lucide-react';
+import { ArrowLeft, CreditCard, MapPin, Store, Loader2, Check, AlertCircle, Heart, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Input, formatCurrency } from '../components/ui';
-import { apiFetch } from '../lib/api';
+import { apiFetch, apiDownload } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { deliveryFee as previewDeliveryFee, normalizeDelivery } from '../lib/delivery';
 import type { CheckoutConfigResponse } from '../lib/apiTypes';
@@ -15,6 +15,38 @@ type CheckoutConfig = CheckoutConfigResponse;
 // Finite outcome of the payment poll. Anything else keeps polling until the
 // 90-second deadline turns into 'STILL_PENDING'.
 type PaymentOutcome = 'PAID' | 'CANCELLED' | 'FAILED' | 'TIMEOUT' | 'STILL_PENDING';
+
+// "Download invoice" outline button on the success screen, next to Track
+// Order. The invoice number is derived from the order number (HS- → INV-),
+// exactly like the backend; failures are shown inline — no alert/popups.
+function CheckoutInvoiceButton({ orderDocumentId, orderId }: { orderDocumentId: string; orderId: string }) {
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const invoiceNumber = String(orderId || '').replace(/^HS-/, 'INV-');
+  const download = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await apiDownload(
+        `/api/invoices/download?orderDocumentId=${encodeURIComponent(orderDocumentId)}`,
+        `HerStep-Invoice-${invoiceNumber}.pdf`,
+      );
+    } catch (e: any) {
+      setError(e?.message || 'We could not download your invoice.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <Button variant="outline" onClick={download} disabled={busy}>
+        <FileText className="w-4 h-4 mr-2" />
+        {busy ? 'Preparing…' : `Download invoice ${invoiceNumber}`}
+      </Button>
+      {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}
+    </div>
+  );
+}
 
 export default function Checkout() {
   const { state, dispatch } = useApp();
@@ -401,6 +433,9 @@ export default function Checkout() {
           <Link to="/dashboard/orders"><Button>View My Orders</Button></Link>
           {paidInfo && (
             <Link to={`/track?order=${encodeURIComponent(paidInfo.orderId)}`}><Button variant="outline">Track This Order</Button></Link>
+          )}
+          {paidInfo?.orderDocumentId && (
+            <CheckoutInvoiceButton orderDocumentId={paidInfo.orderDocumentId} orderId={paidInfo.orderId} />
           )}
           <Link to="/shop"><Button variant="outline">Continue Shopping</Button></Link>
           {/* In-app tipping entry point — inline link, no popups. */}
