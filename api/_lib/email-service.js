@@ -20,7 +20,12 @@ const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 // 'verify' carries the 6-digit email-verification codes (POST /api/auth/verify/send).
 // It has NO fallback sender: when BREVO_SENDER_VERIFY is empty, missingSenderPurposes()
 // lists it and /verify/send answers 503 ("Verification emails are not configured yet.").
-const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify'];
+// 'tips' sends the tip thank-you email. It falls back to the payments sender when
+// BREVO_SENDER_TIPS is empty (optional purpose — never blocks anything).
+const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify', 'tips'];
+
+// Purposes that fall back to BREVO_SENDER_PAYMENTS when their own sender env is empty.
+const PAYMENTS_FALLBACK_PURPOSES = new Set(['tips']);
 
 let warnedMissing = false;
 
@@ -31,7 +36,13 @@ export function emailConfig() {
   const replyTo = String(env.BREVO_REPLY_TO_EMAIL || '').trim();
   const senders = {};
   for (const purpose of PURPOSES) {
-    senders[purpose] = String(env[`BREVO_SENDER_${purpose.toUpperCase()}`] || '').trim();
+    let sender = String(env[`BREVO_SENDER_${purpose.toUpperCase()}`] || '').trim();
+    // Optional purposes (e.g. 'tips') fall back to the payments sender when their
+    // own BREVO_SENDER_* env is empty. 'verify' deliberately never falls back.
+    if (!sender && PAYMENTS_FALLBACK_PURPOSES.has(purpose)) {
+      sender = String(env.BREVO_SENDER_PAYMENTS || '').trim();
+    }
+    senders[purpose] = sender;
   }
   return { apiKey, senderName, replyTo, senders };
 }

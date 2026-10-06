@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight, Heart } from 'lucide-react';
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { productImageUrl, orderItemImageUrl } from '../lib/productImage';
@@ -145,6 +145,13 @@ export default function CustomerDashboard() {
                   )}
                 </button>
               ))}
+              <Link
+                to="/tip"
+                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+              >
+                <Heart className="w-4 h-4" />
+                Treat the team
+              </Link>
               <hr className="my-2 border-neutral-100" />
               <button
                 onClick={async () => { await logout(); navigate('/'); }}

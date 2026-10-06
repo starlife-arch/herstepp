@@ -50,6 +50,14 @@ export function Header() {
             <Link to="/shop" className="p-2 rounded-lg hover:bg-neutral-100 transition-colors hidden sm:flex">
               <Search className="w-5 h-5 text-neutral-600" />
             </Link>
+            <Link
+              to="/tip"
+              aria-label="Treat the team"
+              title="Treat the team"
+              className="p-2 rounded-lg hover:bg-neutral-100 transition-colors"
+            >
+              <Heart className="w-5 h-5 text-neutral-600" />
+            </Link>
             <Link to={state.user ? '/dashboard' : '/login'} className="p-2 rounded-lg hover:bg-neutral-100 transition-colors">
               <User className="w-5 h-5 text-neutral-600" />
             </Link>
@@ -85,6 +93,10 @@ export function Header() {
             <hr className="my-2 border-neutral-100" />
             <Link to={state.user ? '/dashboard' : '/login'} onClick={() => setMobileOpen(false)} className="block px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50">
               {state.user ? 'My Account' : 'Login / Register'}
+            </Link>
+            <Link to="/tip" onClick={() => setMobileOpen(false)} className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50">
+              <Heart className="w-4 h-4" />
+              Treat the team
             </Link>
           </nav>
         </div>
