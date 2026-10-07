@@ -6,7 +6,7 @@
 // written back as a complete new array — never with dotted paths like
 // `inventory.0.quantity`, which Firestore turns into a map and corrupts the doc.
 import { clientError } from './http.js';
-import { queuePaymentEmail, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
+import { queuePaymentEmail, queueInvoiceReadyNotification, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
@@ -554,17 +554,27 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       createdAt: deps.serverTimestamp(),
     });
 
-    // Receipt / failure email queued INSIDE this transaction with a
-    // deterministic key (<orderDoc>-PAYMENT-<STATUS>) — a replayed webhook or
+    // Receipt / invoice / failure emails queued INSIDE this transaction with
+    // deterministic keys (PAID => <orderDoc>-PAYMENT-PAID + <orderDoc>-INVOICE;
+    // other statuses => <orderDoc>-PAYMENT-<STATUS>) — a replayed webhook or
     // poll can never double-send. Delivery happens after commit (waitUntil).
-    queuePaymentEmail(tx, db, {
+    const queuedEmailKeys = queuePaymentEmail(tx, db, {
       orderDocumentId: payment.orderDocumentId,
       order,
       status,
       failureReason: status === PAYMENT_STATUS.PAID ? null : (callback.reason || `M-Pesa ${status.toLowerCase()}`),
       receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
     });
-    const queuedEmailKeys = [`${payment.orderDocumentId}-PAYMENT-${status}`];
+
+    // PAID also raises an "Invoice ready" in-app notification in the SAME
+    // transaction (deterministic doc id -> replays are no-ops).
+    if (status === PAYMENT_STATUS.PAID) {
+      queueInvoiceReadyNotification(tx, db, {
+        orderDocumentId: payment.orderDocumentId,
+        order: { ...order, ...orderUpdate },
+        deps,
+      });
+    }
 
     // Unpaid orders that go away release their reserved stock — in the SAME
     // transaction, writing a NEW inventory array (never dotted paths).

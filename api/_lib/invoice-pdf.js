@@ -10,6 +10,10 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { siteUrl } from './site-url.js';
 import { invoiceNumberFor } from './invoice-number.js';
+import { COLLECTION_LOCATION } from './delivery.js';
+
+// Store pickup address — the SAME constant the rest of the app uses.
+const STORE_PICKUP_ADDRESS = COLLECTION_LOCATION;
 
 // Store constants — exactly what the site footer shows (src/components/Layout.tsx):
 // Phone +254 799 021 089, WhatsApp +254 106 624 924 (wa.me/254106624924),
@@ -80,13 +84,19 @@ export function dateNairobi(value) {
   return `${day} ${MONTHS[shifted.getUTCMonth()]} ${shifted.getUTCFullYear()}`;
 }
 
+// Delivery / collection line for the PDF. Real orders NEVER set
+// order.deliveryType or delivery.type — the ONLY field that exists is
+// delivery.deliveryMethod ("COLLECTION" | "DELIVERY"), exactly like the email
+// templates read it (api/_lib/email-templates.js). Anything else defaults to
+// COLLECTION so nothing ever prints a wrong address.
 function deliveryLine(order) {
   const d = order.delivery || {};
-  const method = order.deliveryType === 'pickup' || d.type === 'pickup' ? 'Pickup at the store' : 'Delivery';
-  const where = order.deliveryType === 'pickup' || d.type === 'pickup'
-    ? (STORE.address)
-    : (d.location || [d.county, d.town].filter(Boolean).join(', ') || d.address || '');
-  return { method, where };
+  const method = String(d.deliveryMethod || 'COLLECTION').toUpperCase();
+  if (method === 'DELIVERY') {
+    const where = d.location || [d.county, d.town].filter(Boolean).join(', ') || d.address || '';
+    return { method: 'Delivery', where };
+  }
+  return { method: 'Collection (pick up in store)', where: STORE_PICKUP_ADDRESS };
 }
 
 // ---------------------------------------------------------------------------
@@ -143,33 +153,103 @@ export async function buildInvoicePdf({ order, payment }) {
   rule(y);
   y -= 24;
 
-  // ---- Billed to / meta ----------------------------------------------------
-  const twoColY = y;
-  sectionTitle('Billed to');
-  sectionTitle('Invoice details');
+  // ---- Billed to / invoice details ------------------------------------------
+  // TWO clearly separated columns. "INVOICE DETAILS" is drawn at the RIGHT
+  // column (colR) — drawing it at MARGIN made it overlap "BILLED TO". Long
+  // names/emails/addresses wrap onto extra lines instead of colliding, and the
+  // section height adapts so nothing below ever overlaps.
+  const colL = MARGIN;
   const colR = PAGE_W - MARGIN - 220;
+  const COL_W_L = colR - MARGIN - 16;   // usable width of the left column
+  const COL_W_R = PAGE_W - MARGIN - colR; // usable width of the right column
+  const LINE_H = 14;
+
+  // Word-wrap a value into <= maxLines visual lines within `width` (truncates
+  // with an ellipsis on the last line if it still overflows).
+  const wrapLines = (value, font, size, width, maxLines) => {
+    const words = winansi(value, 200).split(' ').filter(Boolean);
+    if (!words.length) return ['-'];
+    const lines = [];
+    let current = '';
+    for (const word of words) {
+      const candidate = current ? `${current} ${word}` : word;
+      if (font.widthOfTextAtSize(candidate, size) <= width || !current) {
+        current = candidate;
+      } else {
+        lines.push(current);
+        current = word;
+      }
+    }
+    if (current) lines.push(current);
+    while (lines.length > maxLines) {
+      const kept = lines.slice(0, maxLines - 1);
+      let tail = lines.slice(maxLines - 1).join(' ');
+      while (tail && font.widthOfTextAtSize(`${tail}...`, size) > width) tail = tail.slice(0, -1);
+      kept.push(`${tail}...`);
+      return kept;
+    }
+    return lines;
+  };
+
+  text('BILLED TO', colL, y, 9, bold, MUTED);
+  text('INVOICE DETAILS', colR, y, 9, bold, MUTED);
+  y -= 18;
+
   const name = o.customerName || o.delivery?.fullName || '';
   const phone = o.delivery?.phone || o.customerPhone || '';
-  y -= 16;
-  text(name || '-', MARGIN, y, 11, bold, TEXT);
-  text(dateNairobi(p.completedAt || o.paidAt || o.createdAt), colR, y, 11, regular, TEXT);
-  y -= 16;
-  text(phone || '-', MARGIN, y, 10, regular, TEXT);
-  text(`Order ${orderId}`, colR, y, 10, regular, TEXT);
-  y -= 16;
-  text(o.customerEmail || '-', MARGIN, y, 10, regular, TEXT);
-  y = twoColY - 66;
+  const email = o.customerEmail || '';
+  const issuedOn = dateNairobi(o.invoiceIssuedAt || p.completedAt || o.paidAt || o.createdAt);
+  const paymentMethod = 'M-Pesa';
+
+  const leftBlocks = [
+    wrapLines(name, bold, 11, COL_W_L, 3),
+    wrapLines(phone, regular, 10, COL_W_L, 1),
+    wrapLines(email, regular, 10, COL_W_L, 2),
+  ];
+  const rightBlocks = [
+    wrapLines(`Invoice date: ${issuedOn}`, regular, 10, COL_W_R, 2),
+    wrapLines(`Order ${orderId}`, regular, 10, COL_W_R, 1),
+    wrapLines(`Payment method: ${paymentMethod}`, regular, 10, COL_W_R, 1),
+  ];
+
+  const drawColumn = (blocks, x) => {
+    let yy = y;
+    blocks.forEach((block, blockIndex) => {
+      const isNameBlock = blockIndex === 0 && x === colL;
+      for (const line of block) {
+        text(line, x, yy, isNameBlock ? 11 : 10, isNameBlock ? bold : regular, TEXT);
+        yy -= LINE_H;
+      }
+      yy -= 2;
+    });
+    return yy;
+  };
+  const yAfterLeft = drawColumn(leftBlocks, colL);
+  const yAfterRight = drawColumn(rightBlocks, colR);
+  y = Math.min(yAfterLeft, yAfterRight) - 12;
 
   // ---- Delivery / collection ----------------------------------------------
   sectionTitle('Delivery / Collection');
   y -= 16;
   const dl = deliveryLine(o);
   text(dl.method, MARGIN, y, 11, regular, TEXT);
-  if (dl.where) { y -= 15; text(dl.where, MARGIN, y, 10, regular, MUTED); }
-  if (o.deliveryInstructions || o.delivery?.instructions) {
-    y -= 15; text(winansi(o.deliveryInstructions || o.delivery?.instructions, 120), MARGIN, y, 10, regular, MUTED);
+  if (dl.where) {
+    y -= 15;
+    for (const line of wrapLines(dl.where, regular, 10, PAGE_W - MARGIN * 2, 2)) {
+      text(line, MARGIN, y, 10, regular, MUTED);
+      y -= 13;
+    }
   }
-  y -= 26;
+  // Instructions only when the customer actually left some.
+  const instructions = o.deliveryInstructions || o.delivery?.instructions;
+  if (instructions) {
+    y -= 2;
+    for (const line of wrapLines(instructions, regular, 10, PAGE_W - MARGIN * 2, 2)) {
+      text(line, MARGIN, y, 10, regular, MUTED);
+      y -= 13;
+    }
+  }
+  y -= 24;
 
   // ---- Items table ---------------------------------------------------------
   const COLS = { item: MARGIN, size: MARGIN + 250, qty: MARGIN + 305, unit: MARGIN + 350, total: rightX };
