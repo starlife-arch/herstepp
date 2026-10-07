@@ -6,6 +6,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { queueEmail, deliverQueuedEmailInline } from './email-service.js';
 import { sendTelegramMessage } from './telegram.js';
 import { buildEmail, orderReceiptEmail, invoiceEmail, escapeHtml } from './email-templates.js';
+import { invoiceNumberFor } from './invoice-number.js';
 import { siteUrl } from './site-url.js';
 
 const money = n => `KSh ${(Number(n) || 0).toLocaleString('en-KE')}`;
@@ -54,11 +55,22 @@ export function telegramNewOrder(order) {
   ).catch(() => false);
 }
 
-// Payment result (PAID / FAILED / CANCELLED / TIMEOUT): queue the email inside
-// applyVerifiedCallbackCore's transaction, then send after commit.
+// Payment result (PAID / FAILED / CANCELLED / TIMEOUT): queue the emails
+// inside applyVerifiedCallbackCore's transaction, then send after commit.
+// PAID now sends TWO emails queued in the SAME transaction:
+//   a) PAYMENT RECEIVED receipt — purpose 'payments', deterministic key
+//      `${orderDocId}-PAYMENT-PAID`, NO attachment.
+//   b) INVOICE email — purpose 'invoices' (falls back to the payments sender),
+//      deterministic key `${orderDocId}-INVOICE`, PDF attached at send time via
+//      attachInvoiceFor (never stored in the outbox doc).
+// Each has its own deterministic key, so one failing can never stop the other
+// and a duplicate callback re-sends neither. Returns the list of queued keys
+// (empty for non-PAID when nothing could be queued) so the caller delivers
+// every one of them after commit.
 export function queuePaymentEmail(tx, db, { orderDocumentId, order, status, failureReason, receiptNumber }) {
+  const keys = [];
   try {
-    if (!order?.customerEmail) return;
+    if (!order?.customerEmail) return keys;
     const st = String(status).toUpperCase();
     const emailOrder = {
       ...order,
@@ -66,25 +78,61 @@ export function queuePaymentEmail(tx, db, { orderDocumentId, order, status, fail
       failureReason: failureReason ?? order.failureReason ?? null,
       receiptNumber: receiptNumber ?? order.receiptNumber ?? null,
     };
-    // PAID orders get the INVOICE-STYLE email (PDF generated at send time —
-    // never stored in the outbox doc). Failed / cancelled / timeout notices
-    // keep the previous plain receipt template.
     if (st === 'PAID') {
-      const { subject, htmlContent } = invoiceEmail(emailOrder);
+      // (a) Payment-received receipt (no attachment).
+      const receipt = orderReceiptEmail(emailOrder, st);
+      const receiptKey = `${orderDocumentId}-PAYMENT-${st}`;
       queueEmail(tx, db, {
-        key: `${orderDocumentId}-PAYMENT-${st}`,
+        key: receiptKey,
+        purpose: 'payments',
+        to: order.customerEmail,
+        subject: receipt.subject,
+        htmlContent: receipt.htmlContent,
+      });
+      keys.push(receiptKey);
+      // (b) Invoice email with the PDF generated AT SEND TIME.
+      const invoice = invoiceEmail(emailOrder);
+      const invoiceKey = `${orderDocumentId}-INVOICE`;
+      queueEmail(tx, db, {
+        key: invoiceKey,
         purpose: 'invoices',
         to: order.customerEmail,
-        subject,
-        htmlContent,
+        subject: invoice.subject,
+        htmlContent: invoice.htmlContent,
         attachInvoiceFor: orderDocumentId,
       });
-      return;
+      keys.push(invoiceKey);
+      return keys;
     }
+    // Failed / cancelled / timeout notices keep the plain receipt template.
     const { subject, htmlContent } = orderReceiptEmail(emailOrder, st);
-    queueEmail(tx, db, { key: `${orderDocumentId}-PAYMENT-${st}`, purpose: 'payments', to: order.customerEmail, subject, htmlContent });
+    const key = `${orderDocumentId}-PAYMENT-${st}`;
+    queueEmail(tx, db, { key, purpose: 'payments', to: order.customerEmail, subject, htmlContent });
+    keys.push(key);
   } catch (error) {
     console.error('[notify] queuePaymentEmail failed:', error?.message || error);
+  }
+  return keys;
+}
+
+// In-app notification written in the SAME transaction that marks a payment
+// PAID: "invoice ready" points the customer at My Orders. Deterministic key
+// makes a replayed callback a no-op (same doc id).
+export function queueInvoiceReadyNotification(tx, db, { orderDocumentId, order, deps }) {
+  try {
+    if (!order?.customerId) return;
+    const invoiceNumber = order.invoiceNumber || invoiceNumberFor(order.orderId || '');
+    tx.set(db.collection('notifications').doc(`${orderDocumentId}-INVOICE_READY`), {
+      customerId: order.customerId,
+      orderDocumentId,
+      event: 'INVOICE_READY',
+      title: 'Invoice ready',
+      body: `Invoice ${invoiceNumber} is available in My Orders.`,
+      readAt: null,
+      createdAt: deps.serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('[notify] queueInvoiceReadyNotification failed:', error?.message || error);
   }
 }
 
