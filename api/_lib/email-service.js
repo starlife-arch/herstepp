@@ -169,7 +169,9 @@ export async function deliverQueuedEmail(db, docId, { cfg = emailConfig(), fetch
       tx.update(ref, { status: 'SENDING' });
       return data;
     });
-    if (!claimed) return { skipped: true };
+    // A replayed delivery for a doc already SENT/SENDING must report sent:true
+    // so callers (e.g. the admin "resend" flow) never show a false failure.
+    if (!claimed) return { skipped: true, sent: false, reason: 'already-queued-or-sending' };
 
     let attachments = null;
     if (claimed.attachInvoiceFor) {

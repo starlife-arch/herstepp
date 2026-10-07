@@ -627,11 +627,20 @@ function AdminInvoiceActions({ order }: { order: any }) {
   const resend = async () => {
     setBusySend(true); setMsg(null);
     try {
-      await apiFetch('/api/admin/invoices/resend', {
+      // Backend returns { queued, sent, to?, reason? } — "sent" reflects the
+      // best-effort delivery attempt right after queueing, so the admin sees
+      // whether the invoice email actually went out (or why it did not).
+      const out = await apiFetch('/api/admin/invoices/resend', {
         method: 'POST',
         body: JSON.stringify({ orderDocumentId: String(order.id) }),
-      });
-      setMsg({ kind: 'ok', text: `Invoice email for ${invoiceNumber} queued for delivery.` });
+      }) as any;
+      if (out?.sent === true) {
+        setMsg({ kind: 'ok', text: `Invoice email sent to ${String(out.to || order.customerEmail || 'the customer')}` });
+      } else if (out?.queued === true) {
+        setMsg({ kind: 'err', text: String(out?.reason || 'The invoice email was queued but could not be delivered yet.') });
+      } else {
+        setMsg({ kind: 'err', text: 'We could not resend the invoice email.' });
+      }
     } catch (e: any) {
       setMsg({ kind: 'err', text: e?.message || 'We could not resend the invoice email.' });
     } finally { setBusySend(false); }

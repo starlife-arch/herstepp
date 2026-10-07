@@ -40,6 +40,24 @@ class Query {
     let entries = [...docs.entries()].filter(([, data]) =>
       this.conditions.every(([field, value, op]) => (op === 'in' ? Array.isArray(value) && value.includes(data[field]) : data[field] === value))
     );
+    // Behave like Firestore for composite queries: where() on one field plus
+    // orderBy() on a DIFFERENT field needs an explicit composite index. The
+    // test setup registers them with db.__addIndex(...) — without one the
+    // query throws FAILED_PRECONDITION exactly like production does.
+    if (this.orderField && this.conditions.length > 0) {
+      const whereFields = [...new Set(this.conditions.map(([field]) => field))];
+      const needsIndex = whereFields.some(f => f !== this.orderField);
+      if (needsIndex) {
+        const key = `${this.collection}|${[...whereFields, this.orderField].sort().join(',')}|${this.orderDir}`;
+        if (!this.store.indexes.has(key)) {
+          const err = new Error(
+            `The query requires an index. You can create it here: https://console.firebase.google.com/v1/r/project/fake/firestore/indexes?create_composite=${key}`,
+          );
+          err.code = 9; // google.rpc.Code.FAILED_PRECONDITION
+          throw err;
+        }
+      }
+    }
     if (this.orderField) {
       const rank = (v) => (v && typeof v === 'object' && v.__serverTs ? v.n : v);
       entries.sort((a, b) => {
@@ -49,6 +67,11 @@ class Query {
         if (av > bv) return this.orderDir === 'desc' ? -1 : 1;
         return 0;
       });
+    } else {
+      // No orderBy: Firestore returns documents in DOCUMENT ID order, and a
+      // limit applies to THAT order — which is why "first 30 by id" hid the
+      // newest notifications until the routes started using orderBy.
+      entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
     }
     if (this.afterValues && this.orderField) {
       const rank = (v) => (v && typeof v === 'object' && v.__serverTs ? v.n : v);
@@ -130,7 +153,7 @@ function validateWritePaths(value, context) {
 }
 
 export function createFakeDb() {
-  const store = { collections: new Map() };
+  const store = { collections: new Map(), indexes: new Set() };
   let autoId = 0;
   let serverTsCounter = 0;
 
@@ -197,6 +220,13 @@ export function createFakeDb() {
     },
     // Test helpers -----------------------------------------------------
     __store: store,
+    // Register a composite index the way firebase/firestore.indexes.json does
+    // in production. where(fieldA)+orderBy(fieldB, dir) throws
+    // FAILED_PRECONDITION until this is called for that combination.
+    __addIndex(collectionName, fields, dir = 'asc') {
+      const list = Array.isArray(fields) ? fields : [fields];
+      store.indexes.add(`${collectionName}|${[...list].sort().join(',')}|${dir}`);
+    },
     __seed(collectionName, id, data) {
       if (!store.collections.has(collectionName)) store.collections.set(collectionName, new Map());
       store.collections.get(collectionName).set(id, deepClone(data));

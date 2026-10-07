@@ -1,11 +1,17 @@
 // Customer dashboard data (GET /api/dashboard) and notifications.
-// IMPORTANT: every query uses ONLY a single equality filter (where('customerId','==',uid))
-// with NO orderBy — composite (customerId ASC + createdAt DESC) indexes are NOT required.
-// Sorting happens in memory and results are sliced (50/20/20). orderStatusHistory uses
-// where('orderDocumentId','in',chunks of 30) without orderBy, sorted in memory.
-// Each section runs isolated so ONE failing query never empties the page; failures are
-// logged with the Firestore index link when present and reported to the client via
-// `warnings` so the UI can show them instead of silently rendering "No orders yet".
+// IMPORTANT: every list query uses orderBy('createdAt','desc') so the NEWEST
+// items always come back (a plain where+limit returns the first N by DOCUMENT
+// ID, which hid recent orders/notifications once a customer had >N docs).
+// The composite indexes (customerId ASC + createdAt DESC) for orders,
+// payments and notifications live in firebase/firestore.indexes.json. If
+// Firestore answers FAILED_PRECONDITION because the index is still building,
+// each query falls back to the equality-only form with limit(300), sorts in
+// memory and slices — and the response carries the warning
+// "Some history may be missing while the database index is being set up".
+// Each section runs isolated so ONE failing query never empties the page;
+// failures are logged with the Firestore index link when present and reported
+// to the client via `warnings` so the UI can show them instead of silently
+// rendering "No orders yet".
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { methodNotAllowed, clientError } from '../http.js';
 import { reconcileBestEffort, PAYMENT_STATUS } from '../order-core.js';
@@ -13,11 +19,42 @@ import { reconcileBestEffort, PAYMENT_STATUS } from '../order-core.js';
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
 
-// Sort by createdAt descending IN MEMORY (no composite index needed), then slice.
+// Sort by createdAt descending IN MEMORY (used on the fallback path), then slice.
 function sortDescByCreatedAt(list) {
   return list
     .slice()
     .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime());
+}
+
+// Exact wording the UI shows while a composite index is still building.
+export const INDEX_BUILDING_WARNING = 'Some history may be missing while the database index is being set up';
+
+function isFailedPrecondition(err) {
+  const code = String(err?.code ?? '').toUpperCase();
+  if (code === 'FAILED_PRECONDITION' || code === '9') return true;
+  return /FAILED_PRECONDITION/i.test(String(err?.message || err || ''));
+}
+
+// Newest-first collection query: orderBy('createdAt','desc').limit(n) when the
+// composite index exists; otherwise the equality-only query with limit(300),
+// sorted in memory and sliced, plus one warning per section (never duplicated).
+async function newestByCreatedAt(db, collectionName, uid, n, warnings) {
+  try {
+    const snap = await db.collection(collectionName)
+      .where('customerId', '==', uid)
+      .orderBy('createdAt', 'desc')
+      .limit(n)
+      .get();
+    return rows(snap);
+  } catch (err) {
+    if (!isFailedPrecondition(err)) throw err;
+    if (!warnings.some(w => w.section === collectionName && w.reason === INDEX_BUILDING_WARNING)) {
+      warnings.push({ section: collectionName, reason: INDEX_BUILDING_WARNING });
+    }
+    console.warn(`[dashboard] ${collectionName}: customerId+createdAt DESC index missing — using in-memory fallback`);
+    const snap = await db.collection(collectionName).where('customerId', '==', uid).limit(300).get();
+    return sortDescByCreatedAt(rows(snap)).slice(0, n);
+  }
 }
 
 function logQueryFailure(warnings, name, err) {
@@ -63,20 +100,21 @@ export async function dashboard(req, res) {
   }
 
   const t1 = Date.now();
-  // Single-field equality queries only — no orderBy, no composite index dependency.
-  // Limits are applied IN THE QUERY (50 orders / 20 payments / 30 notifications).
-  const [profileSnap, ordersSnap, paymentsSnap, notificationsSnap] = await Promise.all([
+  // Newest-first: orderBy('createdAt','desc') + limit, backed by the composite
+  // indexes in firebase/firestore.indexes.json. FAILED_PRECONDITION (index
+  // still building) falls back to equality-only limit(300) + in-memory sort
+  // and adds a warning per affected section.
+  const [profileSnap, orders, payments, notifications] = await Promise.all([
     settle(() => adminDb.collection('users').doc(u.uid).get(), 'profile', warnings),
-    settle(() => adminDb.collection('orders').where('customerId', '==', u.uid).limit(50).get(), 'orders', warnings),
-    settle(() => adminDb.collection('payments').where('customerId', '==', u.uid).limit(20).get(), 'payments', warnings),
-    settle(() => adminDb.collection('notifications').where('customerId', '==', u.uid).limit(30).get(), 'notifications', warnings),
+    settle(() => newestByCreatedAt(adminDb, 'orders', u.uid, 50, warnings), 'orders', warnings),
+    settle(() => newestByCreatedAt(adminDb, 'payments', u.uid, 20, warnings), 'payments', warnings),
+    settle(() => newestByCreatedAt(adminDb, 'notifications', u.uid, 30, warnings), 'notifications', warnings),
   ]);
   console.log(`[dashboard] queries took ${Date.now() - t1}ms uid=${u.uid}`);
 
-  // In-memory sort + defensive slice (the query limits above already bound the reads).
-  const ordersAll = sortDescByCreatedAt(ordersSnap ? rows(ordersSnap) : []).slice(0, 50);
-  const payments = sortDescByCreatedAt(paymentsSnap ? rows(paymentsSnap) : []).slice(0, 20);
-  const notifications = sortDescByCreatedAt(notificationsSnap ? rows(notificationsSnap) : []).slice(0, 30);
+  // Defensive slices (the query limits above already bound the reads; settle
+  // returns null when a section failed entirely).
+  const ordersAll = (orders || []).slice(0, 50);
 
   // CUT DASHBOARD READS: status history is NO LONGER attached here (it cost
   // one batched orderStatusHistory query per page load). The UI loads history
@@ -103,13 +141,15 @@ export async function notifications(req, res) {
   const u = await requireUser(req);
   if (req.method === 'GET') {
     const warnings = [];
-    // No orderBy → no composite index needed; sort in memory.
-    const snap = await settle(
-      () => adminDb.collection('notifications').where('customerId', '==', u.uid).limit(100).get(),
+    // Newest-first via the notifications customerId+createdAt DESC composite
+    // index; FAILED_PRECONDITION falls back to equality-only limit(300) +
+    // in-memory sort with a warning (same helper as the dashboard).
+    const list = await settle(
+      () => newestByCreatedAt(adminDb, 'notifications', u.uid, 100, warnings),
       'notifications/list',
       warnings,
     );
-    return res.json(sortDescByCreatedAt(snap ? rows(snap) : []).slice(0, 50));
+    return res.json((list || []).slice(0, 50));
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
   const id = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;

@@ -131,6 +131,10 @@ export function orderReceiptEmail(order, status) {
   if (delivery.phone) details.push(`<strong>Phone:</strong> ${escapeHtml(delivery.phone)}`);
   if (delivery.instructions) details.push(`<strong>Notes:</strong> ${escapeHtml(delivery.instructions)}`);
   if (paid && o.receiptNumber) details.push(`<strong>M-Pesa receipt:</strong> ${escapeHtml(o.receiptNumber)}`);
+  // PAID receipts now travel WITH a second, separate invoice email (sender
+  // invoices@). Tell the customer so they do not think this email is missing
+  // its PDF.
+  if (paid) details.push('Your invoice is in a separate email from invoices@ and in your account under My Orders.');
 
   const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Order ${escapeHtml(orderId)}</title></head>
