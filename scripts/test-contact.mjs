@@ -213,17 +213,45 @@ await test('rate limit: 3 per hour then 429 (retryAfterSeconds set, nothing stor
   assert.equal(db.__doc('rateLimits', 'contact_hash-e').hourCount, 3);
 });
 
-await test('day limit: 10 per day even across fresh hour windows', async () => {
+await test('day limit: 10 per UTC day even across fresh hour windows', async () => {
   const db = newDb();
-  const t0 = 1_700_000_000_000;
+  // Start at 00:00:05 UTC of a fixed day so all calls stay inside ONE UTC day.
+  const t0 = Date.parse('2026-10-07T00:00:05Z');
   for (let i = 0; i < 10; i += 1) {
     // Each call lands in a NEW hour window (2h apart) so only the day cap can stop it.
     await submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-f', uid: null, now: t0 + i * 2 * 3_600_000 });
   }
   await assert.rejects(
     submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-f', uid: null, now: t0 + 10 * 2 * 3_600_000 }),
+    err => {
+      assert.equal(err.statusCode, 429);
+      assert.match(err.message, /hour\(s\)/, 'day-cap wait is phrased in hours, not minutes');
+      return true;
+    },
+  );
+});
+
+await test('new UTC day resets BOTH windows (stale day counters cannot lock an IP out)', async () => {
+  const db = newDb();
+  const day1 = Date.parse('2026-10-07T23:59:00Z');
+  for (let i = 0; i < 3; i += 1) {
+    await submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-k', uid: null, now: day1 + i * 1000 });
+  }
+  // Hour budget exhausted on day 1...
+  await assert.rejects(
+    submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-k', uid: null, now: day1 + 30_000 }),
     err => err.statusCode === 429,
   );
+  // ...but 2 minutes later it is a NEW UTC day: full budget again, and the
+  // stored window is re-keyed to the new day (regression: old sliding-window
+  // code kept counting stale attempts from before deploys/outages).
+  const nextDay = Date.parse('2026-10-08T00:01:00Z');
+  const r = await submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-k', uid: null, now: nextDay });
+  assert.equal(r.ok, true);
+  const rate = db.__doc('rateLimits', 'contact_hash-k');
+  assert.equal(rate.windowDay, '2026-10-08');
+  assert.equal(rate.hourCount, 1);
+  assert.equal(rate.dayCount, 1);
 });
 
 await test('different ipHash gets its own budget', async () => {
@@ -237,7 +265,9 @@ await test('different ipHash gets its own budget', async () => {
 
 await test('hour window resets after an hour; day window still counts', async () => {
   const db = newDb();
-  const t0 = 1_700_000_000_000;
+  // Both sends stay inside ONE UTC day (08:00 and 09:00 UTC) so the day
+  // counter keeps accumulating while only the HOUR window rolls over.
+  const t0 = Date.parse('2026-10-07T08:00:00Z');
   for (let i = 0; i < 3; i += 1) {
     await submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-i', uid: null, now: t0 + i * 1000 });
   }
@@ -247,6 +277,29 @@ await test('hour window resets after an hour; day window still counts', async ()
   const rate = db.__doc('rateLimits', 'contact_hash-i');
   assert.equal(rate.hourCount, 1);
   assert.equal(rate.dayCount, 4);
+});
+
+await test('rejected 429 attempt does NOT consume budget or store a message', async () => {
+  const db = newDb();
+  const t0 = Date.parse('2026-10-07T08:00:00Z');
+  for (let i = 0; i < 3; i += 1) {
+    await submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-l', uid: null, now: t0 + i * 1000 });
+  }
+  // Hammer it 5 more times — every one is rejected...
+  for (let i = 0; i < 5; i += 1) {
+    await assert.rejects(
+      submitContactMessage({ db, body: VALID_BODY, ipHash: 'hash-l', uid: null, now: t0 + 60_000 + i * 1000 }),
+      err => err.statusCode === 429,
+    );
+  }
+  // ...none of them counted: counters unchanged, nothing stored. (Regression:
+  // stale counters from failed/retried attempts used to lock shared mobile
+  // data / NAT IPs out with "try again in N minute(s)" for messages that were
+  // never actually sent.)
+  const rate = db.__doc('rateLimits', 'contact_hash-l');
+  assert.equal(rate.hourCount, 3);
+  assert.equal(rate.dayCount, 3);
+  assert.equal(db.__list('contactMessages').length, 3);
 });
 
 await test('Telegram failure NEVER fails the request', async () => {
