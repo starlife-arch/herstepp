@@ -212,6 +212,11 @@ export function createFakeDb() {
           wrote = true;
           buffer.push({ type: 'update', collection: ref.path.split('/')[0], id: ref.id, value: deepClone(value) });
         },
+        // Matches the real firebase-admin transaction API (returns a thenable).
+        delete(ref) {
+          wrote = true;
+          buffer.push({ type: 'delete', collection: ref.path.split('/')[0], id: ref.id });
+        },
       };
       return Promise.resolve(asyncFn(tx)).then(async (result) => {
         for (const op of buffer) await applyWrite(store, op);

@@ -280,3 +280,40 @@ export function invoiceEmail(order) {
 
   return { subject: `Invoice ${invoiceNumber} - payment received for order ${orderId}`, htmlContent: html };
 }
+
+// Contact-form auto-reply (purpose 'support'). NO links by design — the form
+// is public and unverified, so a bot could otherwise farm branded clicks.
+// The body is plain text; emailHtml escapes every value inside it.
+export function contactReceivedEmail(message) {
+  const name = String(message?.name || '').trim() || 'there';
+  const messageId = String(message?.messageId || '').trim();
+  const body = [
+    `Hi ${name},`,
+    '',
+    `We received your message${messageId ? ` (reference ${messageId})` : ''}.`,
+    'Our team usually replies within one working day.',
+    '',
+    'You can also reach us on +254 799 021 089 or herstepcollection@gmail.com.',
+  ].join('\n');
+  return {
+    subject: 'We received your message - HerStep Collection',
+    htmlContent: emailHtml('We received your message', body),
+  };
+}
+
+// Admin reply to a contact message (purpose 'support'). The customer's
+// original text is quoted below the answer; both are escaped here because
+// rawBody keeps emailHtml from escaping again.
+export function contactReplyEmail({ name, body, originalMessage, messageId }) {
+  const safeName = escapeHtml(name || 'there');
+  const safeBody = escapeHtml(body).replace(/\n/g, '<br>');
+  const safeOriginal = escapeHtml(originalMessage || '').replace(/\n/g, '<br>');
+  const quote = safeOriginal
+    ? `<div style="margin-top:22px;padding:12px 14px;background:#f7f8fa;border-left:3px solid ${BRAND_ACCENT};border-radius:4px;font-family:Arial,sans-serif;font-size:12px;line-height:1.6;color:${BRAND_TEXT};"><div style="font-size:11px;letter-spacing:1px;color:#8a93a2;margin-bottom:6px;">YOUR MESSAGE${messageId ? ` (${escapeHtml(messageId)})` : ''}</div>${safeOriginal}</div>`
+    : '';
+  const inner = `<p style="margin:0 0 14px;font-size:14px;line-height:1.6;color:${BRAND_TEXT};">Hi ${safeName},</p><div style="font-size:14px;line-height:1.6;color:${BRAND_TEXT};">${safeBody}</div>${quote}`;
+  return {
+    subject: 'Re: your message to HerStep Collection',
+    htmlContent: emailHtml('Re: your message to HerStep Collection', inner, { rawBody: true }),
+  };
+}

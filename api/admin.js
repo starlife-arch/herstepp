@@ -24,6 +24,10 @@ export default (req, res) => dispatchRoute(req, res, {
   'support/read': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminRead }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminMessage }))),
   'support/notes': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminNotes }))),
+  // Contact-message inbox (GET/PATCH /api/admin/contact-messages, POST .../reply)
+  'contact-messages': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminList }))),
+  'contact-messages/status': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminStatus }))),
+  'contact-messages/reply': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminReply }))),
   // GET /api/admin/notifications — email/Telegram config status + outbox stats.
   'notifications': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationStatus }))),
   // POST /api/admin/notifications/test — {channel:'email'|'telegram', to?}

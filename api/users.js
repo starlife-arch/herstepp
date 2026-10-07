@@ -10,4 +10,6 @@ export default (req, res) => dispatchRoute(req, res, {
   'support/create': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.create }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.message }))),
   'support/sign-upload': lazyRoute(() => import('./_lib/routes/support-sign-upload.js')),
+  // POST /api/contact — public contact form (no login required)
+  contact: lazyRoute(() => import('./_lib/routes/contact.js')),
 });
