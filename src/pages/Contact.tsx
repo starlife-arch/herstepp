@@ -1,15 +1,55 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { MapPin, Phone, Mail, Clock, Send, MessageSquare } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, Button, Input } from '../components/ui';
+import { useApp } from '../context/AppContext';
+import { apiFetch } from '../lib/api';
 
 export default function Contact() {
+  const { state } = useApp();
   const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
+  // Honeypot: bots fill it, humans never see it (visually hidden input below).
+  const [website, setWebsite] = useState('');
   const [sent, setSent] = useState(false);
+  const [messageId, setMessageId] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Prefill for signed-in users (smallest edit: one effect, no markup change).
+  useEffect(() => {
+    if (state.user) {
+      setForm(prev => ({
+        ...prev,
+        name: prev.name || state.user?.name || '',
+        email: prev.email || state.user?.email || '',
+        phone: prev.phone || state.user?.phone || '',
+      }));
+    }
+  }, [state.user]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSent(true);
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result: any = await apiFetch('/api/contact', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          phone: form.phone || undefined,
+          message: form.message,
+          website,
+        }),
+      });
+      setMessageId(typeof result?.messageId === 'string' ? result.messageId : '');
+      setSent(true);
+    } catch (err: any) {
+      // Server validation / rate-limit messages shown inline in the red box.
+      setError(err?.message || 'We could not send your message. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -19,6 +59,13 @@ export default function Contact() {
         <p className="text-neutral-500 max-w-xl mx-auto">
           Have a question? We'd love to hear from you. Reach out through any of the channels below.
         </p>
+        {state.user && (
+          <p className="text-sm text-neutral-500 mt-2">
+            Have an order?{' '}
+            <Link to="/support" className="text-neutral-900 underline">Open a support ticket</Link>
+            {' '}for faster help.
+          </p>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
@@ -56,6 +103,9 @@ export default function Contact() {
               </div>
               <p className="font-medium text-neutral-900">Message Sent</p>
               <p className="text-sm text-neutral-500 mt-1">We'll get back to you shortly.</p>
+              {messageId && (
+                <p className="text-xs text-neutral-400 mt-2 font-mono">Reference: {messageId}</p>
+              )}
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -72,7 +122,23 @@ export default function Contact() {
                   required
                 />
               </div>
-              <Button type="submit" size="lg" className="w-full">Send Message</Button>
+              {/* Honeypot anti-spam field: visually hidden, never tabbed into. */}
+              <input
+                type="text"
+                name="website"
+                value={website}
+                onChange={e => setWebsite(e.target.value)}
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                className="absolute left-[-9999px] top-[-9999px] h-0 w-0 opacity-0"
+              />
+              {error && (
+                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+              <Button type="submit" size="lg" className="w-full" loading={submitting}>Send Message</Button>
             </form>
           )}
         </Card>

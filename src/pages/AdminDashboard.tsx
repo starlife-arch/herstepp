@@ -4,7 +4,7 @@
 // GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { apiFetch, apiDownload } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';

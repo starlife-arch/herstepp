@@ -189,6 +189,22 @@
       "destination": "/api/admin?route=support/notes"
     },
     {
+      "source": "/api/contact",
+      "destination": "/api/users?route=contact"
+    },
+    {
+      "source": "/api/admin/contact-messages",
+      "destination": "/api/admin?route=contact-messages"
+    },
+    {
+      "source": "/api/admin/contact-messages/status",
+      "destination": "/api/admin?route=contact-messages/status"
+    },
+    {
+      "source": "/api/admin/contact-messages/reply",
+      "destination": "/api/admin?route=contact-messages/reply"
+    },
+    {
       "source": "/api/invoices/download",
       "destination": "/api/orders?route=invoices/download"
     },
