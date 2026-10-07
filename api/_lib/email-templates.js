@@ -180,8 +180,9 @@ export function orderReceiptEmail(order, status) {
   return { subject, htmlContent: html };
 }
 
-// Invoice-style email sent for PAID orders (replaces the old plain receipt).
-// ONE email per paid order (deterministic outbox key upstream). The PDF is NOT
+// Invoice email sent for PAID orders — the SECOND of two emails (the first is
+// the payment-received receipt from orderReceiptEmail, purpose 'payments').
+// Deterministic outbox key `${orderDocId}-INVOICE` upstream. The PDF is NOT
 // embedded here — the outbox record carries attachInvoiceFor and the delivery
 // pass generates it at send time (see api/_lib/invoice-pdf.js).
 export function invoiceEmail(order) {
