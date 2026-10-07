@@ -250,6 +250,127 @@ function DeliverySettings() {
   </div>;
 }
 
+// Contact-message inbox (admin). Same table/card styling as Support: filter
+// chips, search by name/email, detail panel with tel: link, status select and
+// an inline reply box — no popups. Data comes from GET /api/admin/contact-messages.
+const CONTACT_STATUSES = ['NEW', 'READ', 'REPLIED', 'ARCHIVED'];
+const contactStatusVariant = (s: string): 'default' | 'success' | 'warning' | 'danger' | 'info' =>
+  (({ NEW: 'info', READ: 'warning', REPLIED: 'success', ARCHIVED: 'default' } as const)[s] || 'default');
+
+function AdminMessages() {
+  const res = useAdminData<any>('/api/admin/contact-messages');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<any>(null);
+  const [reply, setReply] = useState('');
+  const [working, setWorking] = useState(false);
+  const [message, setMessage] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const data = res.data;
+  const messages: any[] = Array.isArray(data?.messages) ? data.messages : [];
+  const filtered = useMemo(() => messages.filter(m => {
+    if (statusFilter && m.status !== statusFilter) return false;
+    const q = search.trim().toLowerCase();
+    if (q && !(`${m.name} ${m.email}`.toLowerCase().includes(q))) return false;
+    return true;
+  }), [messages, statusFilter, search]);
+
+  const openMessage = async (row: any) => {
+    setSelected(row); setReply(''); setMessage(null);
+    // Opening marks NEW -> READ (best effort; ignore failures here).
+    if (row.status === 'NEW') {
+      try {
+        await apiFetch('/api/admin/contact-messages/status', { method: 'PATCH', body: JSON.stringify({ id: row.id, status: 'READ' }) });
+        setSelected({ ...row, status: 'READ' });
+        res.reload();
+      } catch { /* non-blocking */ }
+    }
+  };
+  const changeStatus = async (status: string) => {
+    if (!selected) return;
+    setWorking(true); setMessage(null);
+    try {
+      await apiFetch('/api/admin/contact-messages/status', { method: 'PATCH', body: JSON.stringify({ id: selected.id, status }) });
+      setSelected({ ...selected, status });
+      res.reload();
+    } catch (err: any) { setMessage({ kind: 'err', text: err?.message || 'Could not change the status.' }); }
+    setWorking(false);
+  };
+  const sendReply = async () => {
+    if (!selected || !reply.trim()) return;
+    setWorking(true); setMessage(null);
+    try {
+      const result: any = await apiFetch('/api/admin/contact-messages/reply', { method: 'POST', body: JSON.stringify({ id: selected.id, body: reply }) });
+      setSelected({ ...selected, status: 'REPLIED', lastReply: reply.trim(), repliedAt: new Date().toISOString() });
+      setReply('');
+      setMessage(result?.sent === false
+        ? { kind: 'err', text: 'Reply saved, but the email could not be sent right now. It will be retried automatically.' }
+        : { kind: 'ok', text: `Reply email sent to ${selected.email}.` });
+      res.reload();
+    } catch (err: any) { setMessage({ kind: 'err', text: err?.message || 'Could not send the reply.' }); }
+    setWorking(false);
+  };
+
+  if (selected) {
+    return <div className="space-y-4 animate-fadeIn">
+      <Button variant="ghost" size="sm" onClick={() => { setSelected(null); res.reload(); }}><X className="w-4 h-4 mr-1" /> Back to messages</Button>
+      <Card className="p-5 space-y-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="text-sm font-mono text-neutral-500">{selected.messageId}</span>
+          <Badge variant={contactStatusVariant(selected.status)}>{selected.status}</Badge>
+          <select value="" disabled={working || selected.status === 'ARCHIVED'} onChange={e => e.target.value && changeStatus(e.target.value)} className="px-3 py-2 border border-neutral-300 rounded-lg text-sm">
+            <option value="">Change status</option>
+            {CONTACT_STATUSES.filter(s => s !== selected.status && s !== 'NEW').map(s => <option key={s} value={s}>{s.toLowerCase()}</option>)}
+          </select>
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3 text-sm">
+          <div><p className="text-neutral-500 text-xs uppercase tracking-wide">Name</p><p className="font-medium text-neutral-900">{selected.name}</p></div>
+          <div><p className="text-neutral-500 text-xs uppercase tracking-wide">Email</p><a className="text-neutral-900 underline" href={`mailto:${selected.email}`}>{selected.email}</a>{selected.customerId && <p className="text-xs text-neutral-500 mt-0.5">Signed-in customer</p>}</div>
+          <div><p className="text-neutral-500 text-xs uppercase tracking-wide">Phone</p>{selected.phone ? <a className="text-neutral-900 underline" href={`tel:${selected.phone}`}>{selected.phone}</a> : <p className="text-neutral-400">—</p>}</div>
+          <div><p className="text-neutral-500 text-xs uppercase tracking-wide">Received</p><p className="text-neutral-900">{day(selected.createdAt)}</p></div>
+        </div>
+        <div><p className="text-neutral-500 text-xs uppercase tracking-wide mb-1">Message</p><p className="text-sm text-neutral-900 whitespace-pre-wrap bg-neutral-50 border border-neutral-200 rounded-lg p-3">{selected.message}</p></div>
+        {selected.lastReply && <div><p className="text-neutral-500 text-xs uppercase tracking-wide mb-1">Last reply {selected.repliedAt ? `(${day(selected.repliedAt)})` : ''}</p><p className="text-sm text-neutral-700 whitespace-pre-wrap border-l-2 border-emerald-600 pl-3">{selected.lastReply}</p></div>}
+        {selected.status !== 'ARCHIVED' && <div className="space-y-2">
+          <p className="text-neutral-500 text-xs uppercase tracking-wide">Reply by email</p>
+          <textarea value={reply} onChange={e => setReply(e.target.value)} rows={4} maxLength={3000} className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm" placeholder={`Write a reply to ${selected.email}…`} />
+          <div className="flex items-center gap-3">
+            <Button size="sm" disabled={working || !reply.trim()} onClick={sendReply}>{working ? 'Sending…' : 'Send reply'}</Button>
+            {message && <span role="status" className={`text-sm ${message.kind === 'ok' ? 'text-emerald-700' : 'text-red-600'}`}>{message.text}</span>}
+          </div>
+        </div>}
+      </Card>
+    </div>;
+  }
+
+  return <div className="space-y-6 animate-fadeIn">
+    <h1 className="text-2xl font-bold text-neutral-900">Contact Messages</h1>
+    <div className="flex flex-wrap items-center gap-2">
+      {[['', 'All'], ...CONTACT_STATUSES.map(s => [s, s.charAt(0) + s.slice(1).toLowerCase()])].map(([value, label]) => (
+        <button key={label} onClick={() => setStatusFilter(value)} className={`px-3 py-1.5 rounded-full text-sm font-medium border ${statusFilter === value ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-600 border-neutral-200 hover:bg-neutral-50'}`}>{label}</button>
+      ))}
+      <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or email" className="ml-auto px-3 py-2 border border-neutral-300 rounded-lg text-sm w-full sm:w-64" />
+    </div>
+    {res.loading && <p className="text-sm text-neutral-500">Loading messages…</p>}
+    {res.error && <p className="text-sm text-red-600">{res.error}</p>}
+    {!res.loading && !res.error && filtered.length === 0 && <EmptyState title="No messages" description="Contact-form submissions will appear here." />}
+    <div className="space-y-3">{filtered.map(row => (
+      <Card key={row.id} className="p-4">
+        <div onClick={() => openMessage(row)} className="flex items-start justify-between gap-3 cursor-pointer">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-mono text-neutral-500">{row.messageId}</span>
+              <Badge variant={contactStatusVariant(row.status)}>{row.status}</Badge>
+            </div>
+            <p className="font-medium text-sm text-neutral-900 truncate">{row.name} · {row.email}</p>
+            <p className="text-xs text-neutral-500 mt-1 truncate">{row.message}</p>
+          </div>
+          <div className="text-right shrink-0"><p className="text-xs text-neutral-500">{day(row.createdAt)}</p>{row.status === 'NEW' && <span className="inline-block mt-1 w-2 h-2 rounded-full bg-red-500" />}</div>
+        </div>
+      </Card>
+    ))}</div>
+  </div>;
+}
+
 export default function AdminDashboard() {
   const { state, logout } = useApp();
   const navigate = useNavigate();
@@ -259,6 +380,9 @@ export default function AdminDashboard() {
   const supportRes = useAdminData<any>('/api/admin/support');
   const supportTickets = useMemo(() => (supportRes.data?.tickets || []).map((ticket: any) => toUiTicket(ticket, [])), [supportRes.data]);
   const unreadSupport = supportTickets.filter((ticket: any) => ticket.hasUnreadAdminMessages).length;
+  // Contact-form inbox: GET /api/admin/contact-messages returns { messages, unread }.
+  const contactRes = useAdminData<any>('/api/admin/contact-messages');
+  const unreadContact = Number(contactRes.data?.unread) || 0;
   // GET /api/admin/orders returns { orders: [...], printpay: {...} } (wrapped).
   // Normalise defensively so BOTH the wrapped shape and a legacy bare array work.
   const orders = useMemo(() => {
@@ -283,6 +407,7 @@ export default function AdminDashboard() {
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'tips', label: 'Tips', icon: Heart },
     { id: 'support', label: 'Support', icon: MessageSquare },
+    { id: 'messages', label: 'Messages', icon: Mail },
     { id: 'promotions', label: 'Promotions', icon: Tag },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -313,6 +438,7 @@ export default function AdminDashboard() {
               <item.icon className="w-4 h-4" />
               {item.label}
               {item.id === 'support' && unreadSupport > 0 && <span className="ml-auto bg-neutral-900 text-white text-xs rounded-full px-1.5 py-0.5">{unreadSupport}</span>}
+              {item.id === 'messages' && unreadContact > 0 && <span className="ml-auto bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5">{unreadContact}</span>}
             </button>
           ))}
         </nav>
@@ -355,6 +481,7 @@ export default function AdminDashboard() {
           {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
           {activeSection === 'tips' && <AdminTips />}
           {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
+          {activeSection === 'messages' && <AdminMessages />}
           {activeSection === 'promotions' && <PromotionsPanel />}
           {activeSection === 'notifications' && <NotificationsPanel />}
           {activeSection === 'settings' && <DeliverySettings />}

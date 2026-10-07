@@ -109,6 +109,10 @@ export async function submitContactMessage({ db, body, ipHash, uid, now = Date.n
     // Pretend success; store nothing, send nothing.
     return { ok: true, honeypot: true };
   }
+  // The Telegram alert is built by the core itself when the caller supplies
+  // only `sendTelegram` — previously contact.js never passed `telegramText`,
+  // so admins silently received NO alerts in production.
+  const wantTelegram = Boolean(sendTelegram) && telegramText !== false;
 
   const result = await db.runTransaction(async tx => {
     // READS FIRST (Firestore rule: no read may follow a write inside a tx):
@@ -148,8 +152,10 @@ export async function submitContactMessage({ db, body, ipHash, uid, now = Date.n
   });
 
   // Best-effort side effects AFTER commit — never propagate failures.
-  if (telegramText && sendTelegram) {
-    const text = `New contact message ${result.messageId} from ${input.name} (${input.phone || input.email}): ${input.message.slice(0, 120)}`;
+  if (wantTelegram) {
+    const text = typeof telegramText === 'string' && telegramText
+      ? telegramText
+      : `New contact message ${result.messageId} from ${input.name} (${input.phone || input.email}): ${input.message.slice(0, 120)}`;
     try {
       const p = Promise.resolve(sendTelegram(text)).catch(() => false);
       if (waitUntil) waitUntil(p); else await p;
@@ -169,14 +175,25 @@ export async function submitContactMessage({ db, body, ipHash, uid, now = Date.n
 export async function listContactMessages({ db, status, cursor, limit = 100 }) {
   if (status && !STATUS_ORDER.includes(status)) throw clientError('Unknown message status.');
   const snap = await db.collection('contactMessages').limit(500).get();
-  const rows = snap.docs
-    .map(doc => ({ id: doc.id, ...normalizeContactDoc(doc) }))
+  const all = snap.docs.map(doc => ({ id: doc.id, rawCreatedAt: doc.data().createdAt, ...normalizeContactDoc(doc) }));
+  // Sort key must work for REAL Firestore Timestamps too (they have no
+  // localeCompare on the object — without toDate() every row got '' and the
+  // "newest first" order silently became document-ID order).
+  const ts = v => {
+    if (!v) return 0;
+    // fake-firestore serverTimestamp sentinel: monotonically increasing `n`
+    // (mirrors real Firestore ordering server timestamps by write time).
+    if (v.__serverTs) return Number(v.n) || 0;
+    if (typeof v === 'number') return v;
+    if (v.toDate) { try { return v.toDate().getTime(); } catch { return 0; } }
+    if (v.seconds != null) return Number(v.seconds) * 1000;
+    const parsed = Date.parse(String(v));
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  const rows = all
     .filter(row => !status || row.status === status)
-    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-  const unreadNewer = rows.filter(r => r.status === 'NEW').length;
-  // Unread total needs every doc, not just this page — cheap second read of
-  // the same snapshot below before filtering.
-  const unreadTotal = snap.docs.map(doc => normalizeContactDoc(doc)).filter(r => r.status === 'NEW').length;
+    .sort((a, b) => ts(b.rawCreatedAt) - ts(a.rawCreatedAt));
+  const unreadTotal = all.filter(r => r.status === 'NEW').length;
   let page = rows;
   if (cursor) {
     const index = rows.findIndex(row => row.id === cursor);
@@ -186,7 +203,7 @@ export async function listContactMessages({ db, status, cursor, limit = 100 }) {
   return {
     messages: page,
     nextCursor: page.length === limit ? page[page.length - 1].id : null,
-    unread: unreadTotal || unreadNewer,
+    unread: unreadTotal,
   };
 }
 
