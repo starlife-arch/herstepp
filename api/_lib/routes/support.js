@@ -100,6 +100,21 @@ export async function adminMessage(req, res) {
     const senderName = SUPPORT_DISPLAY_NAME;
     tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
     tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticket.data().messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
+    // In-app notification so the reply shows in the bell and the Notifications
+    // tab. Deterministic doc id (ticket-SUPPORT_REPLY): a replayed request for
+    // the same ticket overwrites one doc — never two notifications per reply.
+    const customerId = ticket.data().customerId;
+    if (customerId) {
+      tx.set(adminDb.collection('notifications').doc(`${body.ticketDocumentId}-SUPPORT_REPLY`), {
+        customerId,
+        orderDocumentId: ticket.data().orderDocumentId || null,
+        event: 'SUPPORT_REPLY',
+        title: 'New reply on your support ticket',
+        body: input.text ? input.text.slice(0, 200) : 'A support agent sent you an attachment.',
+        readAt: null,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
   });
   return res.json({ ok: true });
 }
