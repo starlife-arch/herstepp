@@ -132,8 +132,9 @@ export async function resendInvoiceCore({ db, uid, orderDocumentId, now = Date.n
   return {
     queued: true,
     sent,
+    to: order.customerEmail,
     key,
-    ...(sent ? {} : { reason: result?.error || (result?.skipped ? 'Email delivery is not configured on this deployment.' : 'The email could not be delivered.') }),
+    ...(sent ? {} : { reason: result?.error || (result?.skipped ? (result?.reason || 'Email delivery is not configured on this deployment.') : 'The email could not be delivered.') }),
   };
 }
 
