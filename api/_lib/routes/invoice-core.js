@@ -12,8 +12,9 @@
 //   Counters live in server-only collection invoiceRateLimits/{id}.
 // - The outbox record NEVER contains PDF bytes; it carries attachInvoiceFor and
 //   deliverQueuedEmail builds the PDF at send time (retries stay safe).
+import { FieldValue } from 'firebase-admin/firestore';
 import { clientError } from '../http.js';
-import { queueEmail } from '../email-service.js';
+import { queueEmail, deliverQueuedEmailInline } from '../email-service.js';
 import { invoiceEmail } from '../email-templates.js';
 import { buildInvoicePdf } from '../invoice-pdf.js';
 import { invoiceNumberFor } from '../invoice-number.js';
@@ -68,13 +69,14 @@ export async function downloadInvoiceCore({ db, auth, uid, token, orderDocumentI
   await checkHourlyLimit(db, `DL-${uid}`, DOWNLOAD_LIMIT_PER_HOUR, now, 'invoice download');
   const invoiceNumber = order.invoiceNumber || invoiceNumberFor(order.orderId);
   // Amounts/items come straight from the Firestore document — nothing from the
-  // request influences them.
-  const pdf = buildInvoicePdf({ order, payment });
+  // request influences them. buildInvoicePdf is ASYNC: it MUST be awaited,
+  // otherwise Buffer.from(<Promise>) throws a 500 on every download.
+  const pdf = await buildInvoicePdf({ order, payment });
   return {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `attachment filename="HerStep-Invoice-${invoiceNumber}.pdf"`,
+      'Content-Disposition': `attachment; filename="HerStep-Invoice-${invoiceNumber}.pdf"`,
       'Cache-Control': 'private, no-store',
     },
     body: Buffer.from(pdf),
@@ -82,6 +84,11 @@ export async function downloadInvoiceCore({ db, auth, uid, token, orderDocumentI
 }
 
 // POST /api/admin/invoices/resend { orderDocumentId } (dispatched from api/admin.js).
+// Resends ONLY the invoice email (never the payment-received receipt — that is
+// a separate email queued by queuePaymentEmail with its own deterministic key).
+// Returns { queued, sent, key } — "sent" reflects the best-effort delivery
+// attempt right after queueing so the admin UI can say whether it actually
+// went out or why it failed.
 export async function resendInvoiceCore({ db, uid, orderDocumentId, now = Date.now() }) {
   const docId = String(orderDocumentId || '').trim();
   if (!docId) throw clientError('orderDocumentId is required.', 400);
@@ -93,7 +100,10 @@ export async function resendInvoiceCore({ db, uid, orderDocumentId, now = Date.n
   // Unique key per manual resend so an already-sent original is never reused;
   // attachInvoiceFor keeps the PDF OUT of the outbox document.
   const key = `${docId}-INVOICE-RESEND-${now}`;
-  queueEmail(null, db, {
+  // queueEmail calls tx.set(...) — outside a transaction we hand it a tiny
+  // adapter that buffers the writes like a WriteBatch, then commits them all.
+  const writes = [];
+  queueEmail({ set: (ref, data) => writes.push(ref.set(data)) }, db, {
     key,
     purpose: 'invoices',
     to: order.customerEmail,
@@ -101,18 +111,38 @@ export async function resendInvoiceCore({ db, uid, orderDocumentId, now = Date.n
     htmlContent,
     attachInvoiceFor: docId,
   });
-  await db.collection('auditLogs').add({
+  writes.push(db.collection('auditLogs').doc().set({
+    adminId: uid,
     action: 'INVOICE_RESENT',
+    targetType: 'order',
+    targetId: docId,
     orderDocumentId: docId,
     orderId: order.orderId || null,
+    previous: null,
+    next: 'RESEND',
     performedBy: uid,
-    createdAt: now,
-  });
-  return { queued: true, key };
+    createdAt: FieldValue.serverTimestamp(),
+  }));
+  await Promise.all(writes);
+  // Deliver right away (best-effort): the route wraps this in waitUntil via
+  // try/catch inside deliverQueuedEmailInline, so a Brevo outage can never turn
+  // the resend into a 500 — it just reports sent:false.
+  const result = await deliverQueuedEmailInline(db, key);
+  const sent = result?.sent === true;
+  return {
+    queued: true,
+    sent,
+    key,
+    ...(sent ? {} : { reason: result?.error || (result?.skipped ? 'Email delivery is not configured on this deployment.' : 'The email could not be delivered.') }),
+  };
 }
 
+// Roles are stored UPPERCASE in users/{uid}.role ("CUSTOMER" | "ADMIN" |
+// "SUPER_ADMIN") — comparing against lowercase 'admin' meant admins were
+// treated as non-admins and got 403/404 on invoice access.
 async function isAdminUser(db, uid) {
   if (!uid) return false;
   const snap = await db.collection('users').doc(uid).get();
-  return snap?.exists && snap.data()?.role === 'admin';
+  const role = String(snap?.data?.()?.role || '').toUpperCase();
+  return Boolean(snap?.exists) && (role === 'ADMIN' || role === 'SUPER_ADMIN');
 }
