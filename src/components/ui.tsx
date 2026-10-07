@@ -6,7 +6,7 @@ export function Button({
   children, variant = 'primary', size = 'md', loading = false, disabled = false, className = '', ...props
 }: {
   children: React.ReactNode;
-  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger';
+  variant?: 'primary' | 'secondary' | 'outline' | 'ghost' | 'danger' | 'outline-invert';
   size?: 'sm' | 'md' | 'lg';
   loading?: boolean;
   disabled?: boolean;
@@ -20,6 +20,9 @@ export function Button({
     outline: 'border border-neutral-300 text-neutral-700 hover:bg-neutral-50',
     ghost: 'text-neutral-600 hover:bg-neutral-100',
     danger: 'bg-red-600 text-white hover:bg-red-700',
+    // Inverted outline for use on dark surfaces (hero): keeps the Button variant
+    // API so callers never have to pass their own text-/bg- colour classes.
+    'outline-invert': 'border border-neutral-600 text-white hover:bg-white/10',
   };
   return (
     <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} disabled={disabled || loading} {...props}>
@@ -203,6 +206,9 @@ export function getStatusBadge(status?: string | null): { label: string; variant
     OPEN: { label: 'Open', variant: 'warning' },
     IN_PROGRESS: { label: 'In Progress', variant: 'info' },
     WAITING_CUSTOMER: { label: 'Waiting', variant: 'warning' },
+    // Support tickets store the Firestore contract value WAITING_FOR_CUSTOMER;
+    // accept it too so admin lists never fall back to a bare uppercase badge.
+    WAITING_FOR_CUSTOMER: { label: 'Waiting', variant: 'warning' },
     RESOLVED: { label: 'Resolved', variant: 'success' },
     CLOSED: { label: 'Closed', variant: 'default' },
   };
