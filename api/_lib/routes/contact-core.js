@@ -72,9 +72,11 @@ export function parseContactInput(body) {
 // the save transaction so two concurrent submissions cannot both pass.
 // Window model: hourWindowStart/hourCount reset after HOUR_MS; dayWindowStart/
 // dayCount reset after DAY_MS. Throws 429 when either limit is reached.
-async function reserveRateSlot(tx, db, ipHash, nowMs) {
-  const ref = db.collection('rateLimits').doc(`contact_${ipHash}`);
-  const snap = await tx.get(ref);
+// The caller must tx.get() the doc FIRST and pass the snapshot in — Firestore
+// transactions reject any read issued after a write ("all reads before all
+// writes"), which used to make EVERY real submission die with an untyped error
+// that surfaced as a 500 "We could not complete that request."
+function reserveRateSlot(tx, ref, snap, ipHash, nowMs) {
   const data = snap.exists ? snap.data() : {};
   const hourStart = Number(data.hourWindowStart) || 0;
   const dayStart = Number(data.dayWindowStart) || 0;
@@ -109,9 +111,15 @@ export async function submitContactMessage({ db, body, ipHash, uid, now = Date.n
   }
 
   const result = await db.runTransaction(async tx => {
-    await reserveRateSlot(tx, db, ipHash, now);
+    // READS FIRST (Firestore rule: no read may follow a write inside a tx):
+    // rate-limit doc, then the counter. Only then we write.
+    const rateRef = db.collection('rateLimits').doc(`contact_${ipHash}`);
+    const rateSnap = await tx.get(rateRef);
     const counter = db.collection('counters').doc('contactMessages');
     const counterSnap = await tx.get(counter);
+
+    reserveRateSlot(tx, rateRef, rateSnap, ipHash, now);
+
     const sequence = Number(counterSnap.exists ? counterSnap.data().sequence : 0) + 1;
     const messageId = formatMessageId(sequence);
     const ref = db.collection('contactMessages').doc();
