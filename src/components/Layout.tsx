@@ -24,8 +24,8 @@ export function Header() {
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
           <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-neutral-900 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold text-sm">H</span>
+            <div className="w-10 h-10 flex items-center justify-center overflow-hidden rounded-lg bg-white">
+              <img src="/favicon.svg" alt="HerStep Collection" className="w-full h-full object-contain" />
             </div>
             <div className="hidden sm:block">
               <span className="font-semibold text-neutral-900 text-lg tracking-tight">HerStep</span>
@@ -114,8 +114,8 @@ export function Footer() {
           {/* Brand */}
           <div className="md:col-span-1">
             <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center">
-                <span className="text-neutral-900 font-bold text-sm">H</span>
+              <div className="w-10 h-10 flex items-center justify-center overflow-hidden rounded-lg bg-white">
+                <img src="/favicon.svg" alt="HerStep Collection" className="w-full h-full object-contain" />
               </div>
               <div>
                 <span className="font-semibold text-lg">HerStep</span>
