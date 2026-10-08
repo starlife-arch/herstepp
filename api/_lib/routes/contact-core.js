@@ -70,30 +70,40 @@ export function parseContactInput(body) {
 
 // Rate-limit check + reservation on rateLimits/contact_<ipHash>. Runs INSIDE
 // the save transaction so two concurrent submissions cannot both pass.
-// Window model: hourWindowStart/hourCount reset after HOUR_MS; dayWindowStart/
-// dayCount reset after DAY_MS. Throws 429 when either limit is reached.
+// Window model: keyed per IP hash AND per UTC day (windowDay). A new day
+// always starts clean; the hourly counter resets after HOUR_MS within the day.
+// Throws 429 when either limit is reached. Only SUCCESSFUL submissions reach
+// this function (validation, honeypot and duplicate rejects happen earlier),
+// and a rejected 429 does NOT consume a slot — previously every attempt
+// incremented the counters, so retries during the earlier 500-outage locked
+// whole NAT / mobile-data ranges out for an hour even though no message was
+// ever stored ("try again in 13 minute(s)" after what looked like one send).
 // The caller must tx.get() the doc FIRST and pass the snapshot in — Firestore
 // transactions reject any read issued after a write ("all reads before all
 // writes"), which used to make EVERY real submission die with an untyped error
 // that surfaced as a 500 "We could not complete that request."
 function reserveRateSlot(tx, ref, snap, ipHash, nowMs) {
   const data = snap.exists ? snap.data() : {};
-  const hourStart = Number(data.hourWindowStart) || 0;
-  const dayStart = Number(data.dayWindowStart) || 0;
-  const hourCount = nowMs - hourStart < HOUR_MS ? Number(data.hourCount) || 0 : 0;
-  const dayCount = nowMs - dayStart < DAY_MS ? Number(data.dayCount) || 0 : 0;
-  const effectiveHour = nowMs - hourStart < HOUR_MS ? hourStart : nowMs;
-  const effectiveDay = nowMs - dayStart < DAY_MS ? dayStart : nowMs;
+  const dayKey = new Date(nowMs).toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
+  const sameDay = data.windowDay === dayKey;
+  const hourStart = sameDay ? Number(data.hourWindowStart) || 0 : 0;
+  const hourCount = sameDay && nowMs - hourStart < HOUR_MS ? Number(data.hourCount) || 0 : 0;
+  const dayCount = sameDay ? Number(data.dayCount) || 0 : 0;
+  const effectiveHour = sameDay && nowMs - hourStart < HOUR_MS ? hourStart : nowMs;
   if (hourCount >= HOUR_LIMIT || dayCount >= DAY_LIMIT) {
-    const waitMs = hourCount >= HOUR_LIMIT ? Math.max(0, HOUR_MS - (nowMs - effectiveHour)) : Math.max(0, DAY_MS - (nowMs - effectiveDay));
-    const error = clientError(`Too many messages from this connection. Please try again in ${Math.max(1, Math.ceil(waitMs / 60_000))} minute(s).`, 429);
+    const waitMs = hourCount >= HOUR_LIMIT
+      ? Math.max(0, HOUR_MS - (nowMs - effectiveHour))
+      : Math.max(0, new Date(`${dayKey}T00:00:00Z`).getTime() + DAY_MS - nowMs);
+    const minutes = Math.max(1, Math.ceil(waitMs / 60_000));
+    const human = minutes >= 60 ? `${Math.ceil(minutes / 60)} hour(s)` : `${minutes} minute(s)`;
+    const error = clientError(`Too many messages from this connection. Please try again in ${human}.`, 429);
     error.retryAfterSeconds = Math.max(1, Math.ceil(waitMs / 1000));
     throw error;
   }
   tx.set(ref, {
+    windowDay: dayKey,
     hourWindowStart: effectiveHour,
     hourCount: hourCount + 1,
-    dayWindowStart: effectiveDay,
     dayCount: dayCount + 1,
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });

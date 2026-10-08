@@ -16,6 +16,13 @@ function seedUsers(db) {
 const state = { db: seedUsers(createFakeDb()) };
 const pendingWork = [];
 
+// Minimal service-account env so api/_lib/firebase-admin.js can initialise
+// against the stubbed firebase-admin modules (they never touch the network).
+// Tests override FIREBASE_ADMIN_PROJECT_ID when they need a known hash salt.
+process.env.FIREBASE_ADMIN_PROJECT_ID ||= 'herstep-test';
+process.env.FIREBASE_ADMIN_CLIENT_EMAIL ||= 'test@herstep-test.iam.gserviceaccount.com';
+process.env.FIREBASE_ADMIN_PRIVATE_KEY ||= '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----';
+
 globalThis.__contactStubs = {
   get db() { return state.db; },
   pendingWork,
