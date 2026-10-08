@@ -7,3 +7,4 @@ Disallow: /verify-email
 Disallow: /api/
 
 Sitemap: https://www.herstepcollection.shop/sitemap.xml
+Sitemap: https://www.herstepcollection.shop/sitemap-products.xml
