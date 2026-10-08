@@ -5,6 +5,9 @@
 import assert from 'node:assert/strict';
 
 let passed = 0;
+// Deterministic per-test SITE_URL counter: random values occasionally
+// collide across tests and make the seo.js cache-key isolation flaky.
+let caseCounter = 0;
 const failures = [];
 async function test(name, fn) {
   try {
@@ -57,7 +60,7 @@ function seedCatalog(db) {
 async function freshSeoModule(seed = true) {
   // Unique SITE_URL per test busts seo.js's 60 s in-process cache (the cache
   // key embeds siteUrl()), so every test re-reads its own fake database.
-  process.env.SITE_URL = `https://herstepcollection.shop?case=${Math.random().toString(36).slice(2)}`;
+  process.env.SITE_URL = `https://herstepcollection.shop?case=${(caseCounter += 1)}`;
   globalThis.__seoState.reset();
   if (seed) seedCatalog(globalThis.__seoState.db);
   const m = await import('../api/_lib/routes/seo.js');
@@ -116,7 +119,9 @@ await test('injects title, canonical, og:image and JSON-LD with the EFFECTIVE (s
   assert.ok(res.body.includes('f_auto,q_auto,w_1200,h_630,c_fill'), 'og:image is Cloudinary-optimised');
   const ldMatch = res.body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
   assert.ok(ldMatch, 'JSON-LD block present');
-  const ld = JSON.parse(ldMatch[0].replace('<\\/', '</').replace(/<\\\//g, '</'));
+  // The HTML only escapes "</" to "<\/" (valid JSON escape), so the captured
+  // group parses as-is with JSON.parse — no unescaping hacks.
+  const ld = JSON.parse(ldMatch[1]);
   assert.equal(ld['@type'], 'Product');
   assert.equal(ld.offers.price, 2800, 'salePrice wins when valid');
   assert.equal(ld.offers.priceCurrency, 'KES');

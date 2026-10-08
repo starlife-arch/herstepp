@@ -6,9 +6,19 @@ import { adminDb } from '../firebase-admin.js';
 import { methodNotAllowed } from '../http.js';
 import { siteUrl } from '../site-url.js';
 
-const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
+// Firestore Timestamps expose toDate(); the fake DB returns ISO strings and
+// real Dates can arrive through test seeding. Accept all three shapes.
+const toIso = (v) => {
+  if (!v) return null;
+  if (typeof v === 'string' || typeof v === 'number') return new Date(v).toISOString();
+  if (v.toDate) return v.toDate().toISOString();
+  if (v instanceof Date) return v.toISOString();
+  return null;
+};
+const iso = v => toIso(v);
 function serialize(value) {
   if (value?.toDate) return value.toDate().toISOString();
+  if (value instanceof Date) return value.toISOString();
   if (Array.isArray(value)) return value.map(serialize);
   if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, serialize(v)]));
   return value;
@@ -191,7 +201,9 @@ function buildHead(product, canonical) {
       itemCondition: 'https://schema.org/NewCondition',
     },
   };
-  // "</script>" inside JSON-LD would break the block; escape it defensively.
+  // A "</" sequence inside JSON-LD would close the <script> block early;
+  // escape ONLY that sequence to "<\/" (valid JSON, safe HTML). Replacing a
+  // bare "</" or "<" everywhere corrupts the JSON and breaks Google parsing.
   const ldText = JSON.stringify(jsonLd).replace(/<\//g, '<\\/');
   return [
     `<title>${name} | HerStep Collection</title>`,
