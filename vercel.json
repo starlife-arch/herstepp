@@ -189,6 +189,22 @@
       "destination": "/api/admin?route=support/notes"
     },
     {
+      "source": "/api/hero",
+      "destination": "/api/catalog?route=hero"
+    },
+    {
+      "source": "/api/announcement",
+      "destination": "/api/catalog?route=announcement"
+    },
+    {
+      "source": "/api/admin/hero",
+      "destination": "/api/admin?route=hero"
+    },
+    {
+      "source": "/api/admin/announcement",
+      "destination": "/api/admin?route=announcement"
+    },
+    {
       "source": "/api/contact",
       "destination": "/api/users?route=contact"
     },

@@ -36,11 +36,11 @@ export async function dispatchRoute(req, res, routes) {
   }
 }
 
-// Mark a PUBLIC GET response cacheable at the edge for 60 s with a 300 s
+// Mark a PUBLIC GET response cacheable at the edge for 60 s with a 120 s
 // stale-while-revalidate window. Call this BEFORE sending the body. It also
 // overrides the dispatcher's default "private, no-store".
 export function setPublicCache(res) {
   try {
-    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=300');
+    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
   } catch { /* minimal res objects without setHeader */ }
 }

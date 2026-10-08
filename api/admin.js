@@ -24,6 +24,9 @@ export default (req, res) => dispatchRoute(req, res, {
   'support/read': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminRead }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminMessage }))),
   'support/notes': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminNotes }))),
+  // Storefront settings: GET/PATCH /api/admin/hero + /api/admin/announcement
+  'hero': lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminHero }))),
+  'announcement': lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminAnnouncement }))),
   // Contact-message inbox (GET/PATCH /api/admin/contact-messages, POST .../reply)
   'contact-messages': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminList }))),
   'contact-messages/status': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminStatus }))),
