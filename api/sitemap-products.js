@@ -55,10 +55,12 @@ ${urls.join('\n')}
 `;
 
     res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400');
-    return res.status(200).type('application/xml').send(xml);
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    return res.status(200).send(xml);
   } catch (error) {
     console.error('[sitemap-products] failed:', error?.message || error);
     res.setHeader('Cache-Control', 'public, s-maxage=300');
-    return res.status(200).type('application/xml').send(emptyXml());
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    return res.status(200).send(emptyXml());
   }
 }
