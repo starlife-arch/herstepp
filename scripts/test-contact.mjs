@@ -341,7 +341,17 @@ await test('email delivery failure NEVER fails the request (outbox stays PENDING
 
 await test('successful delivery marks the auto-reply SENT', async () => {
   const db = newDb();
+  // emailConfigured() requires EVERY purpose sender to be set (verify has no
+  // fallback by design), so this test must provide the full env — production
+  // code stays untouched.
+  const EMAIL_ENV = [
+    'BREVO_API_KEY', 'BREVO_SENDER_HELLO', 'BREVO_SENDER_SUPPORT', 'BREVO_SENDER_ORDERS',
+    'BREVO_SENDER_PAYMENTS', 'BREVO_SENDER_PROMOTIONS', 'BREVO_SENDER_VERIFY',
+    'BREVO_SENDER_TIPS', 'BREVO_SENDER_INVOICES',
+  ];
+  const saved = EMAIL_ENV.map((k) => [k, process.env[k]]);
   process.env.BREVO_API_KEY = 'test-key';
+  for (const k of EMAIL_ENV.slice(1)) process.env[k] = `${k.split('_').pop().toLowerCase()}@herstepcollection.shop`;
   process.env.BREVO_SENDER_SUPPORT = 'support@herstepcollection.shop';
   const sentBodies = [];
   globalThis.fetch = async (_url, init) => {
@@ -355,8 +365,10 @@ await test('successful delivery marks the auto-reply SENT', async () => {
     assert.equal(sentBodies.length, 1);
     assert.equal(sentBodies[0].to[0].email, 'wanjiku@example.com');
   } finally {
-    delete process.env.BREVO_API_KEY;
-    delete process.env.BREVO_SENDER_SUPPORT;
+    for (const [k, v] of saved) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
     delete globalThis.fetch;
   }
 });
@@ -477,6 +489,15 @@ STUBS.reset();
 const usersMod = await import('../api/users.js');
 const adminMod = await import('../api/admin.js');
 
+// The wrappers dispatch by ?route=... exactly like vercel.json rewrites do in
+// production (POST /api/contact -> /api/users?route=contact). Build requests
+// the same way.
+function postReq(body, opts = {}) {
+  const req = { method: 'POST', query: { route: 'contact' }, body, headers: opts.headers || {} };
+  if (opts.ip) req.ip = opts.ip;
+  return req;
+}
+
 function makeRes() {
   const res = { statusCode: 200, body: null, headers: {} };
   res.status = (code) => { res.statusCode = code; return res; };
@@ -488,9 +509,8 @@ function makeRes() {
 console.log('\nHTTP wrappers (production wiring, stubbed auth/db)');
 // ---------------------------------------------------------------------------
 await test('POST /api/contact valid submission answers 200 {ok:true,messageId} (the live 500 regression)', async () => {
-  const req = { method: 'POST', body: VALID_BODY, headers: {}, ip: '41.90.73.10' };
   const res = makeRes();
-  await usersMod.default(req, res);
+  await usersMod.default(postReq(VALID_BODY, { ip: '41.90.73.10' }), res);
   await Promise.allSettled(STUBS.pendingWork.splice(0));
   assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${JSON.stringify(res.body)}`);
   assert.equal(res.body.ok, true);
@@ -510,7 +530,7 @@ await test('POST /api/contact stores the message, rate doc by hash only (no raw 
 
 await test('signed-in POST /api/contact attaches the uid from the Bearer token', async () => {
   const res = makeRes();
-  await usersMod.default({ method: 'POST', body: VALID_BODY, headers: { authorization: 'Bearer customer-1' }, ip: '5.5.5.1' }, res);
+  await usersMod.default(postReq(VALID_BODY, { headers: { authorization: 'Bearer customer-1' }, ip: '5.5.5.1' }), res);
   assert.equal(res.statusCode, 200);
   const last = STUBS.db.__list('contactMessages').at(-1).data;
   assert.equal(last.customerId, 'customer-1');
@@ -518,14 +538,14 @@ await test('signed-in POST /api/contact attaches the uid from the Bearer token',
 
 await test('invalid token still submits anonymously (public form)', async () => {
   const res = makeRes();
-  await usersMod.default({ method: 'POST', body: VALID_BODY, headers: { authorization: 'Bearer bad' }, ip: '5.5.5.2' }, res);
+  await usersMod.default(postReq(VALID_BODY, { headers: { authorization: 'Bearer bad' }, ip: '5.5.5.2' }), res);
   assert.equal(res.statusCode, 200);
   assert.equal(STUBS.db.__list('contactMessages').at(-1).data.customerId, null);
 });
 
 await test('POST /api/contact invalid email answers 400 with the real message', async () => {
   const res = makeRes();
-  await usersMod.default({ method: 'POST', body: { ...VALID_BODY, email: 'nope' }, headers: {}, ip: '1.2.3.4' }, res);
+  await usersMod.default(postReq({ ...VALID_BODY, email: 'nope' }, { ip: '1.2.3.4' }), res);
   assert.equal(res.statusCode, 400);
   assert.match(res.body.error, /valid email/i);
 });
@@ -533,7 +553,7 @@ await test('POST /api/contact invalid email answers 400 with the real message', 
 await test('POST /api/contact honeypot answers 200 without a messageId', async () => {
   const before = STUBS.db.__list('contactMessages').length;
   const res = makeRes();
-  await usersMod.default({ method: 'POST', body: { ...VALID_BODY, website: 'http://spam' }, headers: {}, ip: '8.8.8.8' }, res);
+  await usersMod.default(postReq({ ...VALID_BODY, website: 'http://spam' }, { ip: '8.8.8.8' }), res);
   assert.equal(res.statusCode, 200);
   assert.deepEqual(res.body, { ok: true });
   assert.equal(STUBS.db.__list('contactMessages').length, before, 'honeypot stores nothing');
@@ -564,7 +584,7 @@ await test('PATCH status moves NEW->READ through the wrapper (and rejects non-ad
   assert.equal(cust.statusCode, 403);
   // Create a message via the public endpoint, then move it as admin.
   const post = makeRes();
-  await usersMod.default({ method: 'POST', body: VALID_BODY, headers: {}, ip: '7.7.7.1' }, post);
+  await usersMod.default(postReq(VALID_BODY, { ip: '7.7.7.1' }), post);
   const created = STUBS.db.__list('contactMessages').at(-1);
   const patch = makeRes();
   await adminMod.default({ method: 'PATCH', query: { route: 'contact-messages/status' }, body: { id: created.id, status: 'READ' }, headers: { authorization: 'Bearer admin-1' } }, patch);
@@ -598,7 +618,7 @@ await test('wrapper: Telegram/email outages NEVER turn into a 5xx', async () => 
   globalThis.fetch = async () => { throw new Error('brevo down'); };
   try {
     const res = makeRes();
-    await usersMod.default({ method: 'POST', body: VALID_BODY, headers: {}, ip: '6.6.6.1' }, res);
+    await usersMod.default(postReq(VALID_BODY, { ip: '6.6.6.1' }), res);
     await Promise.allSettled(STUBS.pendingWork.splice(0));
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.ok, true);

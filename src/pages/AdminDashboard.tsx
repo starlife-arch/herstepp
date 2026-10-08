@@ -4,7 +4,7 @@
 // GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { apiFetch, apiDownload } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
@@ -250,6 +250,235 @@ function DeliverySettings() {
   </div>;
 }
 
+// ---------------------------------------------------------------------------
+// Storefront — hero carousel + announcement bar editors (settings/hero and
+// settings/announcement through GET/PATCH /api/admin/hero|announcement).
+// Same Card/Button/Input components as the rest of the admin panel.
+// ---------------------------------------------------------------------------
+
+type HeroMedia = { url: string; publicId: string; resourceType: 'image' | 'video' };
+type HeroSlide = {
+  title: string; copy: string; ctaLabel: string; ctaUrl: string;
+  media: HeroMedia | null; mobileMedia: HeroMedia | null; focalPoint: string;
+};
+const FOCAL_GRID = ['left top', 'center top', 'right top', 'left center', 'center center', 'right center', 'left bottom', 'center bottom', 'right bottom'];
+const emptyHeroSlide = (): HeroSlide => ({ title: '', copy: '', ctaLabel: '', ctaUrl: '/shop', media: null, mobileMedia: null, focalPoint: 'center center' });
+
+function StorefrontPanel() {
+  const [tab, setTab] = useState<'hero' | 'announcement'>('hero');
+  const chip = (id: 'hero' | 'announcement', label: string) => (
+    <button key={id} onClick={() => setTab(id)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === id ? 'bg-neutral-900 text-white' : 'bg-white border border-neutral-200 text-neutral-600 hover:bg-neutral-50'}`}>{label}</button>
+  );
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      <div><h1 className="text-2xl font-bold text-neutral-900">Storefront</h1><p className="text-sm text-neutral-500">Manage the Home hero carousel and the announcement bar.</p></div>
+      <div className="flex gap-2">{chip('hero', 'Hero banners')}{chip('announcement', 'Announcement')}</div>
+      {tab === 'hero' ? <HeroEditor /> : <AnnouncementEditor />}
+    </div>
+  );
+}
+
+function HeroEditor() {
+  const [enabled, setEnabled] = useState(false);
+  const [slides, setSlides] = useState<HeroSlide[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/admin/hero').then((raw: any) => {
+      if (cancelled) return;
+      setEnabled(raw?.enabled === true);
+      setSlides(Array.isArray(raw?.slides) ? raw.slides.map((s: any) => ({ ...emptyHeroSlide(), ...s })) : []);
+    }).catch((error: Error) => !cancelled && setMessage({ type: 'error', text: error?.message || 'Could not load hero settings.' }))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, []);
+
+  const patchSlide = (index: number, patch: Partial<HeroSlide>) => setSlides(rows => rows.map((row, i) => i === index ? { ...row, ...patch } : row));
+  const move = (index: number, dir: -1 | 1) => setSlides(rows => {
+    const to = index + dir;
+    if (to < 0 || to >= rows.length) return rows;
+    const next = [...rows];
+    [next[index], next[to]] = [next[to], next[index]];
+    return next;
+  });
+
+  async function uploadAsset(index: number, kind: 'media' | 'mobileMedia', file: File) {
+    setUploading(`${index}-${kind}`); setMessage(null);
+    try {
+      const resourceType = kind === 'media' && /\.(mp4|webm|mov)$/i.test(file.name) ? 'video' : 'image';
+      const sign = await apiFetch('/api/media/sign-upload', { method: 'POST', body: JSON.stringify({ resourceType, fileName: file.name, bytes: file.size, purpose: 'hero' }) });
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('api_key', sign.apiKey);
+      // LESSON FROM BEFORE: send EXACTLY the signed parameters — anything else
+      // (or a missing one) makes Cloudinary answer 401.
+      fd.append('timestamp', String(sign.timestamp));
+      fd.append('signature', sign.signature);
+      fd.append('folder', sign.folder);
+      fd.append('public_id', sign.publicId);
+      const uploaded = await fetch(`https://api.cloudinary.com/v1_1/${sign.cloudName}/${resourceType}/upload`, { method: 'POST', body: fd }).then(async r => {
+        const text = await r.text();
+        let json: any = {};
+        try { json = JSON.parse(text); } catch { /* non-JSON error page */ }
+        if (!r.ok) throw new Error(json?.error?.message || 'The upload failed.');
+        return json;
+      });
+      const asset: HeroMedia = { url: String(uploaded.secure_url), publicId: String(uploaded.public_id), resourceType: resourceType as 'image' | 'video' };
+      patchSlide(index, kind === 'media' ? { media: asset } : { mobileMedia: asset });
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error?.message || 'Upload failed.' });
+    } finally {
+      setUploading(null);
+    }
+  }
+
+  const save = async () => {
+    setSaving(true); setMessage(null);
+    try {
+      const result: any = await apiFetch('/api/admin/hero', { method: 'PATCH', body: JSON.stringify({ enabled, slides }) });
+      setSlides(Array.isArray(result?.slides) ? result.slides : slides);
+      setMessage({ type: 'success', text: 'Hero banners saved.' });
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error?.message || 'Could not save hero banners.' });
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <LoadingCard />;
+  return (
+    <div className="space-y-4">
+      {message && <div role="status" className={`rounded-lg border px-4 py-3 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{message.text}</div>}
+      <Card className="p-5 flex items-center justify-between gap-4">
+        <div><h2 className="font-semibold text-neutral-900">Hero carousel</h2><p className="text-sm text-neutral-500 mt-0.5">Shown on Home when at least one valid slide exists.</p></div>
+        <label className="inline-flex items-center gap-2 text-sm font-medium text-neutral-700 cursor-pointer"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="h-4 w-4" /> Enabled</label>
+      </Card>
+      {slides.map((slide, index) => (
+        <Card key={index} className="p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-neutral-900">Slide {index + 1} of {slides.length}</h3>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" disabled={index === 0} onClick={() => move(index, -1)}>Move up</Button>
+              <Button size="sm" variant="outline" disabled={index >= slides.length - 1} onClick={() => move(index, 1)}>Move down</Button>
+              <Button size="sm" variant="outline" onClick={() => setSlides(rows => rows.filter((_, i) => i !== index))}>Remove</Button>
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Input label="Headline" maxLength={160} value={slide.title} onChange={e => patchSlide(index, { title: e.target.value })} />
+            <Input label="Button label" maxLength={80} value={slide.ctaLabel} onChange={e => patchSlide(index, { ctaLabel: e.target.value })} />
+            <Input label="Button link (# , / or https://)" value={slide.ctaUrl} onChange={e => patchSlide(index, { ctaUrl: e.target.value })} />
+            <div className="flex flex-col gap-1.5">
+              <span className="block text-sm font-medium text-neutral-700">Desktop media (image or video)</span>
+              <input type="file" accept=".jpg,.jpeg,.png,.webp,.mp4,.webm,.mov" className="text-sm" disabled={uploading === `${index}-media`} onChange={e => { const f = e.target.files?.[0]; if (f) void uploadAsset(index, 'media', f); e.currentTarget.value = ''; }} />
+              {uploading === `${index}-media` && <p className="text-xs text-neutral-500">Uploading…</p>}
+              {slide.media && <p className="text-xs text-neutral-500 truncate">{slide.media.resourceType}: {slide.media.publicId}</p>}
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="block text-sm font-medium text-neutral-700">Mobile image (optional)</span>
+              <input type="file" accept=".jpg,.jpeg,.png,.webp" className="text-sm" disabled={uploading === `${index}-mobileMedia`} onChange={e => { const f = e.target.files?.[0]; if (f) void uploadAsset(index, 'mobileMedia', f); e.currentTarget.value = ''; }} />
+              {uploading === `${index}-mobileMedia` && <p className="text-xs text-neutral-500">Uploading…</p>}
+              {slide.mobileMedia && <p className="text-xs text-neutral-500 truncate">{slide.mobileMedia.publicId}</p>}
+            </div>
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <label className="block text-sm font-medium text-neutral-700" htmlFor={`hero-copy-${index}`}>Copy</label>
+              <textarea id={`hero-copy-${index}`} rows={3} maxLength={500} value={slide.copy} onChange={e => patchSlide(index, { copy: e.target.value })} className="w-full px-3.5 py-2.5 border border-neutral-300 rounded-lg text-sm bg-white focus:border-neutral-900" />
+            </div>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-neutral-700 mb-2">Focal point</p>
+            <div className="grid grid-cols-3 gap-1 w-max" role="radiogroup" aria-label="Focal point">
+              {FOCAL_GRID.map(point => (
+                <button key={point} type="button" role="radio" aria-checked={slide.focalPoint === point} aria-label={point} onClick={() => patchSlide(index, { focalPoint: point })} className={`h-8 w-12 rounded border text-[10px] ${slide.focalPoint === point ? 'bg-neutral-900 text-white border-neutral-900' : 'bg-white text-neutral-500 border-neutral-200 hover:bg-neutral-50'}`}>{point.split(' ')[0]}</button>
+              ))}
+            </div>
+          </div>
+          {/* Live preview reuses the exact Home hero classes so what you see is
+              what customers get. */}
+          <div className="relative overflow-hidden rounded-xl bg-neutral-950 text-white">
+            {slide.media?.url && (slide.media.resourceType === 'video'
+              ? <video src={slide.media.url} muted loop playsInline autoPlay className="absolute inset-0 h-full w-full object-cover opacity-60" style={{ objectPosition: slide.focalPoint }} />
+              : <img src={slide.media.url} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60" style={{ objectPosition: slide.focalPoint }} />)}
+            <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black opacity-70" />
+            <div className="relative px-6 py-12 max-w-2xl">
+              <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
+              <h4 className="text-2xl sm:text-3xl font-bold leading-tight mb-4">{slide.title || 'Your headline appears here'}</h4>
+              <p className="text-sm text-neutral-300 mb-6 leading-relaxed">{slide.copy || 'Your paragraph appears here.'}</p>
+              <Button size="lg" variant="secondary">{slide.ctaLabel || 'Shop Now'}</Button>
+            </div>
+          </div>
+        </Card>
+      ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Button variant="outline" disabled={slides.length >= 8} onClick={() => setSlides(rows => [...rows, emptyHeroSlide()])}>Add slide {slides.length > 0 ? `(${slides.length}/8)` : ''}</Button>
+        <Button onClick={save} disabled={saving || slides.length === 0 || slides.length > 8}>{saving ? 'Saving…' : 'Save'}</Button>
+      </div>
+      {slides.length === 0 && <p className="text-sm text-neutral-500">No slides yet — add up to eight. While there are no slides, Home keeps its current static hero.</p>}
+    </div>
+  );
+}
+
+function AnnouncementEditor() {
+  const [enabled, setEnabled] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [linkLabel, setLinkLabel] = useState('');
+  const [linkUrl, setLinkUrl] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/admin/announcement').then((raw: any) => {
+      if (cancelled) return;
+      setEnabled(raw?.enabled === true);
+      setMsg(raw?.message || '');
+      setLinkLabel(raw?.linkLabel || '');
+      setLinkUrl(raw?.linkUrl || '');
+    }).catch((error: Error) => !cancelled && setMessage({ type: 'error', text: error?.message || 'Could not load the announcement.' }))
+      .finally(() => !cancelled && setLoading(false));
+    return () => { cancelled = true; };
+  }, []);
+
+  const save = async () => {
+    setSaving(true); setMessage(null);
+    try {
+      await apiFetch('/api/admin/announcement', { method: 'PATCH', body: JSON.stringify({ enabled, message: msg, linkLabel, linkUrl }) });
+      setMessage({ type: 'success', text: 'Announcement saved.' });
+    } catch (error: any) {
+      setMessage({ type: 'error', text: error?.message || 'Could not save the announcement.' });
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <LoadingCard />;
+  return (
+    <Card className="p-5 space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div><h2 className="font-semibold text-neutral-900">Announcement bar</h2><p className="text-sm text-neutral-500 mt-0.5">A slim bar above the header. Customers can dismiss it for their session.</p></div>
+        <label className="inline-flex items-center gap-2 text-sm font-medium text-neutral-700 cursor-pointer"><input type="checkbox" checked={enabled} onChange={e => setEnabled(e.target.checked)} className="h-4 w-4" /> Enabled</label>
+      </div>
+      {message && <div role="status" className={`rounded-lg border px-4 py-3 text-sm ${message.type === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700'}`}>{message.text}</div>}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-neutral-700" htmlFor="announce-message">Message</label>
+        <textarea id="announce-message" rows={2} maxLength={500} value={msg} onChange={e => setMsg(e.target.value)} className="w-full px-3.5 py-2.5 border border-neutral-300 rounded-lg text-sm bg-white focus:border-neutral-900" />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Input label="Link label (optional)" maxLength={80} value={linkLabel} onChange={e => setLinkLabel(e.target.value)} />
+        <Input label="Link URL (https://, optional)" value={linkUrl} onChange={e => setLinkUrl(e.target.value)} />
+      </div>
+      <div className="rounded-xl border border-neutral-200 p-4">
+        <p className="text-xs font-medium text-neutral-500 mb-2 uppercase tracking-wide">Bar preview</p>
+        <div className="bg-neutral-900 text-white px-4 py-2 rounded-lg text-sm flex items-center justify-center gap-2 flex-wrap">
+          <span>{msg || 'Your announcement message appears here.'}</span>
+          {linkLabel && linkUrl && <span className="underline underline-offset-2 font-medium">{linkLabel}</span>}
+        </div>
+      </div>
+      <div className="flex justify-end"><Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button></div>
+    </Card>
+  );
+}
+
 // Contact-message inbox (admin). Same table/card styling as Support: filter
 // chips, search by name/email, detail panel with tel: link, status select and
 // an inline reply box — no popups. Data comes from GET /api/admin/contact-messages.
@@ -409,6 +638,7 @@ export default function AdminDashboard() {
     { id: 'support', label: 'Support', icon: MessageSquare },
     { id: 'messages', label: 'Messages', icon: Mail },
     { id: 'promotions', label: 'Promotions', icon: Tag },
+    { id: 'storefront', label: 'Storefront', icon: Image },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
@@ -483,6 +713,7 @@ export default function AdminDashboard() {
           {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
           {activeSection === 'messages' && <AdminMessages />}
           {activeSection === 'promotions' && <PromotionsPanel />}
+          {activeSection === 'storefront' && <StorefrontPanel />}
           {activeSection === 'notifications' && <NotificationsPanel />}
           {activeSection === 'settings' && <DeliverySettings />}
         </div>
