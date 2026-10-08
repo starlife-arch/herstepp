@@ -234,7 +234,18 @@ export function createFakeDb() {
     },
     __seed(collectionName, id, data) {
       if (!store.collections.has(collectionName)) store.collections.set(collectionName, new Map());
-      store.collections.get(collectionName).set(id, deepClone(data));
+      // Date instances must survive seeding: deepClone would turn them into
+      // plain objects with no toDate(), and production code (seo.js iso())
+      // accepts both Timestamps and raw Dates exactly like the real SDK does.
+      const reviveDates = (value) => {
+        if (value && typeof value === 'object' && value.__date) return new Date(value.__date);
+        if (Array.isArray(value)) return value.map(reviveDates);
+        if (value && typeof value === 'object' && !(value instanceof Date)) {
+          return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, reviveDates(v)]));
+        }
+        return value;
+      };
+      store.collections.get(collectionName).set(id, reviveDates(deepClone(data)));
     },
     __doc(collectionName, id) {
       return (store.collections.get(collectionName) || new Map()).get(id);

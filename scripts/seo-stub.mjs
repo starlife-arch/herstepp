@@ -31,6 +31,13 @@ globalThis.__seoState = {
   reset() { state.db = createFakeDb(); },
 };
 
+// firebase-admin.js (real file, stubbed SDK entry points) resolves the DB via
+// __stubDb — same contract as the contact suite. Without these the whole seo
+// suite dies with "globalThis.__stubDb is not a function".
+globalThis.__stubDb = () => globalThis.__seoState.db;
+globalThis.__stubApp = {};
+globalThis.__stubPending = [];
+
 globalThis.fetch = async (url, init) => globalThis.__seoState.fetchImpl(url, init);
 
 register('./seo-hooks.mjs', import.meta.url);
