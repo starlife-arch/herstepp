@@ -104,7 +104,14 @@ export async function sitemap(req, res) {
     xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   } catch (error) {
     console.error('[seo] sitemap failed:', error?.message || error);
-    return res.status(200).type('html').send(await fetchIndexHtml(req).catch(() => '<!doctype html>'));
+    // Always return valid XML so Google never receives the SPA HTML as a sitemap.
+    const base = siteUrl();
+    const fallbackUrls = ['/', '/shop', '/contact', '/support', '/tip']
+      .map(path => `  <url><loc>${xmlEscape(`${base}${path}`)}</loc></url>`)
+      .join('\n');
+    const fallbackXml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${fallbackUrls}\n</urlset>\n`;
+    res.setHeader('Cache-Control', 'public, s-maxage=300');
+    return res.status(200).type('application/xml').send(fallbackXml);
   }
   res.setHeader('Cache-Control', 'public, s-maxage=3600');
   return res.status(200).type('application/xml').send(xml);
