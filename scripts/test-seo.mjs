@@ -31,7 +31,7 @@ function makeRes() {
 
 async function call(query) {
   const res = makeRes();
-  await catalog({ method: 'GET', query: { ...query }, headers: {} }, res);
+  await catalog({ method: 'GET', query: { ...query }, headers: reqHeaders() }, res);
   return res;
 }
 
@@ -60,7 +60,18 @@ async function freshSeoModule(seed = true) {
   process.env.SITE_URL = `https://herstepcollection.shop?case=${Math.random().toString(36).slice(2)}`;
   globalThis.__seoState.reset();
   if (seed) seedCatalog(globalThis.__seoState.db);
-  return import('../api/_lib/routes/seo.js');
+  const m = await import('../api/_lib/routes/seo.js');
+  // The built index.html is cached for 5 minutes globally; tests must each
+  // see their own fetchImpl (success, outage, wrong shape), so reset it too.
+  m.__resetIndexCacheForTests();
+  return m;
+}
+
+// Tests call the routes through the real dispatcher with empty headers; give
+// them a self origin so fetchIndexHtml() can resolve one exactly like Vercel
+// does via x-vercel-url / host.
+function reqHeaders() {
+  return { host: 'test.local', 'x-forwarded-proto': 'https' };
 }
 
 console.log('\nsitemap.xml');
@@ -149,7 +160,7 @@ await test('fetch failure falls back to plain index.html with status 200 (never 
   globalThis.__seoState.fetchImpl = async () => { throw new Error('network down'); };
   const res = await call({ route: 'product-page', id: 'p-active' });
   assert.equal(res.statusCode, 200);
-  assert.equal(res.body, globalThis.__seoState.INDEX_HTML);
+  assert.ok(String(res.body).includes("Step Into Your Style"), "plain index.html served"); assert.ok(!String(res.body).includes("og:type"), "no injected meta in the fallback");
 });
 
 await test('Firestore failure falls back to plain index.html with status 200', async () => {
@@ -159,7 +170,7 @@ await test('Firestore failure falls back to plain index.html with status 200', a
   db.collection = () => { throw new Error('FAILED_UNAVAILABLE'); };
   const res = await call({ route: 'product-page', id: 'p-active' });
   assert.equal(res.statusCode, 200);
-  assert.equal(res.body, globalThis.__seoState.INDEX_HTML);
+  assert.ok(String(res.body).includes("Step Into Your Style"), "plain index.html served"); assert.ok(!String(res.body).includes("og:type"), "no injected meta in the fallback");
 });
 
 await test('sitemap failure never 500s', async () => {

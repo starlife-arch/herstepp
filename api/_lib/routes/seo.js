@@ -73,6 +73,10 @@ export async function sitemap(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
   let xml;
   try {
+    // Absolute URLs use siteUrl() (the canonical production domain), but the
+    // index.html fallback fetch uses the request's OWN origin only — see
+    // selfOrigin(): fetching SITE_URL from a preview deployment is an
+    // external hop that can fail and was the cause of the live 500.
     const base = siteUrl();
     const [products, categories] = await Promise.all([loadActiveProducts(), loadCategories()]);
     const urls = [];
@@ -90,7 +94,7 @@ export async function sitemap(req, res) {
     xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   } catch (error) {
     console.error('[seo] sitemap failed:', error?.message || error);
-    return res.status(200).type('html').send(await fetchIndexHtml().catch(() => '<!doctype html>'));
+    return res.status(200).type('html').send(await fetchIndexHtml(req).catch(() => '<!doctype html>'));
   }
   res.setHeader('Cache-Control', 'public, s-maxage=3600');
   return res.status(200).type('application/xml').send(xml);
@@ -101,11 +105,31 @@ const FALLBACK_HTML = '<!doctype html><html lang="en"><head><title>HerStep Colle
 // --- built index.html (static file, cached 5 minutes) -------------------------
 let indexCache = null; // { html, expiresAt }
 
-async function fetchIndexHtml() {
+// The ORIGIN of the current request only — never siteUrl(). On preview
+// deployments SITE_URL points at production, and fetching the prod domain
+// from a function is an external hop that can hang or fail (that was the
+// live /sitemap.xml 500). x-vercel-url is present on every Vercel request.
+function selfOrigin(req) {
+  const raw = req?.headers?.['x-vercel-url'];
+  if (typeof raw === 'string' && raw.startsWith('http')) {
+    try { return new URL(raw).origin; } catch { /* fall through */ }
+  }
+  const host = req?.headers?.host;
+  if (typeof host === 'string' && host) {
+    const proto = String(req?.headers?.['x-forwarded-proto'] || 'https').split(',')[0].trim();
+    return `${proto || 'https'}://${host}`;
+  }
+  return null;
+}
+
+async function fetchIndexHtml(req) {
   if (indexCache && indexCache.expiresAt > Date.now()) return indexCache.html;
-  const response = await fetch(`${siteUrl()}/index.html`, { headers: { 'user-agent': 'herstep-seo/1.0' } });
+  const origin = selfOrigin(req);
+  if (!origin) throw new Error('cannot determine own origin for index.html');
+  const response = await fetch(`${origin}/index.html`, { headers: { 'user-agent': 'herstep-seo/1.0' } });
   if (!response.ok) throw new Error(`index.html fetch status ${response.status}`);
   const html = await response.text();
+  if (!/<title>[\s\S]*?<\/title>/i.test(html)) throw new Error('index.html has no <title>');
   indexCache = { html, expiresAt: Date.now() + 5 * 60_000 };
   return html;
 }
@@ -207,7 +231,7 @@ export async function productPage(req, res) {
   try {
     const base = siteUrl();
     const canonical = `${base}/product/${encodeURIComponent(String(id || ''))}`;
-    const plain = await fetchIndexHtml();
+    const plain = await fetchIndexHtml(req);
     let product = null;
     try {
       if (typeof id === 'string' && id) product = await loadProduct(id);
@@ -228,7 +252,7 @@ export async function productPage(req, res) {
     // Never a 500: fall back to plain index.html with status 200.
     console.error('[seo] product-page fallback:', error?.message || error);
     try {
-      html = await fetchIndexHtml();
+      html = await fetchIndexHtml(req);
     } catch {
       html = FALLBACK_HTML;
     }
