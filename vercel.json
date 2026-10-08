@@ -233,6 +233,10 @@
       "destination": "/api/catalog?route=sitemap"
     },
     {
+      "source": "/sitemap-products.xml",
+      "destination": "/api/catalog?route=sitemap-products"
+    },
+    {
       "source": "/product/:id",
       "destination": "/api/catalog?route=product-page&id=:id"
     },
