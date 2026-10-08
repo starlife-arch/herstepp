@@ -6,4 +6,4 @@ Disallow: /checkout
 Disallow: /verify-email
 Disallow: /api/
 
-Sitemap: https://herstepcollection.shop/sitemap.xml
+Sitemap: https://www.herstepcollection.shop/sitemap.xml
