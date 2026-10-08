@@ -117,6 +117,32 @@ export async function sitemap(req, res) {
   return res.status(200).type('application/xml').send(xml);
 }
 
+
+// --- GET /sitemap-products.xml -----------------------------------------------
+// Automatically lists every active product page from Firestore. This keeps
+// product discovery automatic when products are added or updated in the admin.
+export async function productSitemap(req, res) {
+  if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
+  try {
+    const base = siteUrl();
+    const products = await loadActiveProducts();
+    const urls = products.slice(0, 5000).map(product => {
+      const loc = `${base}/product/${encodeURIComponent(product.id)}`;
+      const lastmod = lastmodOf(product);
+      return `  <url><loc>${xmlEscape(loc)}</loc>${lastmod ? `<lastmod>${xmlEscape(lastmod)}</lastmod>` : ''}</url>`;
+    });
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
+    res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400');
+    return res.status(200).type('application/xml').send(xml);
+  } catch (error) {
+    console.error('[seo] product sitemap failed:', error?.message || error);
+    const base = siteUrl();
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n</urlset>\n`;
+    res.setHeader('Cache-Control', 'public, s-maxage=300');
+    return res.status(200).type('application/xml').send(xml);
+  }
+}
+
 const FALLBACK_HTML = '<!doctype html><html lang="en"><head><title>HerStep Collection | Step Into Your Style</title></head><body><div id="root"></div></body></html>';
 
 // --- built index.html (static file, cached 5 minutes) -------------------------
