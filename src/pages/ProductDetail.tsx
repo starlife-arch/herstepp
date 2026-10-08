@@ -3,11 +3,14 @@ import { useParams, Link } from 'react-router-dom';
 import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Badge, Skeleton, EmptyState, formatCurrency } from '../components/ui';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 
 export default function ProductDetail() {
   const { id } = useParams();
   const { state, dispatch, reloadCatalog } = useApp();
   const { products, catalogLoading, catalogError } = state;
+  usePageMeta(metaProduct ? `${metaProduct.name} | HerStep Collection` : 'Product | HerStep Collection');
   const product = products.find(p => p.id === id);
   // Only sizes with quantity > 0 are selectable.
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
@@ -89,6 +92,8 @@ export default function ProductDetail() {
             <img
               src={product.images[selectedImage]?.url}
               alt={product.name}
+              width={600}
+              height={600}
               className="w-full h-full object-cover"
             />
           </div>
@@ -100,7 +105,7 @@ export default function ProductDetail() {
                   onClick={() => setSelectedImage(i)}
                   className={`aspect-square rounded-lg overflow-hidden border-2 transition-colors ${selectedImage === i ? 'border-neutral-900' : 'border-transparent hover:border-neutral-300'}`}
                 >
-                  <img src={img.url} alt="" className="w-full h-full object-cover" />
+                  <img src={img.url} alt={`${product.name} — photo ${i + 1}`} loading="lazy" className="w-full h-full object-cover" />
                 </button>
               ))}
             </div>

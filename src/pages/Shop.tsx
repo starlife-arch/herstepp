@@ -4,8 +4,11 @@ import { Search, SlidersHorizontal } from 'lucide-react';
 import { useApp, effectivePrice } from '../context/AppContext';
 import { Card, Skeleton, Button, EmptyState } from '../components/ui';
 import { ProductCard } from './Home';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 
 export default function Shop() {
+  usePageMeta('Shop | HerStep Collection', "Browse the full HerStep Collection of ladies' shoes in Juja Town — sandals, heels, platforms and sneakers.");
   const [searchParams] = useSearchParams();
   const { state, reloadCatalog } = useApp();
   const { products, categories, catalogLoading, catalogError } = state;

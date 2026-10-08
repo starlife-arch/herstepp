@@ -229,6 +229,14 @@
       "destination": "/api/admin?route=invoices/resend"
     },
     {
+      "source": "/sitemap.xml",
+      "destination": "/api/catalog?route=sitemap"
+    },
+    {
+      "source": "/product/:id",
+      "destination": "/api/catalog?route=product-page&id=:id"
+    },
+    {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
     }

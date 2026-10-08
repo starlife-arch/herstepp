@@ -6,6 +6,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 import { apiFetch, apiDownload } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { SupportChat } from '../components/SupportChat';
@@ -601,6 +603,7 @@ function AdminMessages() {
 }
 
 export default function AdminDashboard() {
+  usePageMeta('Admin | HerStep Collection', undefined, true);
   const { state, logout } = useApp();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('overview');

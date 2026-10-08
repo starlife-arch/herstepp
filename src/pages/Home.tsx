@@ -1,3 +1,4 @@
+import { usePageMeta } from '../hooks/usePageMeta';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ArrowRight, Truck, Shield, Clock, MapPin, Star, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -174,6 +175,7 @@ function HeroCarousel({ hero }: { hero: HeroData }) {
 }
 
 export default function Home() {
+  usePageMeta('HerStep Collection | Step Into Your Style', "Premium ladies' footwear in Juja Town. Shop sandals, heels and platforms — pay with M-Pesa.");
   const { state, reloadCatalog } = useApp();
   const { products, categories, catalogLoading, catalogError } = state;
   const featured = products.filter(p => p.featured);
