@@ -11,7 +11,14 @@ export default function ProductDetail() {
   const { state, dispatch, reloadCatalog } = useApp();
   const { products, catalogLoading, catalogError } = state;
   const product = products.find(p => p.id === id);
-  usePageMeta(product ? `${product.name} | HerStep Collection` : 'Product | HerStep Collection');
+  // Hook is called unconditionally, BEFORE any early return below; it uses the
+  // real `product` variable (null-safe), never an undefined helper name.
+  usePageMeta(
+    product ? `${product.name} | HerStep Collection` : 'Product | HerStep Collection',
+    product?.description
+      ? `${String(product.description).slice(0, 155)} - ladies' footwear in Juja Town. Pay with M-Pesa.`
+      : `${product?.name ?? 'HerStep'} - ladies' footwear in Juja Town. Pay with M-Pesa.`
+  );
   // Only sizes with quantity > 0 are selectable.
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
