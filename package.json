@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
-    "test": "npm run check:api && npm run typecheck && node scripts/test-order-core.mjs && node scripts/test-notifications.mjs && node scripts/test-sync-profile.mjs && node scripts/test-tips.mjs && node scripts/test-email-verify.mjs && node --import ./scripts/contact-stub.mjs scripts/test-contact.mjs",
+    "test": "npm run check:api && npm run typecheck && node scripts/test-order-core.mjs && node scripts/test-notifications.mjs && node scripts/test-sync-profile.mjs && node scripts/test-tips.mjs && node scripts/test-email-verify.mjs && node --import ./scripts/contact-stub.mjs scripts/test-contact.mjs && node --import ./scripts/seo-stub.mjs scripts/test-seo.mjs",
     "check:api": "node scripts/check-api.mjs",
     "prebuild": "npm run check:api && npm run typecheck"
   },

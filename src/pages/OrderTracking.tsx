@@ -3,6 +3,8 @@ import { useSearchParams, Link } from 'react-router-dom';
 import { Search, Package, Check, Truck, Clock, MapPin, Heart, FileText } from 'lucide-react';
 import { Card, Button, Badge, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { apiFetch, apiDownload } from '../lib/api';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 import { useApp } from '../context/AppContext';
 
 // Real data only: GET /api/orders/track (server-verified, owner-only).
@@ -71,6 +73,7 @@ function InvoiceDownloadButton({ order }: { order: TrackOrder }) {
 }
 
 export default function OrderTracking() {
+  usePageMeta('Track Your Order | HerStep Collection', "Track any HerStep order or M-Pesa receipt — live status from checkout to delivery.");
   const [searchParams] = useSearchParams();
   const { state } = useApp();
   // One input accepts an order number (HS-...) OR a receipt number (HSP-...).

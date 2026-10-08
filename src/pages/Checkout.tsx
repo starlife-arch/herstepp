@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 import { ArrowLeft, CreditCard, MapPin, Store, Loader2, Check, AlertCircle, Heart, FileText } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { effectivePrice, hasDiscount } from '../context/AppContext';
@@ -49,6 +51,7 @@ function CheckoutInvoiceButton({ orderDocumentId, orderId }: { orderDocumentId: 
 }
 
 export default function Checkout() {
+  usePageMeta('Checkout | HerStep Collection', undefined, true);
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
   // /checkout?order=<doc id> — "Pay now" from the dashboard: retry payment for

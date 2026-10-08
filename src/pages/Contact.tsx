@@ -4,8 +4,11 @@ import { Link } from 'react-router-dom';
 import { Card, Button, Input } from '../components/ui';
 import { useApp } from '../context/AppContext';
 import { apiFetch } from '../lib/api';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 
 export default function Contact() {
+  usePageMeta('Contact Us | HerStep Collection', "Talk to HerStep Collection in Juja Town — call, WhatsApp or send us a message and we usually reply within one working day.");
   const { state } = useApp();
   const [form, setForm] = useState({ name: '', email: '', phone: '', message: '' });
   // Honeypot: bots fill it, humans never see it (visually hidden input below).

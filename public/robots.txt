@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /dashboard
+Disallow: /checkout
+Disallow: /verify-email
+Disallow: /api/
+
+Sitemap: https://herstepcollection.shop/sitemap.xml

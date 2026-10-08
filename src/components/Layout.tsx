@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { loadAnnouncement, type AnnouncementData } from '../lib/storefront';
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -194,9 +195,67 @@ function WhatsAppButton() {
   );
 }
 
+// Announcement bar (settings/announcement via GET /api/announcement). Rendered
+// ABOVE the sticky header so it never shifts the header or changes its spacing
+// when hidden (it simply is not in the tree). Dismissible for the session: the
+// dismissal is keyed by a hash of the message, so an edited message shows
+// again. No links other than the admin-configured https one; role=status for
+// screen readers.
+async function sha256Short(text: string): Promise<string> {
+  try {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+    return Array.from(new Uint8Array(digest)).slice(0, 8).map(b => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    // Non-secure contexts have no SubtleCrypto — a simple string hash is fine
+    // here (it only keys a sessionStorage entry).
+    let h = 0;
+    for (let i = 0; i < text.length; i += 1) h = (h * 31 + text.charCodeAt(i)) | 0;
+    return `f${(h >>> 0).toString(16)}`;
+  }
+}
+
+export function AnnouncementBar() {
+  const [announcement, setAnnouncement] = useState<AnnouncementData | null>(null);
+  const [dismissed, setDismissed] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    void loadAnnouncement().then(async data => {
+      if (cancelled || !data?.enabled || !data.message) return;
+      const key = `herstep-announcement-${await sha256Short(data.message)}`;
+      if (sessionStorage.getItem(key)) return;
+      setAnnouncement({ ...data, __key: key } as AnnouncementData & { __key: string });
+      setDismissed(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  if (!announcement || dismissed) return null;
+  const dismiss = () => {
+    try { sessionStorage.setItem((announcement as any).__key, '1'); } catch { /* private mode */ }
+    setDismissed(true);
+  };
+  return (
+    <div role="status" className="bg-neutral-900 text-white text-sm">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-2 flex items-center justify-center gap-3 flex-wrap">
+        <p className="text-center sm:text-left">{announcement.message}</p>
+        {announcement.linkUrl && announcement.linkLabel && (
+          <a href={announcement.linkUrl} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 font-medium hover:text-neutral-200">
+            {announcement.linkLabel}
+          </a>
+        )}
+        <button type="button" onClick={dismiss} aria-label="Dismiss announcement" className="absolute right-4 sm:static ml-2 h-6 w-6 rounded-full flex items-center justify-center hover:bg-white/10 text-neutral-300">
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col">
+      <AnnouncementBar />
       <Header />
       <main className="flex-1">{children}</main>
       <Footer />

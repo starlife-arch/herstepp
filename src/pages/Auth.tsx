@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 import { Eye, EyeOff } from 'lucide-react';
 import {
   createUserWithEmailAndPassword,
@@ -112,6 +114,7 @@ function authErrorMessage(error: unknown) {
 }
 
 export function Login() {
+  usePageMeta('Sign In | HerStep Collection', undefined, true);
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -184,6 +187,7 @@ export function Login() {
 }
 
 export function Register() {
+  usePageMeta('Create Account | HerStep Collection', undefined, true);
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
   const [loading, setLoading] = useState(false);

@@ -180,6 +180,27 @@ if (vercelJson) {
   }
 }
 
+// ---- Phase 3c: SEO rewrites must beat the SPA fallback ----------------------
+// /sitemap.xml and /product/:id are handled by api/catalog.js routes; if they
+// sat AFTER the catch-all rewrite the SPA would swallow them.
+{
+  const rewrites = Array.isArray(vercelJson?.rewrites) ? vercelJson.rewrites : [];
+  const idxOf = pred => rewrites.findIndex(pred);
+  const fallbackIdx = idxOf(r => String(r.source).startsWith('/(('));
+  let seoFails = 0;
+  for (const [source, destination, routeName] of [
+    ['/sitemap.xml', '/api/catalog?route=sitemap', 'sitemap'],
+    ['/product/:id', '/api/catalog?route=product-page&id=:id', 'product-page'],
+  ]) {
+    const i = idxOf(r => r.source === source && r.destination === destination);
+    if (i < 0) { seoFails += 1; failed = true; console.error(`SEO FAIL: rewrite ${source} -> ${destination} missing from vercel.json`); continue; }
+    if (fallbackIdx >= 0 && i > fallbackIdx) { seoFails += 1; failed = true; console.error(`SEO FAIL: rewrite ${source} must come BEFORE the SPA fallback`); }
+    const catalogSrc = readFileSync(path.join(apiDir, 'catalog.js'), 'utf8');
+    if (!catalogSrc.includes(`'${routeName}'`)) { seoFails += 1; failed = true; console.error(`SEO FAIL: route "${routeName}" is not registered in api/catalog.js`); }
+  }
+  if (!seoFails) console.log('check-api: sitemap + product-page rewrites precede the SPA fallback and are registered');
+}
+
 // ---- Phase 4: readable source ---------------------------------------------
 const sourceFiles = [...walk(path.join(root, 'api')), ...walk(path.join(root, 'src'))].filter(file => /\.(js|mjs|ts|tsx)$/.test(file));
 for (const file of sourceFiles) {

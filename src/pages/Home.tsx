@@ -1,16 +1,195 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { ArrowRight, Truck, Shield, Clock, MapPin, Star, Sparkles } from 'lucide-react';
+import { usePageMeta } from '../hooks/usePageMeta';
+import React, { useEffect, useRef, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ArrowRight, Truck, Shield, Clock, MapPin, Star, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Skeleton, EmptyState, formatCurrency } from '../components/ui';
+import { loadHero, heroImageUrl, heroVideoUrl, type HeroData, type HeroSlide } from '../lib/storefront';
 import type { Product } from '../types';
 
+// Internal ctaUrl values (# and /...) navigate with the router; https links
+// open normally in a new tab.
+function CtaLink({ slide, children }: { slide: HeroSlide; children: React.ReactNode }) {
+  const navigate = useNavigate();
+  const url = slide.ctaUrl;
+  if (url.startsWith('https://')) {
+    return <a href={url} target="_blank" rel="noopener noreferrer">{children}</a>;
+  }
+  if (url.startsWith('#')) {
+    return <a href={url}>{children}</a>;
+  }
+  return <a onClick={(event) => { event.preventDefault(); navigate(url); }} href={url} role="link">{children}</a>;
+}
+
+// The hero media layer shared by the static fallback AND every carousel slide
+// so spacing, overlay and button variants are byte-identical (UI FREEZE).
+function SlideMedia({ slide, eager = false }: { slide: HeroSlide; eager?: boolean }) {
+  const position = { objectPosition: slide.focalPoint || 'center center' };
+  if (slide.media.resourceType === 'video') {
+    return (
+      <video
+        src={heroVideoUrl(slide.media)}
+        poster={heroImageUrl(slide.mobileMedia ?? null, 1200) || undefined}
+        muted loop playsInline autoPlay preload={eager ? 'none' : 'lazy'}
+        aria-hidden="true" tabIndex={-1}
+        className="absolute inset-0 h-full w-full object-cover opacity-20"
+        style={position}
+      />
+    );
+  }
+  return (
+    <picture>
+      {slide.mobileMedia?.url && <source media="(max-width: 640px)" srcSet={heroImageUrl(slide.mobileMedia, 800)} />}
+      <img
+        src={heroImageUrl(slide.media, 1600)}
+        alt=""
+        loading={eager ? 'eager' : 'lazy'}
+        className="absolute inset-0 h-full w-full object-cover opacity-20"
+        style={position}
+      />
+    </picture>
+  );
+}
+
+// Static hero — the CURRENT markup. Rendered whenever there are no slides
+// (including while /api/hero is still loading), so nothing ever shifts.
+function StaticHero() {
+  return (
+    <section className="relative bg-neutral-950 text-white overflow-hidden">
+      <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black" />
+      <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1560343090-f0409e92791a?w=1200&h=600&fit=crop)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
+        <div className="max-w-2xl">
+          <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
+            Step Into<br />Your <span className="text-neutral-400">Style.</span>
+          </h1>
+          <p className="text-lg text-neutral-300 mb-8 max-w-lg leading-relaxed">
+            Discover curated ladies' footwear at HerStep Collection. From elegant heels to comfortable flats, find your perfect pair in Juja Town.
+          </p>
+          <div className="flex flex-wrap gap-3">
+            <Link to="/shop">
+              <Button size="lg" variant="secondary">
+                Shop Now <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </Link>
+            <Link to="/track">
+              <Button variant="outline" size="lg" className="border-neutral-600 text-white hover:bg-white/10">
+                Track Order
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+const AUTOPLAY_MS = 6000;
+
+function HeroCarousel({ hero }: { hero: HeroData }) {
+  const slides = hero.slides;
+  const [index, setIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const touchStartX = useRef<number | null>(null);
+  const prefersReducedMotion = typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Autoplay every 6 s — paused on hover/focus and when the tab is hidden,
+  // disabled entirely for prefers-reduced-motion.
+  useEffect(() => {
+    if (paused || prefersReducedMotion || slides.length < 2) return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        setIndex(current => (current + 1) % slides.length);
+      }
+    }, AUTOPLAY_MS);
+    return () => window.clearInterval(timer);
+  }, [paused, prefersReducedMotion, slides.length]);
+
+  const go = (delta: number) => setIndex(current => (current + delta + slides.length) % slides.length);
+  const slide = slides[index];
+
+  return (
+    <section
+      className="relative bg-neutral-950 text-white overflow-hidden"
+      aria-roledescription="carousel"
+      aria-label="Featured collections"
+      onMouseEnter={() => setPaused(true)}
+      onMouseLeave={() => setPaused(false)}
+      onFocusCapture={() => setPaused(true)}
+      onBlurCapture={() => setPaused(false)}
+      onTouchStart={event => { touchStartX.current = event.touches[0]?.clientX ?? null; }}
+      onTouchEnd={event => {
+        const start = touchStartX.current;
+        const end = event.changedTouches[0]?.clientX ?? null;
+        touchStartX.current = null;
+        if (start === null || end === null) return;
+        const dx = end - start;
+        if (Math.abs(dx) > 40) go(dx < 0 ? 1 : -1);
+      }}
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black" />
+      <SlideMedia key={`${index}-${slide.media.publicId}`} slide={slide} eager={index === 0} />
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
+        <div className="max-w-2xl">
+          <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">{slide.title}</h1>
+          <p className="text-lg text-neutral-300 mb-8 max-w-lg leading-relaxed">{slide.copy}</p>
+          <div className="flex flex-wrap gap-3">
+            <CtaLink slide={slide}>
+              <Button size="lg" variant="secondary">
+                {slide.ctaLabel} <ArrowRight className="w-4 h-4 ml-2" />
+              </Button>
+            </CtaLink>
+            <Link to="/track">
+              <Button variant="outline" size="lg" className="border-neutral-600 text-white hover:bg-white/10">
+                Track Order
+              </Button>
+            </Link>
+          </div>
+        </div>
+      </div>
+      {slides.length > 1 && (
+        <>
+          <button type="button" aria-label="Previous slide" onClick={() => go(-1)}
+            className="absolute left-3 sm:left-5 top-1/2 -translate-y-1/2 z-10 h-9 w-9 rounded-full border border-neutral-600 bg-neutral-950/40 text-white flex items-center justify-center hover:bg-white/10 transition-colors">
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button type="button" aria-label="Next slide" onClick={() => go(1)}
+            className="absolute right-3 sm:right-5 top-1/2 -translate-y-1/2 z-10 h-9 w-9 rounded-full border border-neutral-600 bg-neutral-950/40 text-white flex items-center justify-center hover:bg-white/10 transition-colors">
+            <ChevronRight className="w-4 h-4" />
+          </button>
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex gap-2" role="tablist" aria-label="Choose slide">
+            {slides.map((_, i) => (
+              <button key={i} type="button" role="tab" aria-selected={i === index} aria-label={`Slide ${i + 1}`}
+                onClick={() => setIndex(i)}
+                className={`h-2 rounded-full transition-all ${i === index ? 'w-6 bg-white' : 'w-2 bg-white/40 hover:bg-white/70'}`} />
+            ))}
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function Home() {
+  usePageMeta('HerStep Collection | Step Into Your Style', "Premium ladies' footwear in Juja Town. Shop sandals, heels and platforms — pay with M-Pesa.");
   const { state, reloadCatalog } = useApp();
   const { products, categories, catalogLoading, catalogError } = state;
   const featured = products.filter(p => p.featured);
   const newArrivals = products.filter(p => p.newArrival);
   const bestsellers = products.filter(p => p.bestseller);
+  const [hero, setHero] = useState<HeroData | null>(null);
+
+  // Load /api/hero once (the loader caches it); while loading or without
+  // slides the CURRENT static hero stays on screen — no layout jump.
+  useEffect(() => {
+    let cancelled = false;
+    void loadHero().then(data => { if (!cancelled && data && data.slides.length > 0) setHero(data); });
+    return () => { cancelled = true; };
+  }, []);
 
   if (catalogError) {
     return (
@@ -27,33 +206,7 @@ export default function Home() {
   return (
     <div className="animate-fadeIn">
       {/* Hero Section */}
-      <section className="relative bg-neutral-950 text-white overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black" />
-        <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1560343090-f0409e92791a?w=1200&h=600&fit=crop)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
-          <div className="max-w-2xl">
-            <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
-            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
-              Step Into<br />Your <span className="text-neutral-400">Style.</span>
-            </h1>
-            <p className="text-lg text-neutral-300 mb-8 max-w-lg leading-relaxed">
-              Discover curated ladies' footwear at HerStep Collection. From elegant heels to comfortable flats, find your perfect pair in Juja Town.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Link to="/shop">
-                <Button size="lg" variant="secondary">
-                  Shop Now <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </Link>
-              <Link to="/track">
-                <Button variant="outline" size="lg" className="border-neutral-600 text-white hover:bg-white/10">
-                  Track Order
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
+      {hero ? <HeroCarousel hero={hero} /> : <StaticHero />}
 
       {/* Promo banner hidden until Phase 2 — promotions have no backend yet. */}
 

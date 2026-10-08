@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight, Heart } from 'lucide-react';
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
@@ -13,6 +15,7 @@ const up = (s: unknown) => String(s ?? '').toUpperCase();
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 
 export default function CustomerDashboard() {
+  usePageMeta('My Account | HerStep Collection');
   const { state, logout, reloadDashboard } = useApp();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');

@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 import { useApp } from '../context/AppContext';
 import { Button, Card } from '../components/ui';
 import { apiFetch } from '../lib/api';
@@ -20,6 +22,7 @@ const DIGIT_COUNT = 6;
 const onlyDigits = (value: unknown) => String(value ?? '').replace(/\D/g, '');
 
 export default function VerifyEmail() {
+  usePageMeta('Verify your email | HerStep Collection', undefined, true);
   const { state, dispatch, reloadDashboard } = useApp();
   const navigate = useNavigate();
   const location = useLocation();

@@ -4,8 +4,11 @@ import { apiFetch } from '../lib/api';
 import { SupportChat, uploadSupportImages } from '../components/SupportChat';
 import { toUiTicket } from '../lib/supportAdapter';
 import { Card, Button, Badge, Input, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
+import { usePageMeta } from '../hooks/usePageMeta';
+
 
 export default function Support() {
+  usePageMeta('Support | HerStep Collection', "Open a support ticket for your HerStep order — faster help for delivered, payment and product questions.");
   const [tickets, setTickets] = useState<any[]>([]);
   const [error, setError] = useState('');
   const [view, setView] = useState<'list' | 'chat' | 'new'>('list');
