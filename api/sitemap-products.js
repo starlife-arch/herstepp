@@ -1,8 +1,8 @@
-// Public automatic product sitemap.
-// Uses the existing public /api/products endpoint so this sitemap does not
-// depend directly on the Firebase Admin module. New ACTIVE products are
-// therefore picked up automatically.
-import { siteUrl } from './_lib/site-url.js';
+// Automatic product sitemap. The Firebase module is loaded inside the
+// handler so configuration/import failures are caught and can never crash
+// the Vercel Function before it sends a valid XML response.
+
+const CANONICAL = 'https://www.herstepcollection.shop';
 
 function xmlEscape(value) {
   return String(value ?? '')
@@ -20,11 +20,11 @@ function lastmodOf(product) {
   return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
-function requestOrigin(req) {
-  const host = req?.headers?.host;
-  if (!host) return siteUrl();
-  const proto = String(req?.headers?.['x-forwarded-proto'] || 'https').split(',')[0].trim();
-  return `${proto || 'https'}://${host}`;
+function emptyXml() {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+</urlset>
+`;
 }
 
 export default async function productSitemap(req, res) {
@@ -34,21 +34,16 @@ export default async function productSitemap(req, res) {
   }
 
   try {
-    const origin = requestOrigin(req);
-    const response = await fetch(`${origin}/api/products`, {
-      headers: { 'user-agent': 'herstep-sitemap/1.0' },
-    });
+    const { adminDb } = await import('./_lib/firebase-admin.js');
+    const snapshot = await adminDb
+      .collection('products')
+      .where('status', '==', 'ACTIVE')
+      .limit(5000)
+      .get();
 
-    if (!response.ok) {
-      throw new Error(`/api/products returned ${response.status}`);
-    }
-
-    const products = await response.json();
-    const base = siteUrl();
-    const items = Array.isArray(products) ? products.slice(0, 5000) : [];
-
-    const urls = items.map(product => {
-      const loc = `${base}/product/${encodeURIComponent(String(product.id || ''))}`;
+    const urls = snapshot.docs.map(doc => {
+      const product = doc.data() || {};
+      const loc = `${CANONICAL}/product/${encodeURIComponent(doc.id)}`;
       const lastmod = lastmodOf(product);
       return `  <url><loc>${xmlEscape(loc)}</loc>${lastmod ? `<lastmod>${xmlEscape(lastmod)}</lastmod>` : ''}</url>`;
     });
@@ -63,14 +58,7 @@ ${urls.join('\n')}
     return res.status(200).type('application/xml').send(xml);
   } catch (error) {
     console.error('[sitemap-products] failed:', error?.message || error);
-
-    // Return valid XML even if the product API is temporarily unavailable.
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-</urlset>
-`;
-
     res.setHeader('Cache-Control', 'public, s-maxage=300');
-    return res.status(200).type('application/xml').send(xml);
+    return res.status(200).type('application/xml').send(emptyXml());
   }
 }
