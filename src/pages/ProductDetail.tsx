@@ -10,8 +10,8 @@ export default function ProductDetail() {
   const { id } = useParams();
   const { state, dispatch, reloadCatalog } = useApp();
   const { products, catalogLoading, catalogError } = state;
-  usePageMeta(metaProduct ? `${metaProduct.name} | HerStep Collection` : 'Product | HerStep Collection');
   const product = products.find(p => p.id === id);
+  usePageMeta(product ? `${product.name} | HerStep Collection` : 'Product | HerStep Collection');
   // Only sizes with quantity > 0 are selectable.
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
