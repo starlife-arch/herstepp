@@ -234,7 +234,7 @@
     },
     {
       "source": "/sitemap-products.xml",
-      "destination": "/api/catalog?route=sitemap-products"
+      "destination": "/api/sitemap-products"
     },
     {
       "source": "/product/:id",
