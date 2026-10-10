@@ -68,12 +68,12 @@ export default async function assistant(req,res) {
  const products=snap.docs.map(d=>{const p=d.data(), inv=Array.isArray(p.inventory)?p.inventory.filter(x=>x&&Number(x.quantity)>0):[];return {id:d.id,name:String(p.name||''),sku:String(p.sku||''),description:String(p.description||'').slice(0,400),categoryId:String(p.categoryId||''),price:Number(p.salePrice)>0&&Number(p.salePrice)<Number(p.price)?Number(p.salePrice):Number(p.price||0),regularPrice:Number(p.price||0),inventory:inv.map(x=>({size:String(x.size),quantity:Number(x.quantity)})),sizes:inv.map(x=>String(x.size)),image:Array.isArray(p.images)?p.images[0]?.url||'':'',featured:!!p.featured,bestseller:!!p.bestseller,newArrival:!!p.newArrival};}).filter(p=>p.name);
  const historySnap=await ref.collection('messages').orderBy('createdAt','desc').limit(12).get();
  const history=historySnap.docs.slice().reverse().map(d=>({role:['assistant','admin'].includes(d.data().role)?'assistant':'user',content:String(d.data().content||'').slice(0,1000)}));
- const cheapestIntent=/\\b(?:cheapest|cheaper|lowest priced|lowest price|least expensive|most affordable|cheapest one|cheapest shoes)\\b/i.test(message);
+ const cheapestIntent=/\b(?:cheapest|cheaper|lowest priced|lowest price|least expensive|most affordable|cheapest one|cheapest shoes)\b/i.test(message);
  if(cheapestIntent) {
   const stocked=products.filter(p=>p.inventory.length>0&&Number.isFinite(p.price)&&p.price>0).sort((a,b)=>a.price-b.price||a.name.localeCompare(b.name));
   const cheapest=stocked.slice(0,4);
   const priorRecommended=historySnap.docs.find(d=>d.data().role==='assistant'&&Array.isArray(d.data().productIds)&&d.data().productIds.length)?.data().productIds||[];
-  const followUp=/\\b(?:this|that|it|they|those|these|one)\\b/i.test(message)&&/\\b(?:cheapest|cheaper|lowest|least expensive)\\b/i.test(message);
+  const followUp=/\b(?:this|that|it|they|those|these|one)\b/i.test(message)&&/\b(?:cheapest|cheaper|lowest|least expensive)\b/i.test(message);
   let verifiedReply='';
   if(!cheapest.length) verifiedReply='I checked the current catalogue, but I can’t confirm an in-stock shoe price right now. Please try again shortly or contact HerStep Support.';
   else if(followUp&&priorRecommended.length) verifiedReply=priorRecommended.includes(cheapest[0].id)?'Yes — the shoe I recommended is currently the lowest-priced in-stock option at KSh '+cheapest[0].price.toLocaleString()+'. I checked the live catalogue.':'Good question — I verified against the live catalogue. The cheapest in-stock option is '+cheapest[0].name+' at KSh '+cheapest[0].price.toLocaleString()+(cheapest[1]?'; the next is '+cheapest[1].name+' at KSh '+cheapest[1].price.toLocaleString():'')+'. The earlier recommendation was not the cheapest. I’m sorry about that.';
