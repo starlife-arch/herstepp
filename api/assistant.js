@@ -5,6 +5,14 @@ import { clientError, methodNotAllowed } from './_lib/http.js';
 const scope = /shoe|heels?|sandals?|flats?|loafers?|platforms?|slides?|footwear|size|sizing|wedding|party|occasion|colour|color|price|budget|stock|available|order|delivery|payment|pay|cart|buy|purchase|product|return|exchange|refund|support|ticket|herstep|collection|shop|shopping|new arrival|bestseller|featured|dress|outfit|work|office|school|birthday|event|style|fashion/i;
 const contactText = 'For personal help, contact HerStep on WhatsApp: https://wa.me/254106624924 or email herstepcollection@gmail.com.';
 const clean = v => typeof v === 'string' ? v.trim().slice(0, 2000) : '';
+const normalizeIntent = v => String(v || '').toLowerCase().replace(/[^a-z0-9\\s']/g, ' ').replace(/\\s+/g, ' ').trim();
+const explicitlyRequestsHuman = value => {
+ const text = normalizeIntent(value);
+ return /\\b(?:talk|speak|chat|connect|transfer|put|switch|escalate|hand over|handover)\\b.{0,55}\\b(?:to|with|me|a|an|the)?\\s*(?:a\\s+|an\\s+|the\\s+)?(?:human|person|real person|live person|agent|representative|rep|customer care|customer service|support team|support staff|someone|somebody)\\b/.test(text)
+  || /\\b(?:i want|i need|can i|could i|may i|let me|please|id like|i would like|i dont want|dont want)\\b.{0,55}\\b(?:talk|speak|chat|connect|transfer|speak with|talk to)\\b.{0,35}\\b(?:human|person|agent|representative|customer care|customer service|support|someone|somebody)\\b/.test(text)
+  || /\\b(?:human|real person|live agent|customer care|customer service representative|talk to someone|speak to someone|speak with someone|connect me|transfer me|live support|real human|not a bot|not an ai|stop the bot)\\b/.test(text)
+  || /\\b(?:complaint|wrong order|payment failed|failed payment|cancel my order|refund)\\b/.test(text);
+};
 
 export default async function assistant(req,res) {
  const body=req.body||{};
@@ -30,6 +38,15 @@ export default async function assistant(req,res) {
   await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`,customerId:null,customerName:'Website visitor',customerEmail:'',subject:'AI chat needs human support',category:/payment|pay|mpesa|stk/i.test(message)?'Payment Issue':/delivery|shipping/i.test(message)?'Delivery Issue':/order|refund|cancel/i.test(message)?'Order Issue':'General Enquiry',conversationId,status:currentStatus==='IN_PROGRESS'?'IN_PROGRESS':'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   return res.status(200).json({conversationId,reply:'Your message has been sent to HerStep Support. A team member will reply in this chat. Please keep this window open.',products:[],agentJoined:true,needsHuman:true,ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`});
  }
+ // Explicit requests for a person bypass the language model so the handoff cannot be ignored.
+ if(explicitlyRequestsHuman(message)) {
+  const ticketId=previous.exists&&previous.data().ticketId?String(previous.data().ticketId):`AI-${conversationId.slice(0,8).toUpperCase()}`;
+  const reply=`Of course — I’ll pass this conversation to HerStep Support. Your message and chat history are saved, so you won’t need to repeat yourself. Ticket: ${ticketId}. A team member will reply here. If you need help sooner, WhatsApp https://wa.me/254106624924 or email herstepcollection@gmail.com.`;
+  await ref.set({conversationId,status:'NEEDS_SUPPORT',ticketId,agentJoined:false,lastMessage:message,lastReply:reply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp(),...(previous.exists?{}:{createdAt:FieldValue.serverTimestamp()})},{merge:true});
+  await ref.collection('messages').add({role:'assistant',content:reply,productIds:[],needsHuman:true,createdAt:FieldValue.serverTimestamp()});
+  await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId,customerId:null,customerName:'Website visitor',customerEmail:'',subject:'Customer requested a human support agent',category:/payment|pay|mpesa|stk/i.test(message)?'Payment Issue':/delivery|shipping/i.test(message)?'Delivery Issue':/order|refund|cancel/i.test(message)?'Order Issue':'General Enquiry',handoffReason:'Customer explicitly requested a human agent',conversationId,status:'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(2),...(previous.exists?{}:{createdAt:FieldValue.serverTimestamp()}),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  return res.status(200).json({conversationId,reply,products:[],needsHuman:true,ticketId,supportContacts:{whatsapp:'https://wa.me/254106624924',email:'herstepcollection@gmail.com',phone:'+254799021089'}});
+ }
  const replyOutOfScope='I’m the HerStep Collection shopping assistant. I can help with our shoes, colours, sizes, prices, stock, orders, delivery and customer support, but I can’t answer unrelated questions. What kind of shoes are you looking for?';
  const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you)[!.? ]*$/i.test(message);
  if(!scope.test(message)&&!greeting) {
@@ -40,7 +57,7 @@ export default async function assistant(req,res) {
  const snap=await adminDb.collection('products').where('status','==','ACTIVE').limit(200).get();
  const products=snap.docs.map(d=>{const p=d.data(), inv=Array.isArray(p.inventory)?p.inventory.filter(x=>x&&Number(x.quantity)>0):[];return {id:d.id,name:String(p.name||''),sku:String(p.sku||''),description:String(p.description||'').slice(0,400),categoryId:String(p.categoryId||''),price:Number(p.salePrice)>0&&Number(p.salePrice)<Number(p.price)?Number(p.salePrice):Number(p.price||0),regularPrice:Number(p.price||0),inventory:inv.map(x=>({size:String(x.size),quantity:Number(x.quantity)})),sizes:inv.map(x=>String(x.size)),image:Array.isArray(p.images)?p.images[0]?.url||'':'',featured:!!p.featured,bestseller:!!p.bestseller,newArrival:!!p.newArrival};}).filter(p=>p.name);
  const key=String(process.env.GROQ_API_KEY||'').trim();
- let reply='', ids=[], needsHuman=/human|real person|agent|support person|talk to someone|complaint|refund|wrong order|payment failed|cancel my order/i.test(message);
+ let reply='', ids=[], needsHuman=false;
  if(key) {
   const historySnap=await ref.collection('messages').orderBy('createdAt','desc').limit(8).get();
   const history=historySnap.docs.reverse().map(d=>({role:['assistant','admin'].includes(d.data().role)?'assistant':'user',content:String(d.data().content||'').slice(0,1000)}));
