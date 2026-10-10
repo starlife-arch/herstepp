@@ -18,7 +18,7 @@ export default async function analyzeBulkShoe(req, res) {
 
   const apiKey = String(process.env.GROQ_API_KEY || '').trim();
   if (!apiKey) throw clientError('AI analysis is not configured yet. Add GROQ_API_KEY in Vercel project environment variables.', 503);
-  const model = String(process.env.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct').trim();
+  const model = String(process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b').trim();
 
   const prompt = `Inspect this real shoe product photo for a Kenyan ladies footwear shop. Return JSON only with keys: name, description, price, size, category, currency, priceConfidence, sizeConfidence. name: concise useful product name based only on visible design/colour. description: factual 1-2 sentence description of visible features; don't invent materials or benefits. price: whole-number price only if a clearly printed price is visible, otherwise null. size: one EU size as a string only if clearly printed, otherwise null. category must be exactly one of: ${CATEGORIES.join(', ')}; choose best fit. currency should be "KES" only if the image indicates Kenyan shillings/KSh, otherwise null. confidence values must be "high", "medium", or "low". Do not infer a size range from one visible size. Do not guess unclear numbers. If text is absent or ambiguous, use null for price/size and low confidence.`;
 
