@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/api/assistant", "destination": "/api/assistant" },
     {
       "source": "/api/firebase-config",
       "destination": "/api/catalog?route=firebase-config"
