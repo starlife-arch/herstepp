@@ -7,12 +7,12 @@ import {useApp} from '../context/AppContext';
 type Product={id:string;name:string;sku:string;price:number;href:string;image?:string;sizes:string[];inventory:{size:string;quantity:number}[]};
 type Message={role:'assistant'|'user'|'admin';content:string;products?:Product[]};
 const ID_KEY='herstep-ai-chat-id-v1';
-function getId(){try{let id=localStorage.getItem(ID_KEY);if(!id){id=crypto.randomUUID().replace(/-/g,'');localStorage.setItem(ID_KEY,id)}return id}catch{return crypto.randomUUID().replace(/-/g,'')}}
+function getId(userId?:string){const key=userId?ID_KEY+':'+userId:ID_KEY;try{let id=localStorage.getItem(key);if(!id){id=crypto.randomUUID().replace(/-/g,'');localStorage.setItem(key,id)}return id}catch{return crypto.randomUUID().replace(/-/g,'')}}
 export function HerStepAIChat(){
  const [open,setOpen]=useState(false),[input,setInput]=useState(''),[sending,setSending]=useState(false),[error,setError]=useState(''),[conversationId,setConversationId]=useState(''),[messages,setMessages]=useState<Message[]>([{role:'assistant',content:'Hi! I’m your HerStep AI Stylist 👠 I can help you find shoes by occasion, colour, size, style and budget. What are you looking for?'}]);
  const {state,dispatch}=useApp();
  const navigate=useNavigate();
- useEffect(()=>{setConversationId(getId())},[]);
+ useEffect(()=>{if(!state.authReady)return;setConversationId(getId(state.user?.id))},[state.authReady,state.user?.id]);
  useEffect(()=>{
   if(!open||!conversationId)return;
   let active=true;
@@ -20,15 +20,18 @@ export function HerStepAIChat(){
    try{
     const d:any=await apiFetch('/api/assistant?conversationId='+encodeURIComponent(conversationId));
     if(!active)return;
-    if(d.status==='IN_PROGRESS'||d.status==='NEEDS_SUPPORT'){
-     setMessages((d.messages||[]).map((m:any)=>({role:m.role==='user'?'user':m.role==='admin'?'admin':'assistant',content:m.content||''})));
-    }
+    const restored=(d.messages||[]).map((m:any)=>({
+     role:m.role==='user'?'user':m.role==='admin'?'admin':'assistant',
+     content:m.content||'',
+     products:Array.isArray(m.productIds)?m.productIds.map((id:string)=>state.products.find(p=>p.id===id)).filter(Boolean).map((p:any)=>({id:p.id,name:p.name,sku:p.sku||'',price:p.salePrice!=null&&p.salePrice>0&&p.salePrice<p.price?p.salePrice:p.price,href:'/product/'+p.id,image:p.images?.[0]?.url||'',sizes:(p.inventory||[]).filter((item:any)=>item.quantity>0).map((item:any)=>item.size),inventory:(p.inventory||[]).filter((item:any)=>item.quantity>0)})):[],
+    }));
+    setMessages(restored.length?restored:[{role:'assistant',content:'Hi! I’m your HerStep AI Stylist 👠 I can help you find shoes by occasion, colour, size, style and budget. What are you looking for?'}]);
    }catch{/* Keep the current chat usable if polling briefly fails. */}
   };
   void sync();
   const timer=window.setInterval(()=>void sync(),4000);
   return ()=>{active=false;window.clearInterval(timer)};
- },[open,conversationId]);
+ },[open,conversationId,state.products]);
  async function send(text=input){const message=text.trim();if(!message||sending||!conversationId)return;setMessages(old=>[...old,{role:'user',content:message}]);setInput('');setSending(true);setError('');try{const data:any=await apiFetch('/api/assistant',{method:'POST',body:JSON.stringify({conversationId,message})});setMessages(old=>data.reply?[...old,{role:'assistant',content:data.reply,products:data.products||[]}]:old);}catch(e:any){setError(e.message||'Could not reach the assistant. Please try again.')}finally{setSending(false)}}
  function addToCart(p:Product){const product=state.products.find(x=>x.id===p.id);if(!product){setError('This product is no longer available. Please refresh the shop.');return}const stocked=product.inventory.filter(i=>i.quantity>0);if(!stocked.length){setError('Sorry, this shoe is currently out of stock.');return}const size=stocked.length===1?stocked[0].size:window.prompt('Choose your available size: '+stocked.map(i=>i.size).join(', '));if(!size||!stocked.some(i=>i.size===size))return;dispatch({type:'ADD_TO_CART',payload:{product,size,quantity:1}});setMessages(old=>[...old,{role:'assistant',content:`${product.name} in size ${size} has been added to your cart. You can review your cart before checkout.`}]);}
  return <div className="fixed bottom-[5.6rem] right-4 sm:bottom-[6.1rem] sm:right-6 z-[51] flex flex-col items-end gap-3">
