@@ -5,13 +5,13 @@ import { clientError, methodNotAllowed } from './_lib/http.js';
 const scope = /shoe|heels?|sandals?|flats?|loafers?|platforms?|slides?|footwear|size|sizing|wedding|party|occasion|colour|color|price|budget|stock|available|order|delivery|payment|pay|cart|buy|purchase|product|return|exchange|refund|support|ticket|herstep|collection|shop|shopping|new arrival|bestseller|featured|dress|outfit|work|office|school|birthday|event|style|fashion/i;
 const contactText = 'For personal help, contact HerStep on WhatsApp: https://wa.me/254106624924 or email herstepcollection@gmail.com.';
 const clean = v => typeof v === 'string' ? v.trim().slice(0, 2000) : '';
-const normalizeIntent = v => String(v || '').toLowerCase().replace(/[^a-z0-9\\s']/g, ' ').replace(/\\s+/g, ' ').trim();
+const normalizeIntent = v => String(v || '').toLowerCase().replace(/[^a-z0-9\s']/g, ' ').replace(/\s+/g, ' ').trim();
 const explicitlyRequestsHuman = value => {
  const text = normalizeIntent(value);
- return /\\b(?:talk|speak|chat|connect|transfer|put|switch|escalate|hand over|handover)\\b.{0,55}\\b(?:to|with|me|a|an|the)?\\s*(?:a\\s+|an\\s+|the\\s+)?(?:human|person|real person|live person|agent|representative|rep|customer care|customer service|support team|support staff|someone|somebody)\\b/.test(text)
-  || /\\b(?:i want|i need|can i|could i|may i|let me|please|id like|i would like|i dont want|dont want)\\b.{0,55}\\b(?:talk|speak|chat|connect|transfer|speak with|talk to)\\b.{0,35}\\b(?:human|person|agent|representative|customer care|customer service|support|someone|somebody)\\b/.test(text)
-  || /\\b(?:human|real person|live agent|customer care|customer service representative|talk to someone|speak to someone|speak with someone|connect me|transfer me|live support|real human|not a bot|not an ai|stop the bot)\\b/.test(text)
-  || /\\b(?:complaint|wrong order|payment failed|failed payment|cancel my order|refund)\\b/.test(text);
+ return /\b(?:talk|speak|chat|connect|transfer|put|switch|escalate|hand over|handover)\b.{0,55}\b(?:to|with|me|a|an|the)?\s*(?:a\s+|an\s+|the\s+)?(?:human|person|real person|live person|agent|representative|rep|customer care|customer service|support team|support staff|someone|somebody)\b/.test(text)
+  || /\b(?:i want|i need|can i|could i|may i|let me|please|id like|i would like|i dont want|dont want)\b.{0,55}\b(?:talk|speak|chat|connect|transfer|speak with|talk to)\b.{0,35}\b(?:human|person|agent|representative|customer care|customer service|support|someone|somebody)\b/.test(text)
+  || /\b(?:human|real person|live agent|customer care|customer service representative|talk to someone|speak to someone|speak with someone|connect me|transfer me|live support|real human|not a bot|not an ai|stop the bot)\b/.test(text)
+  || /\b(?:complaint|wrong order|payment failed|failed payment|cancel my order|refund)\b/.test(text);
 };
 
 export default async function assistant(req,res) {
