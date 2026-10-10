@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { MapPin, Phone, Mail, Clock } from 'lucide-react';
+import { MapPin, Phone, Mail, Clock, Facebook, Instagram } from 'lucide-react';
 import { Card, Button } from '../components/ui';
 
 export default function About() {
@@ -48,7 +48,7 @@ export default function About() {
               <Phone className="w-5 h-5 text-neutral-400 mt-0.5" />
               <div>
                 <p className="font-medium">Phone</p>
-                <p className="text-sm text-neutral-400">+254 799 021 089</p>
+                <a href="tel:+254799021089" className="text-sm text-neutral-400 hover:text-white">+254 799 021 089</a>
               </div>
             </div>
           </div>
@@ -57,7 +57,7 @@ export default function About() {
               <Mail className="w-5 h-5 text-neutral-400 mt-0.5" />
               <div>
                 <p className="font-medium">Email</p>
-                <p className="text-sm text-neutral-400">herstepcollection@gmail.com</p>
+                <a href="mailto:herstepcollection@gmail.com" className="text-sm text-neutral-400 hover:text-white">herstepcollection@gmail.com</a>
               </div>
             </div>
             <div className="flex items-start gap-3">
@@ -69,6 +69,20 @@ export default function About() {
             </div>
           </div>
         </div>
+      </Card>
+
+      <Card className="p-6 mt-8">
+        <h2 className="text-lg font-semibold text-neutral-900 mb-2">Connect With HerStep Collection</h2>
+        <p className="text-sm text-neutral-600 mb-4">Follow our official social media pages for new arrivals, styles, and updates.</p>
+        <div className="flex flex-wrap gap-4">
+          <a href="https://www.facebook.com/herstepcollections" target="_blank" rel="noopener noreferrer" aria-label="HerStep Collection on Facebook" className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-800 hover:bg-neutral-50">
+            <Facebook className="w-5 h-5" aria-hidden="true" /> Facebook
+          </a>
+          <a href="https://www.instagram.com/herstepcollections" target="_blank" rel="noopener noreferrer" aria-label="HerStep Collection on Instagram" className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-800 hover:bg-neutral-50">
+            <Instagram className="w-5 h-5" aria-hidden="true" /> Instagram
+          </a>
+        </div>
+        <p className="text-sm text-neutral-600 mt-5">Phone: <a className="underline" href="tel:+254799021089">+254 799 021 089</a> · WhatsApp: <a className="underline" href="https://wa.me/254106624924" target="_blank" rel="noopener noreferrer">+254 106 624 924</a></p>
       </Card>
 
       <div className="mt-8 text-center">
