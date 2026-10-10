@@ -7,12 +7,26 @@ const contactText = 'For personal help, contact HerStep on WhatsApp: https://wa.
 const clean = v => typeof v === 'string' ? v.trim().slice(0, 2000) : '';
 
 export default async function assistant(req,res) {
- if(req.method!=='POST') return methodNotAllowed(res,'POST');
- const body=req.body||{}, conversationId=typeof body.conversationId==='string'&&/^[a-zA-Z0-9_-]{12,80}$/.test(body.conversationId)?body.conversationId:'', message=clean(body.message);
- if(!conversationId) throw clientError('Please start a new chat and try again.');
+ const body=req.body||{};
+ const conversationId=typeof (req.method==='GET'?req.query?.conversationId:body.conversationId)==='string'?(req.method==='GET'?req.query.conversationId:body.conversationId):'';
+ if(!/^[a-zA-Z0-9_-]{12,80}$/.test(conversationId)) throw clientError('Please start a new chat and try again.');
+ const ref=adminDb.collection('aiConversations').doc(conversationId);
+ if(req.method==='GET') {
+  const snap=await ref.get();
+  if(!snap.exists) return res.status(200).json({status:'OPEN',messages:[]});
+  const messages=await ref.collection('messages').orderBy('createdAt','desc').limit(100).get();
+  return res.status(200).json({status:snap.data().status||'OPEN',messages:messages.docs.reverse().map(d=>({id:d.id,...d.data(),createdAt:d.data().createdAt?.toDate?d.data().createdAt.toDate().toISOString():d.data().createdAt||null}))});
+ }
+ if(req.method!=='POST') return methodNotAllowed(res,['GET','POST']);
+ const message=clean(body.message);
  if(!message||message.length>1200) throw clientError('Enter a message under 1,200 characters.');
- const ref=adminDb.collection('aiConversations').doc(conversationId), previous=await ref.get();
+ const previous=await ref.get();
+ const currentStatus=previous.exists?String(previous.data().status||'OPEN'):'OPEN';
  await ref.collection('messages').add({role:'user',content:message,createdAt:FieldValue.serverTimestamp()});
+ if(currentStatus==='IN_PROGRESS') {
+  await ref.set({lastMessage:message,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  return res.status(200).json({conversationId,reply:'Your chat is with a HerStep support agent now. Your message has been sent to them; please keep this chat open for their reply.',products:[],agentJoined:true});
+ }
  const replyOutOfScope='I’m the HerStep Collection shopping assistant. I can help with our shoes, colours, sizes, prices, stock, orders, delivery and customer support, but I can’t answer unrelated questions. What kind of shoes are you looking for?';
  const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you)[!.? ]*$/i.test(message);
  if(!scope.test(message)&&!greeting) {
