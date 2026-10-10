@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown, Facebook, Instagram, Phone, Mail, MessageCircle, Users, MessageSquare, Ticket, Headset, ArrowUpRight } from 'lucide-react';
+import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown, Facebook, Instagram, Phone, Mail, MessageCircle, Users, MessageSquare, Ticket, Headphones, ArrowUpRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { loadAnnouncement, type AnnouncementData } from '../lib/storefront';
 
@@ -252,7 +252,7 @@ function WhatsAppButton() {
         aria-controls="herstep-support-menu"
         className="w-14 h-14 rounded-full bg-neutral-900 text-white flex items-center justify-center shadow-lg hover:bg-neutral-800 transition-all hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2"
       >
-        {open ? <X className="w-6 h-6" aria-hidden="true" /> : <Headset className="w-7 h-7" aria-hidden="true" />}
+        {open ? <X className="w-6 h-6" aria-hidden="true" /> : <Headphones className="w-7 h-7" aria-hidden="true" />}
       </button>
     </div>
   );
