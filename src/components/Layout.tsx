@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown, Facebook, Instagram } from 'lucide-react';
+import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown, Facebook, Instagram, Phone, Mail, MessageCircle, Users, MessageSquare, Ticket, Headset, ArrowUpRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { loadAnnouncement, type AnnouncementData } from '../lib/storefront';
 
@@ -182,18 +182,79 @@ export function Footer() {
 }
 
 function WhatsAppButton() {
+  const [open, setOpen] = useState(false);
+  const close = () => setOpen(false);
+
+  const whatsappGroup = 'https://chat.whatsapp.com/Is8vNzODABCBiOPM88VmmA?s=cl&p=a&mlu=4';
+
   return (
-    <a
-      href="https://wa.me/254106624924"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="fixed bottom-6 right-6 z-50 w-14 h-14 bg-emerald-600 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-emerald-700 transition-all hover:scale-105"
-      aria-label="Chat on WhatsApp"
-    >
-      <svg viewBox="0 0 24 24" className="w-7 h-7 fill-current">
-        <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/>
-      </svg>
-    </a>
+    <div className="fixed bottom-5 right-4 sm:bottom-6 sm:right-6 z-50 flex flex-col items-end gap-3">
+      {open && (
+        <div
+          id="herstep-support-menu"
+          role="dialog"
+          aria-label="HerStep Collection support options"
+          className="w-[min( calc(100vw - 2rem), 21rem)] sm:w-80 max-h-[min(75vh,36rem)] overflow-y-auto rounded-2xl border border-neutral-200 bg-white text-neutral-900 shadow-2xl animate-fadeIn"
+        >
+          <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-3">
+            <div>
+              <p className="font-semibold text-sm">How can we help?</p>
+              <p className="text-xs text-neutral-500 mt-0.5">Choose how to contact HerStep Collection</p>
+            </div>
+            <button type="button" onClick={close} aria-label="Close support menu" className="rounded-full p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-900">
+              <X className="w-5 h-5" aria-hidden="true" />
+            </button>
+          </div>
+          <nav className="p-2" aria-label="Contact options">
+            <a href="tel:+254799021089" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <Phone className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
+              <span className="flex-1"><span className="block text-sm font-medium">Call us</span><span className="block text-xs text-neutral-500">+254 799 021 089</span></span>
+              <ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
+            </a>
+            <a href="https://wa.me/254106624924" target="_blank" rel="noopener noreferrer" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <svg viewBox="0 0 24 24" className="w-5 h-5 shrink-0 fill-current text-neutral-700" aria-hidden="true"><path d="M20.52 3.48A11.8 11.8 0 0 0 12.1 0C5.55 0 .22 5.33.22 11.88c0 2.1.55 4.15 1.6 5.96L.12 24l6.31-1.66a11.9 11.9 0 0 0 5.66 1.44h.01c6.55 0 11.88-5.33 11.88-11.88a11.8 11.8 0 0 0-3.46-8.42ZM12.1 21.76h-.01a9.9 9.9 0 0 1-5.04-1.38l-.36-.21-3.75.98 1-3.65-.24-.38a9.84 9.84 0 0 1-1.51-5.24c0-5.47 4.45-9.92 9.91-9.92a9.86 9.86 0 0 1 7.02 2.91 9.85 9.85 0 0 1 2.9 7.01c0 5.47-4.45 9.92-9.92 9.92Zm5.44-7.43c-.3-.15-1.77-.87-2.04-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.47-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.18.2-.3.3-.5.1-.2.05-.37-.03-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.87 1.22 3.07c.15.2 2.1 3.2 5.08 4.49.71.3 1.27.49 1.7.62.71.23 1.36.2 1.87.12.57-.08 1.77-.72 2.02-1.41.25-.7.25-1.29.17-1.42-.07-.12-.27-.2-.57-.35Z"/></svg>
+              <span className="flex-1"><span className="block text-sm font-medium">WhatsApp</span><span className="block text-xs text-neutral-500">Chat with our team</span></span>
+              <ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
+            </a>
+            <a href="mailto:herstepcollection@gmail.com" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <Mail className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
+              <span className="flex-1"><span className="block text-sm font-medium">Email us</span><span className="block text-xs text-neutral-500">herstepcollection@gmail.com</span></span>
+              <ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
+            </a>
+            <a href="https://www.facebook.com/herstepcollections" target="_blank" rel="noopener noreferrer" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <Facebook className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
+              <span className="flex-1 text-sm font-medium">Facebook</span><ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
+            </a>
+            <a href="https://www.instagram.com/herstepcollections" target="_blank" rel="noopener noreferrer" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <Instagram className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
+              <span className="flex-1 text-sm font-medium">Instagram</span><ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
+            </a>
+            <a href={whatsappGroup} target="_blank" rel="noopener noreferrer" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <Users className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
+              <span className="flex-1 text-sm font-medium">Join our WhatsApp group</span><ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
+            </a>
+            <Link to="/contact" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <MessageSquare className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
+              <span className="flex-1 text-sm font-medium">Send us a message</span><ChevronDown className="w-4 h-4 -rotate-90 text-neutral-400" aria-hidden="true" />
+            </Link>
+            <Link to="/support" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+              <Ticket className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
+              <span className="flex-1 text-sm font-medium">Open a support ticket</span><ChevronDown className="w-4 h-4 -rotate-90 text-neutral-400" aria-hidden="true" />
+            </Link>
+          </nav>
+        </div>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen(value => !value)}
+        aria-label={open ? 'Close support options' : 'Open support options'}
+        aria-expanded={open}
+        aria-controls="herstep-support-menu"
+        className="w-14 h-14 rounded-full bg-neutral-900 text-white flex items-center justify-center shadow-lg hover:bg-neutral-800 transition-all hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500 focus-visible:ring-offset-2"
+      >
+        {open ? <X className="w-6 h-6" aria-hidden="true" /> : <Headset className="w-7 h-7" aria-hidden="true" />}
+      </button>
+    </div>
   );
 }
 
