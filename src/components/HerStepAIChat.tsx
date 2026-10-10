@@ -1,6 +1,6 @@
 import React,{useEffect,useState} from 'react';
 import {Link,useNavigate} from 'react-router-dom';
-import {Sparkles,Send,X,ExternalLink,Headphones,ShoppingBag} from 'lucide-react';
+import {Send,X,ExternalLink,Headphones,ShoppingBag} from 'lucide-react';
 import {apiFetch} from '../lib/api';
 import {useApp} from '../context/AppContext';
 
@@ -41,6 +41,6 @@ export function HerStepAIChat(){
  {state.cart.length>0&&<div className="px-3 pt-3"><button type="button" onClick={()=>navigate('/checkout')} className="w-full rounded-xl bg-neutral-900 text-white py-2.5 text-sm font-semibold">Continue to secure checkout · {state.cart.length} {state.cart.length===1?'item':'items'}</button><p className="text-[10px] text-neutral-500 mt-1">Enter your checkout details to request the M-Pesa STK payment prompt.</p></div>}<form onSubmit={e=>{e.preventDefault();void send()}} className="border-t p-3 flex gap-2"><input value={input} onChange={e=>setInput(e.target.value)} maxLength={1200} placeholder="Tell me what shoes you need…" className="min-w-0 flex-1 border rounded-xl px-3 py-2 text-sm" /><button disabled={sending||!input.trim()} className="rounded-xl bg-neutral-900 text-white px-3 disabled:opacity-40" aria-label="Send message"><Send className="w-4 h-4"/></button></form><p className="px-3 pb-2 text-[10px] text-neutral-400">HerStep chats may be stored and reviewed by our support team to help with your shopping or support request.</p>
  {messages.some(m=>m.role==='assistant'&&/support|human|contact/i.test(m.content))&&<div className="px-3 pb-2 text-xs flex gap-3"><a href="https://wa.me/254106624924" className="underline"><Headphones className="inline w-3 h-3"/> Human support</a><a href="mailto:herstepcollection@gmail.com" className="underline">Email</a></div>}
  </section>}
- <button onClick={()=>setOpen(v=>!v)} aria-label={open?'Close Aria':'Chat with Aria'} className="rounded-full w-14 h-14 bg-neutral-900 text-white flex items-center justify-center shadow-xl ring-2 ring-white hover:scale-105"><Sparkles className="w-6 h-6"/></button>
+ <button onClick={()=>setOpen(v=>!v)} aria-label={open?'Close Aria':'Chat with Aria'} className="relative rounded-full w-14 h-14 bg-neutral-900 flex items-center justify-center shadow-xl ring-2 ring-white hover:scale-105 overflow-hidden"><img src="/aria-avatar.svg" alt="" className="w-full h-full object-cover" /><span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-emerald-400 border-2 border-white" aria-hidden="true"/></button>
  </div>
 }
