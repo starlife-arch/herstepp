@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MapPin, Phone, Mail, Clock, Send, MessageSquare } from 'lucide-react';
+import { MapPin, Phone, Mail, Clock, Send, MessageSquare, Facebook, Instagram } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Card, Button, Input } from '../components/ui';
 import { useApp } from '../context/AppContext';
@@ -95,6 +95,19 @@ export default function Contact() {
         </Card>
       </div>
 
+      <Card className="p-6 mb-12">
+        <h2 className="text-lg font-semibold text-neutral-900 mb-2 text-center">Follow HerStep Collection</h2>
+        <p className="text-sm text-neutral-500 text-center mb-4">Connect with us on our official social media pages.</p>
+        <div className="flex justify-center flex-wrap gap-4">
+          <a href="https://www.facebook.com/herstepcollections" target="_blank" rel="noopener noreferrer" aria-label="HerStep Collection on Facebook" className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-800 hover:bg-neutral-50">
+            <Facebook className="w-5 h-5" aria-hidden="true" /> Facebook
+          </a>
+          <a href="https://www.instagram.com/herstepcollections" target="_blank" rel="noopener noreferrer" aria-label="HerStep Collection on Instagram" className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-800 hover:bg-neutral-50">
+            <Instagram className="w-5 h-5" aria-hidden="true" /> Instagram
+          </a>
+        </div>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Contact Form */}
         <Card className="p-6">
@@ -169,7 +182,7 @@ export default function Contact() {
               <Phone className="w-5 h-5 text-neutral-500 mt-0.5" />
               <div>
                 <p className="font-medium text-sm text-neutral-900">Phone</p>
-                <p className="text-sm text-neutral-600">+254 799 021 089</p>
+                <a href="tel:+254799021089" className="text-sm text-neutral-600 hover:text-neutral-900">+254 799 021 089</a>
               </div>
             </div>
             <div className="mt-6 p-4 bg-neutral-50 rounded-lg">
