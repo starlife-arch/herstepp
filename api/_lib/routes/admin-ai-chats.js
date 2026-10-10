@@ -16,9 +16,15 @@ export default async function adminAIChats(req,res){
   const ref=adminDb.collection('aiConversations').doc(id),snap=await ref.get();if(!snap.exists)throw clientError('Conversation not found.',404);
   if(['CLOSED','RESOLVED'].includes(snap.data().status))throw clientError('Reopen this conversation before replying.',409);
   const content=message.trim();
-  await ref.collection('messages').add({role:'admin',content,adminId:admin.uid,adminName:admin.displayName||admin.email||'HerStep Support',createdAt:FieldValue.serverTimestamp()});
+  const adminMessage={role:'admin',content,adminId:admin.uid,adminName:admin.displayName||admin.email||'HerStep Support',createdAt:FieldValue.serverTimestamp()};
+  await ref.collection('messages').add(adminMessage);
   await ref.update({status:'IN_PROGRESS',agentJoined:true,assignedAdminId:admin.uid,assignedAdminName:admin.displayName||admin.email||'HerStep Support',lastMessage:content,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()});
-  const ticketRef=adminDb.collection('supportTickets').doc(`ai_${id}`);const ticketSnap=await ticketRef.get();if(ticketSnap.exists)await ticketRef.set({status:'IN_PROGRESS',lastMessage:content,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'ADMIN',hasUnreadAdminMessages:false,updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  const ticketRef=adminDb.collection('supportTickets').doc(`ai_${id}`);
+  const ticketSnap=await ticketRef.get();
+  if(ticketSnap.exists){
+   await ticketRef.collection('messages').add({senderId:admin.uid,senderName:admin.displayName||admin.email||'HerStep Support',senderRole:'ADMIN',body:content,attachments:[],createdAt:FieldValue.serverTimestamp()});
+   await ticketRef.set({status:'IN_PROGRESS',lastMessage:content,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'ADMIN',hasUnreadAdminMessages:false,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  }
   return res.status(201).json({ok:true});
  }
  return methodNotAllowed(res,['GET','PATCH','POST']);
