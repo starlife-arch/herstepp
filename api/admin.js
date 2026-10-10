@@ -4,19 +4,13 @@
 import { dispatchRoute, lazyRoute } from './_lib/route-dispatch.js';
 
 export default (req, res) => dispatchRoute(req, res, {
-  // GET/POST /api/admin/products
   products: lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.products }))),
-  // PUT /api/admin/products/:id
   'product-update': lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.productUpdate }))),
-  // POST /api/admin/products/:id/archive
   'product-archive': lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.productArchive }))),
-  // GET /api/admin/customers
   customers: lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.customers }))),
-  // /api/admin/categories
   categories: lazyRoute(() => import('./_lib/routes/admin-categories.js')),
-  // POST /api/media/sign-upload
   'media/sign-upload': lazyRoute(() => import('./_lib/routes/admin-media.js')),
-  // GET/PATCH /api/admin/orders
+  'bulk-shoes/analyze': lazyRoute(() => import('./_lib/routes/admin-bulk-shoe-ai.js')),
   orders: lazyRoute(() => import('./_lib/routes/orders-phase1.js').then(m => ({ default: m.adminOrders }))),
   'promo-codes': lazyRoute(() => import('./_lib/routes/admin-promo-codes.js')),
   support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminList }))),
@@ -24,23 +18,15 @@ export default (req, res) => dispatchRoute(req, res, {
   'support/read': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminRead }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminMessage }))),
   'support/notes': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminNotes }))),
-  // Storefront settings: GET/PATCH /api/admin/hero + /api/admin/announcement
-  'hero': lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminHero }))),
-  'announcement': lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminAnnouncement }))),
-  // Contact-message inbox (GET/PATCH /api/admin/contact-messages, POST .../reply)
+  hero: lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminHero }))),
+  announcement: lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminAnnouncement }))),
   'contact-messages': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminList }))),
   'contact-messages/status': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminStatus }))),
   'contact-messages/reply': lazyRoute(() => import('./_lib/routes/admin-contact.js').then(m => ({ default: m.adminReply }))),
-  // GET /api/admin/notifications — email/Telegram config status + outbox stats.
-  'notifications': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationStatus }))),
-  // POST /api/admin/notifications/test — {channel:'email'|'telegram', to?}
+  notifications: lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationStatus }))),
   'notifications/test': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationTest }))),
-  // POST /api/admin/notifications/retry — retry PENDING outbox emails
   'notifications/retry': lazyRoute(() => import('./_lib/routes/admin-notifications.js').then(m => ({ default: m.notificationRetry }))),
-  // GET/PATCH /api/admin/delivery
   delivery: lazyRoute(() => import('./_lib/routes/admin-delivery.js')),
-  // GET /api/admin/tips — in-app tipping overview (PAID-only totals)
   tips: lazyRoute(() => import('./_lib/routes/tips-admin.js')),
-  // POST /api/admin/invoices/resend { orderDocumentId } (requireAdmin; PAID only)
   'invoices/resend': lazyRoute(() => import('./_lib/routes/invoice-resend.js')),
 });
