@@ -19,7 +19,7 @@ export default async function assistant(req,res) {
  const conversationId=typeof (req.method==='GET'?req.query?.conversationId:body.conversationId)==='string'?(req.method==='GET'?req.query.conversationId:body.conversationId):'';
  if(!/^[a-zA-Z0-9_-]{12,80}$/.test(conversationId)) throw clientError('Please start a new chat and try again.');
  const authorization=String(req.headers?.authorization||'');
- const token=authorization.match(/^Bearer\\s+(.+)$/i)?.[1];
+ const token=authorization.match(/^Bearer\s+(.+)$/i)?.[1];
  const user=token?await verifyUserToken(token,false):null;
  const ref=adminDb.collection('aiConversations').doc(conversationId);
  if(req.method==='GET') {
