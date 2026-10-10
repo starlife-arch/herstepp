@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown } from 'lucide-react';
+import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown, Facebook, Instagram } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { loadAnnouncement, type AnnouncementData } from '../lib/storefront';
 
@@ -158,8 +158,8 @@ export function Footer() {
               <p>Juja Town</p>
               <p>Jerry House, near Juja Posta</p>
               <p>Outside Shop No. 12</p>
-              <p className="pt-2">+254 799 021 089</p>
-              <p>herstepcollection@gmail.com</p>
+              <p className="pt-2"><a href="tel:+254799021089" className="hover:text-white">+254 799 021 089</a></p>
+              <p><a href="mailto:herstepcollection@gmail.com" className="hover:text-white">herstepcollection@gmail.com</a></p>
             </div>
           </div>
         </div>
@@ -167,6 +167,8 @@ export function Footer() {
         <div className="border-t border-neutral-800 mt-10 pt-6 flex flex-col sm:flex-row items-center justify-between gap-4">
           <p className="text-neutral-500 text-sm">&copy; 2026 HerStep Collection. All rights reserved.</p>
           <div className="flex items-center gap-4">
+            <a href="https://www.facebook.com/herstepcollections" target="_blank" rel="noopener noreferrer" aria-label="HerStep Collection on Facebook" className="text-neutral-400 hover:text-white transition-colors"><Facebook className="w-5 h-5" aria-hidden="true" /></a>
+            <a href="https://www.instagram.com/herstepcollections" target="_blank" rel="noopener noreferrer" aria-label="HerStep Collection on Instagram" className="text-neutral-400 hover:text-white transition-colors"><Instagram className="w-5 h-5" aria-hidden="true" /></a>
             <a href="https://wa.me/254106624924" target="_blank" rel="noopener noreferrer" className="text-neutral-400 text-sm hover:text-white transition-colors">WhatsApp</a>
             <span className="text-neutral-700">|</span>
             <a href="tel:+254799021089" className="text-neutral-400 text-sm hover:text-white transition-colors">Call Us</a>
