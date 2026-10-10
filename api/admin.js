@@ -11,6 +11,7 @@ export default (req, res) => dispatchRoute(req, res, {
   categories: lazyRoute(() => import('./_lib/routes/admin-categories.js')),
   'media/sign-upload': lazyRoute(() => import('./_lib/routes/admin-media.js')),
   'bulk-shoes/analyze': lazyRoute(() => import('./_lib/routes/admin-bulk-shoe-ai.js')),
+  'ai-chats': lazyRoute(() => import('./_lib/routes/admin-ai-chats.js')),
   orders: lazyRoute(() => import('./_lib/routes/orders-phase1.js').then(m => ({ default: m.adminOrders }))),
   'promo-codes': lazyRoute(() => import('./_lib/routes/admin-promo-codes.js')),
   support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminList }))),
