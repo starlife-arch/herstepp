@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown, Facebook, Instagram, Phone, Mail, MessageCircle, Users, MessageSquare, Ticket, Headphones, ArrowUpRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { loadAnnouncement, type AnnouncementData } from '../lib/storefront';
+import { HerStepAIChat } from './HerStepAIChat';
 
 export function Header() {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -322,6 +323,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <Header />
       <main className="flex-1">{children}</main>
       <Footer />
+      <HerStepAIChat />
       <WhatsAppButton />
     </div>
   );
