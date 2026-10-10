@@ -23,9 +23,11 @@ export default async function assistant(req,res) {
  const previous=await ref.get();
  const currentStatus=previous.exists?String(previous.data().status||'OPEN'):'OPEN';
  await ref.collection('messages').add({role:'user',content:message,createdAt:FieldValue.serverTimestamp()});
- if(currentStatus==='IN_PROGRESS') {
+ if(currentStatus==='IN_PROGRESS'||currentStatus==='NEEDS_SUPPORT') {
   await ref.set({lastMessage:message,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
-  return res.status(200).json({conversationId,reply:'Your chat is with a HerStep support agent now. Your message has been sent to them; please keep this chat open for their reply.',products:[],agentJoined:true});
+  const ticketId=previous.exists?String(previous.data().ticketId||''):'';
+  if(currentStatus==='NEEDS_SUPPORT') await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`,customerId:null,customerName:'Website visitor',customerEmail:'',subject:'AI chat needs human support',category:'General Enquiry',conversationId,status:'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  return res.status(200).json({conversationId,reply:'Your message has been sent to HerStep Support. A team member will reply in this chat. Please keep this window open.',products:[],agentJoined:true,needsHuman:true,ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`});
  }
  const replyOutOfScope='I’m the HerStep Collection shopping assistant. I can help with our shoes, colours, sizes, prices, stock, orders, delivery and customer support, but I can’t answer unrelated questions. What kind of shoes are you looking for?';
  const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you)[!.? ]*$/i.test(message);
@@ -46,7 +48,9 @@ export default async function assistant(req,res) {
  }
  if(!reply){reply=products.length?'I can help you find shoes from our live HerStep Collection catalogue. Tell me the occasion, colour, size and budget you have in mind, and I’ll narrow down suitable options.':'I’m here to help with HerStep Collection shoes and shopping. Our live catalogue is temporarily unavailable; please try again shortly.';ids=[];}
  const chosen=products.filter(p=>ids.includes(p.id));
- await ref.set({conversationId,status:needsHuman?'NEEDS_SUPPORT':'OPEN',lastMessage:message,lastReply:reply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp(),...(previous.exists?{}:{createdAt:FieldValue.serverTimestamp()})},{merge:true});
- await ref.collection('messages').add({role:'assistant',content:reply,productIds:ids,needsHuman,createdAt:FieldValue.serverTimestamp()});
- return res.status(200).json({conversationId,reply:needsHuman?reply+'\n\n'+contactText:reply,products:chosen.map(p=>({id:p.id,name:p.name,sku:p.sku,price:p.price,regularPrice:p.regularPrice,sizes:p.sizes,inventory:p.inventory,image:p.image,href:`/product/${p.id}`,featured:p.featured,bestseller:p.bestseller,newArrival:p.newArrival})),needsHuman,supportContacts:needsHuman?{whatsapp:'https://wa.me/254106624924',email:'herstepcollection@gmail.com',phone:'+254799021089'}:null});
+ const ticketId=needsHuman?`AI-${conversationId.slice(0,8).toUpperCase()}`:null;
+ await ref.set({conversationId,status:needsHuman?'NEEDS_SUPPORT':'OPEN',...(needsHuman?{ticketId,agentJoined:false}:{}),lastMessage:message,lastReply:reply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp(),...(previous.exists?{}:{createdAt:FieldValue.serverTimestamp()})},{merge:true});
+ await ref.collection('messages').add({role:'assistant',content:needsHuman?reply+'\\n\\nYour support request has been opened. Ticket: '+ticketId+'\\n'+contactText:reply,productIds:ids,needsHuman,createdAt:FieldValue.serverTimestamp()});
+ if(needsHuman) await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId,customerId:null,customerName:'Website visitor',customerEmail:'',subject:'AI chat needs human support',category:/payment|pay|mpesa|stk/i.test(message)?'Payment Issue':/delivery|shipping/i.test(message)?'Delivery Issue':/order|refund|cancel/i.test(message)?'Order Issue':'General Enquiry',conversationId,status:'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(2),createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+ return res.status(200).json({conversationId,reply:needsHuman?reply+'\\n\\nYour support request has been opened. Ticket: '+ticketId+'\\n'+contactText:reply,products:chosen.map(p=>({id:p.id,name:p.name,sku:p.sku,price:p.price,regularPrice:p.regularPrice,sizes:p.sizes,inventory:p.inventory,image:p.image,href:`/product/${p.id}`,featured:p.featured,bestseller:p.bestseller,newArrival:p.newArrival})),needsHuman,ticketId,supportContacts:needsHuman?{whatsapp:'https://wa.me/254106624924',email:'herstepcollection@gmail.com',phone:'+254799021089'}:null});
 }
