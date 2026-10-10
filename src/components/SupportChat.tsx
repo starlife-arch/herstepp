@@ -42,6 +42,7 @@ export function SupportChat({ ticket, onBack, admin = false }: { ticket: any; on
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setCurrent((previous: any) => ({ ...previous, ...ticket }));
     let stop: undefined | (() => void);
     let timer: number | undefined;
     getFirebase().then(({ db }) => {
@@ -52,7 +53,7 @@ export function SupportChat({ ticket, onBack, admin = false }: { ticket: any; on
           apiFetch(admin ? '/api/admin/support' : '/api/support').then((result: any) => {
             const found = result.tickets?.find((item: any) => item.id === ticket.id);
             if (found) setCurrent((previous: any) => toUiTicket(found, previous.messages));
-          }).catch(() => undefined);
+          }).catch(() => { timer = window.setInterval(() => { apiFetch(admin ? '/api/admin/support' : '/api/support').then((result: any) => { const found = result.tickets?.find((item: any) => item.id === ticket.id); if (found) setCurrent((previous: any) => toUiTicket(found, previous.messages)); }).catch(() => undefined); }, 5000); });
         }, 5000);
       });
     }).catch(() => undefined);
