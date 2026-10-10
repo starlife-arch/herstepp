@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/assistant", "destination": "/api/assistant" },
+    { "source": "/api/admin/ai-chats", "destination": "/api/admin?route=ai-chats" },
     {
       "source": "/api/firebase-config",
       "destination": "/api/catalog?route=firebase-config"
