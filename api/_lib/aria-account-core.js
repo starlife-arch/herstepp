@@ -2,10 +2,10 @@
 // language model to establish identity, order ownership, payment status or invoice eligibility.
 export function detectAriaAccountIntent(message) {
   const text = String(message || '').toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
-  if ((/\b(verify|verification|verified|verification code|resend.*code|send.*code|codes?)\b/.test(text) && /\b(email|account|verification|verify|code|codes)\b/.test(text)) || /^(verify|verification|code|codes|email verification)$/.test(text)) return 'verification';
-  if (/\b(invoice|invoices|download.*invoice|my invoice|send.*invoice)\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
-  if (/\b(my payment|payment status|did .*payment|has .*payment|payment go through|mpesa status|m-pesa status|my receipt|payment receipt|payments?)\b/.test(text)) return 'payment';
-  if (/\b(my orders?|order status|track my order|track order|where is my order|where's my order|order number|orders?)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
+  if ((/\b(verify|verification|verified|verification code|resend.*code|send.*code|confirm.*code|codes?)\b/.test(text) && /\b(email|account|verification|verify|code|codes)\b/.test(text)) || /^(verify|verification|code|codes|email verification)$/.test(text)) return 'verification';
+  if (/\b(invoice|invoices|bill|bills|download.*invoice|my invoice|send.*invoice)\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
+  if (/\b(my payment|payment status|did .*payment|has .*payment|payment go through|mpesa|m-pesa|my receipt|payment receipt|payments?|transaction|charged|money deducted|money taken|paid successfully|payment pending)\b/.test(text)) return 'payment';
+  if (/\b(my orders?|order status|track(ing)? (my )?order|where is my order|where's my order|order number|orders?|my parcel|my package|order hasn.t arrived|order update|my purchase|delivery status)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
   return null;
 }
 
