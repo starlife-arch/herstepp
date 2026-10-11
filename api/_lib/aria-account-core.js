@@ -13,7 +13,7 @@ const iso = value => value?.toDate ? value.toDate().toISOString() : value instan
 const statusText = value => String(value || 'UNKNOWN').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 const money = value => 'KSh ' + (Number(value) || 0).toLocaleString('en-KE');
 
-export async function resolveAriaAccountIntent({ db, user, message, sendVerification, sendInvoice }) {
+export async function resolveAriaAccountIntent({ db, user, message, sendVerification, confirmVerification, sendInvoice, conversationState = {} }) {
   const intent = detectAriaAccountIntent(message);
   if (!intent) return null;
   const topic = String(message || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -26,22 +26,36 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   }
 
   if (intent === 'verification') {
+    if (user.email_verified === true && conversationState.pendingAccountAction !== 'verify_email') return { intent, reply: 'Your email is already verified. You’re all set!', actions: [] };
+    const code = String(message || '').trim();
+    if (conversationState.pendingAccountAction === 'verify_email' && /^\\d{6}$/.test(code)) {
+      if (typeof confirmVerification !== 'function') return { intent, reply: 'I’m ready to check your code, but verification is temporarily unavailable. Please try again shortly.', actions: [] };
+      try {
+        const result = await confirmVerification(user, code);
+        return result?.verified
+          ? { intent, reply: 'Perfect — your code is correct, and your email is now verified. You’re all set!', actions: [], clearPendingAction: true }
+          : { intent, reply: 'I couldn’t confirm that code. Please check the six digits and send them here again.', actions: [], keepPendingAction: true };
+      } catch (error) {
+        const messageText = String(error?.message || '');
+        if (/expired/i.test(messageText)) return { intent, reply: 'That code has expired. Would you like me to send a fresh one?', actions: [], clearPendingAction: true };
+        if (/incorrect|attempts left|invalid/i.test(messageText)) return { intent, reply: 'That code doesn’t match. Please check the six digits and send them here again.', actions: [], keepPendingAction: true };
+        return { intent, reply: 'I couldn’t verify that code just now. Please try again or contact HerStep Support.', actions: [], keepPendingAction: true };
+      }
+    }
+    const alreadyHasCode = /\\b(already|received|got|have)\\b.{0,45}\\b(code|otp|verification)\\b|\\b(confirm|check|verify)\\b.{0,45}\\b(code|otp)\\b/i.test(message);
+    if (alreadyHasCode) return { intent, reply: 'No problem — please type the six-digit code you received here in our chat. I’ll check it for you; there’s no need to request another one.', actions: [], nextAction: 'verify_email' };
     if (user.email_verified === true) return { intent, reply: 'Your email is already verified. You’re all set!', actions: [] };
     try {
       const result = await sendVerification(user);
-      if (result?.verified) return { intent, reply: 'Your email is already verified. You’re all set!', actions: [] };
-      return { intent, reply: result?.sent
-        ? 'I’ve requested a fresh verification code for ' + (result.maskedEmail || 'your account email') + '. Check your inbox and spam folder. The code expires in 10 minutes; you can request another after the cooldown.'
-        : 'I couldn’t request a verification code just now. Please open your account verification page or contact HerStep Support for help.', actions: [] };
+      if (result?.verified) return { intent, reply: 'Your email is already verified. You’re all set!', actions: [], clearPendingAction: true };
+      return result?.sent
+        ? { intent, reply: 'I’ve sent a six-digit verification code to ' + (result.maskedEmail || 'your account email') + '. Please enter the code here in our chat, and I’ll verify it for you. It expires in 10 minutes.', actions: [], nextAction: 'verify_email' }
+        : { intent, reply: 'I couldn’t send a verification code just now. Please try again later or contact HerStep Support.', actions: [] };
     } catch (error) {
-      const status = Number(error?.statusCode || error?.status || 0);
       const messageText = String(error?.message || '');
-      if (status === 429 || /wait before requesting|too many codes/i.test(messageText)) {
-        return { intent, reply: messageText || 'Please wait a little before requesting another verification code.', actions: [] };
-      }
-      if (status === 503 || /not configured/i.test(messageText)) {
-        return { intent, reply: 'Email verification is temporarily unavailable. Please try again later or contact HerStep Support.', actions: [] };
-      }
+      if (/wait before requesting/i.test(messageText)) return { intent, reply: messageText + ' If you already have the code, enter it here while you wait.', actions: [], nextAction: 'verify_email' };
+      if (/too many codes/i.test(messageText)) return { intent, reply: messageText + ' If you already received a code, enter it here and I’ll check it for you.', actions: [], nextAction: 'verify_email' };
+      if (/not configured/i.test(messageText)) return { intent, reply: 'Email verification is temporarily unavailable. Please try again later or contact HerStep Support.', actions: [] };
       throw error;
     }
   }
@@ -52,7 +66,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   const input = String(message || '');
   const number = input.match(/\bHS-\d{4}-\d{6}\b/i)?.[0]?.toUpperCase();
   const selected = number ? orders.filter(order => String(order.orderId || '').toUpperCase() === number) : orders;
-  if (number && selected.length === 0) {
+  if ((number || invoiceRef) && selected.length === 0) {
     return { intent, reply: 'I couldn’t find that order on your account. Please check the order number, or ask me to show your recent orders.', actions: [] };
   }
   if (!orders.length) return { intent, reply: 'I couldn’t find any orders linked to your account yet. If you checked out as a guest, please contact HerStep Support and we’ll help you locate it.', actions: [] };
@@ -68,7 +82,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
       }
     }
     if (!eligible.length) return { intent, reply: 'Invoices are available after payment is confirmed. I couldn’t find a confirmed paid order with an available invoice on your account. You can ask me about your payment status or recent orders.', actions: [] };
-    if (recipient && typeof sendInvoice === 'function' && (eligible.length === 1 || number)) {
+    if (recipient && typeof sendInvoice === 'function' && (eligible.length === 1 || number || invoiceRef)) {
       const target = eligible[0];
       const result = await sendInvoice({ uid: user.uid, orderDocumentId: target.order.id, email: recipient });
       return { intent, reply: result?.sent ? `I’ve sent invoice ${target.invoiceNumber} to ${recipient}. Please check your inbox and spam folder.` : `I queued invoice ${target.invoiceNumber} for ${recipient}, but email delivery could not be confirmed. Please try again later or contact HerStep Support.`, actions: [] };
