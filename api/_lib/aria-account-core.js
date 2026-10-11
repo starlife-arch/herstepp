@@ -53,6 +53,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   if (!orders.length) return { intent, reply: 'I couldn’t find any orders linked to your account yet. If you checked out as a guest, please contact HerStep Support and we’ll help you locate it.', actions: [] };
 
   if (intent === 'invoice') {
+    const recipient = input.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i)?.[0] || '';
     const eligible = [];
     for (const order of (number ? selected : orders)) {
       if (String(order.paymentStatus || '').toUpperCase() !== 'PAID' || !order.paymentId) continue;
@@ -62,9 +63,14 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
       }
     }
     if (!eligible.length) return { intent, reply: 'Invoices are available after payment is confirmed. I couldn’t find a confirmed paid order with an available invoice on your account. You can ask me about your payment status or recent orders.', actions: [] };
+    if (recipient && typeof sendInvoice === 'function') {
+      const target = eligible[0];
+      const result = await sendInvoice({ uid: user.uid, orderDocumentId: target.order.id, email: recipient });
+      return { intent, reply: result?.sent ? `I’ve sent invoice ${target.invoiceNumber} to ${recipient}. Please check your inbox and spam folder.` : `I queued invoice ${target.invoiceNumber} for ${recipient}, but email delivery could not be confirmed. Please try again later or contact HerStep Support.`, actions: [] };
+    }
     return {
       intent,
-      reply: 'I found ' + eligible.length + ' paid order' + (eligible.length === 1 ? '' : 's') + ' with an available invoice. Select one below to download it.',
+      reply: 'I found ' + eligible.length + ' paid order' + (eligible.length === 1 ? '' : 's') + ' with an available invoice. You can download an invoice below, or tell me “send invoice to name@example.com” and I’ll email it to that address.',
       actions: eligible.slice(0, 5).map(({ order, invoiceNumber }) => ({
         type: 'invoice', orderDocumentId: order.id, invoiceNumber,
         label: 'Download invoice ' + invoiceNumber,
