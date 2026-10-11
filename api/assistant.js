@@ -94,12 +94,20 @@ export default async function assistant(req,res) {
     verifyKey:()=>verifyKey(process.env),
     markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true}),
    },verifiedUser,{}),
+   sendVerification:verifiedUser=>sendVerifyCode({
+    db:adminDb,now:Date.now(),waitUntil,deliverQueuedEmailInline,
+    verifySenderConfigured:()=>verifySenderConfigured(emailConfig()),
+    verifyKey:()=>verifyKey(process.env),
+    markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true}),
+   },verifiedUser,{}),
+   confirmVerification:(verifiedUser,code)=>confirmVerifyCode({db:adminDb,now:Date.now(),verifyKey:()=>verifyKey(process.env),markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true})},verifiedUser,{code}),
    sendInvoice:({uid,orderDocumentId,email})=>emailInvoiceToRecipientCore({db:adminDb,uid,orderDocumentId,email}),
+   conversationState:{pendingAccountAction},
   });
   const accountReply=String(accountResult?.reply||'I couldn’t retrieve that account information just now. Please try again or contact HerStep Support.');
   const actions=Array.isArray(accountResult?.actions)?accountResult.actions:[];
-  const requestedVerificationCode=accountResult?.intent==='verification' && /requested a fresh verification code/i.test(accountReply);
-  await ref.set({status:'OPEN',lastMessage:message,lastReply:accountReply,pendingAccountAction:requestedVerificationCode?'verify_email':null,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  const nextPendingAction=accountResult?.clearPendingAction?null:accountResult?.nextAction==='verify_email'||accountResult?.keepPendingAction?'verify_email':null;
+  await ref.set({status:'OPEN',lastMessage:isVerificationCodeReply?'[verification code submitted]':message,lastReply:accountReply,pendingAccountAction:nextPendingAction,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   await ref.collection('messages').add({role:'assistant',content:accountReply,actions,createdAt:FieldValue.serverTimestamp()});
   return res.status(200).json({conversationId,reply:accountReply,products:[],actions,needsHuman:false});
  }
