@@ -13,7 +13,7 @@ const iso = value => value?.toDate ? value.toDate().toISOString() : value instan
 const statusText = value => String(value || 'UNKNOWN').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 const money = value => 'KSh ' + (Number(value) || 0).toLocaleString('en-KE');
 
-export async function resolveAriaAccountIntent({ db, user, message, sendVerification }) {
+export async function resolveAriaAccountIntent({ db, user, message, sendVerification, sendInvoice }) {
   const intent = detectAriaAccountIntent(message);
   if (!intent) return null;
   if (!user?.uid) {
@@ -63,7 +63,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
       }
     }
     if (!eligible.length) return { intent, reply: 'Invoices are available after payment is confirmed. I couldn’t find a confirmed paid order with an available invoice on your account. You can ask me about your payment status or recent orders.', actions: [] };
-    if (recipient && typeof sendInvoice === 'function') {
+    if (recipient && typeof sendInvoice === 'function' && (eligible.length === 1 || number)) {
       const target = eligible[0];
       const result = await sendInvoice({ uid: user.uid, orderDocumentId: target.order.id, email: recipient });
       return { intent, reply: result?.sent ? `I’ve sent invoice ${target.invoiceNumber} to ${recipient}. Please check your inbox and spam folder.` : `I queued invoice ${target.invoiceNumber} for ${recipient}, but email delivery could not be confirmed. Please try again later or contact HerStep Support.`, actions: [] };
