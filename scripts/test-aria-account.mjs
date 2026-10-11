@@ -16,7 +16,19 @@ await testCase('detects only account-action intents', async () => {
   assert.equal(detectAriaAccountIntent('Did my payment go through?'), 'payment');
   assert.equal(detectAriaAccountIntent('Please show my invoice'), 'invoice');
   assert.equal(detectAriaAccountIntent('Please verify my email'), 'verification');
+  assert.equal(detectAriaAccountIntent('orders'), 'order');
+  assert.equal(detectAriaAccountIntent('payments'), 'payment');
+  assert.equal(detectAriaAccountIntent('verification'), 'verification');
+  assert.equal(detectAriaAccountIntent('codes'), 'verification');
   assert.equal(detectAriaAccountIntent('What shoes go with a dress?'), null);
+});
+await testCase('asks a follow-up when the customer only names an account topic', async () => {
+  const orders = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'orders' });
+  assert.match(orders.reply, /tracking an order/i);
+  const payments = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'payments' });
+  assert.match(payments.reply, /payment went through/i);
+  const verification = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'codes' });
+  assert.match(verification.reply, /send a verification code/i);
 });
 await testCase('requires sign-in before showing private account data', async () => {
   const out = await resolveAriaAccountIntent({ db, user: null, message: 'show my orders' });
