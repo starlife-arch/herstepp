@@ -5,6 +5,7 @@ import { detectAriaAccountIntent, resolveAriaAccountIntent } from '../api/_lib/a
 let passed = 0;
 async function testCase(name, fn) { await fn(); passed++; console.log('  ✓ ' + name); }
 const db = createFakeDb();
+db.__addIndex('orders', ['customerId', 'createdAt'], 'desc');
 db.__seed('orders', 'orderdoc0001', { customerId: 'customer-1', orderId: 'HS-2026-000001', orderStatus: 'PROCESSING', paymentStatus: 'PAID', paymentId: 'paymentdoc01', total: 4500, createdAt: new Date('2026-08-01T10:00:00Z') });
 db.__seed('orders', 'orderdoc0002', { customerId: 'customer-2', orderId: 'HS-2026-000002', orderStatus: 'DELIVERED', paymentStatus: 'PAID', paymentId: 'paymentdoc02', total: 9000, createdAt: new Date('2026-08-02T10:00:00Z') });
 db.__seed('payments', 'paymentdoc01', { customerId: 'customer-1', orderDocumentId: 'orderdoc0001', status: 'PAID' });
