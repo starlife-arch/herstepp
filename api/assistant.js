@@ -47,8 +47,8 @@ export default async function assistant(req,res) {
  if(!previous.exists) await ref.set({conversationId,customerId:user?.uid||null,customerName:user?.name||user?.displayName||'Website visitor',customerEmail:user?.email||'',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
  const currentStatus=previous.exists?String(previous.data().status||'OPEN'):'OPEN';
  const pendingAccountAction=String(previous.data()?.pendingAccountAction||'');
- const isVerificationCodeReply=pendingAccountAction==='verify_email' && /^\\d{6}$/.test(message) && Boolean(user?.uid);
- if(!isVerificationCodeReply) await ref.collection('messages').add({role:'user',content:pendingAccountAction==='verify_email' && /^\\d{6}$/.test(message)?'[verification code submitted]':message,createdAt:FieldValue.serverTimestamp()});
+ const isVerificationCodeReply=pendingAccountAction==='verify_email' && /^\d{6}$/.test(message) && Boolean(user?.uid);
+ if(!isVerificationCodeReply) await ref.collection('messages').add({role:'user',content:pendingAccountAction==='verify_email' && /^\d{6}$/.test(message)?'[verification code submitted]':message,createdAt:FieldValue.serverTimestamp()});
  if(currentStatus==='IN_PROGRESS'||currentStatus==='NEEDS_SUPPORT') {
   await ref.set({lastMessage:message,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   const ticketId=previous.exists?String(previous.data().ticketId||''):'';
