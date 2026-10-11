@@ -94,12 +94,6 @@ export default async function assistant(req,res) {
     verifyKey:()=>verifyKey(process.env),
     markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true}),
    },verifiedUser,{}),
-   sendVerification:verifiedUser=>sendVerifyCode({
-    db:adminDb,now:Date.now(),waitUntil,deliverQueuedEmailInline,
-    verifySenderConfigured:()=>verifySenderConfigured(emailConfig()),
-    verifyKey:()=>verifyKey(process.env),
-    markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true}),
-   },verifiedUser,{}),
    confirmVerification:(verifiedUser,code)=>confirmVerifyCode({db:adminDb,now:Date.now(),verifyKey:()=>verifyKey(process.env),markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true})},verifiedUser,{code}),
    sendInvoice:({uid,orderDocumentId,email})=>emailInvoiceToRecipientCore({db:adminDb,uid,orderDocumentId,email}),
    conversationState:{pendingAccountAction},
