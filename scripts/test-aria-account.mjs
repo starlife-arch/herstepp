@@ -16,7 +16,19 @@ await testCase('detects only account-action intents', async () => {
   assert.equal(detectAriaAccountIntent('Did my payment go through?'), 'payment');
   assert.equal(detectAriaAccountIntent('Please show my invoice'), 'invoice');
   assert.equal(detectAriaAccountIntent('Please verify my email'), 'verification');
+  assert.equal(detectAriaAccountIntent('orders'), 'order');
+  assert.equal(detectAriaAccountIntent('payments'), 'payment');
+  assert.equal(detectAriaAccountIntent('verification'), 'verification');
+  assert.equal(detectAriaAccountIntent('codes'), 'verification');
   assert.equal(detectAriaAccountIntent('What shoes go with a dress?'), null);
+});
+await testCase('asks a follow-up when the customer only names an account topic', async () => {
+  const orders = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'orders' });
+  assert.match(orders.reply, /tracking an order/i);
+  const payments = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'payments' });
+  assert.match(payments.reply, /payment went through/i);
+  const verification = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'codes' });
+  assert.match(verification.reply, /send a verification code/i);
 });
 await testCase('requires sign-in before showing private account data', async () => {
   const out = await resolveAriaAccountIntent({ db, user: null, message: 'show my orders' });
@@ -38,6 +50,18 @@ await testCase('offers invoice download only for a confirmed paid order owned by
   assert.equal(out.actions.length, 1);
   assert.equal(out.actions[0].orderDocumentId, 'orderdoc0001');
   assert.doesNotMatch(JSON.stringify(out.actions), /orderdoc0002/);
+});
+await testCase('emails only the selected customer-owned paid invoice to the requested address', async () => {
+  let delivered = null;
+  const out = await resolveAriaAccountIntent({
+    db,
+    user: { uid: 'customer-1' },
+    message: 'Send invoice HS-2026-000001 to invoices@example.com',
+    sendInvoice: async args => { delivered = args; return { sent: true }; },
+  });
+  assert.deepEqual(delivered, { uid: 'customer-1', orderDocumentId: 'orderdoc0001', email: 'invoices@example.com' });
+  assert.match(out.reply, /sent invoice/i);
+  assert.doesNotMatch(out.reply, /HS-2026-000002/);
 });
 await testCase('uses existing verification flow and reports cooldown without leaking codes', async () => {
   let called = false;
