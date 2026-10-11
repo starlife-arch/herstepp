@@ -2,10 +2,10 @@
 // language model to establish identity, order ownership, payment status or invoice eligibility.
 export function detectAriaAccountIntent(message) {
   const text = String(message || '').toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
-  if (/\b(verify|verification|verified|verification code|resend.*code|send.*code)\b/.test(text) && /\b(email|account|verification|verify|code)\b/.test(text)) return 'verification';
-  if (/\b(invoice|invoices|download.*invoice|my invoice)\b/.test(text)) return 'invoice';
-  if (/\b(my payment|payment status|did .*payment|has .*payment|payment go through|mpesa status|m-pesa status|my receipt|payment receipt)\b/.test(text)) return 'payment';
-  if (/\b(my orders?|order status|track my order|track order|where is my order|where's my order|order number)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
+  if ((/\b(verify|verification|verified|verification code|resend.*code|send.*code|codes?)\b/.test(text) && /\b(email|account|verification|verify|code|codes)\b/.test(text)) || /^(verify|verification|code|codes|email verification)$/.test(text)) return 'verification';
+  if (/\b(invoice|invoices|download.*invoice|my invoice|send.*invoice)\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
+  if (/\b(my payment|payment status|did .*payment|has .*payment|payment go through|mpesa status|m-pesa status|my receipt|payment receipt|payments?)\b/.test(text)) return 'payment';
+  if (/\b(my orders?|order status|track my order|track order|where is my order|where's my order|order number|orders?)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
   return null;
 }
 
@@ -53,7 +53,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   if (!orders.length) return { intent, reply: 'I couldn’t find any orders linked to your account yet. If you checked out as a guest, please contact HerStep Support and we’ll help you locate it.', actions: [] };
 
   if (intent === 'invoice') {
-    const recipient = input.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\\.[A-Z]{2,}/i)?.[0] || '';
+    const recipient = input.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
     const eligible = [];
     for (const order of (number ? selected : orders)) {
       if (String(order.paymentStatus || '').toUpperCase() !== 'PAID' || !order.paymentId) continue;
@@ -73,6 +73,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
       reply: 'I found ' + eligible.length + ' paid order' + (eligible.length === 1 ? '' : 's') + ' with an available invoice. You can download an invoice below, or tell me “send invoice to name@example.com” and I’ll email it to that address.',
       actions: eligible.slice(0, 5).map(({ order, invoiceNumber }) => ({
         type: 'invoice', orderDocumentId: order.id, invoiceNumber,
+        orderId: order.orderId || '',
         label: 'Download invoice ' + invoiceNumber,
       })),
     };
