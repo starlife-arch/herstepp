@@ -1,11 +1,12 @@
 // Deterministic, testable account-intent handling for Aria. Never trust the
 // language model to establish identity, order ownership, payment status or invoice eligibility.
 export function detectAriaAccountIntent(message) {
-  const text = String(message || '').toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
-  if ((/\b(verify|verification|verified|verification code|resend.*code|send.*code|confirm.*code|codes?)\b/.test(text) && /\b(email|account|verification|verify|code|codes)\b/.test(text)) || /^(verify|verification|code|codes|email verification)$/.test(text)) return 'verification';
-  if (/\b(invoice|invoices|bill|bills|download.*invoice|my invoice|send.*invoice)\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
-  if (/\b(my payment|payment status|did .*payment|has .*payment|payment go through|mpesa|m-pesa|my receipt|payment receipt|payments?|transaction|charged|money deducted|money taken|paid successfully|payment pending)\b/.test(text)) return 'payment';
-  if (/\b(my orders?|order status|track(ing)? (my )?order|where is my order|where's my order|order number|orders?|my parcel|my package|order hasn.t arrived|order update|my purchase|delivery status)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
+  const text = String(message || '').toLowerCase().replace(/[^a-z0-9@._\\s-]/g, ' ').replace(/\\s+/g, ' ').trim();
+  if (/\\b(password|reset password|forgot password|forgot my password|change password)\\b/.test(text)) return null;
+  if (/\\b(verify|verification|verified|verification code|resend.*code|send.*code|confirm.*code|codes?|otp|one time password)\\b/.test(text) || /\\b(email|account)\\b.*\\b(confirm|verify|verified|code)\\b/.test(text) || /^(verify|verification|code|codes|otp|email verification)$/.test(text)) return 'verification';
+  if (/\\b(invoice|invoices|bill|bills|download.*invoice|my invoice|send.*invoice|email.*invoice)\\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
+  if (/\\b(payment|payments|paid|pay|mpesa|m-pesa|transaction|charged|money deducted|money taken|money sent|refund|receipt)\\b/.test(text)) return 'payment';
+  if (/\\b(order|orders|delivery|deliveries|tracking|track|parcel|package|purchase|shipment|shipping)\\b/.test(text) || /\\bHS-\\d{4}-\\d{6}\\b/i.test(text)) return 'order';
   return null;
 }
 
