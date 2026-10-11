@@ -3,7 +3,8 @@ import { waitUntil } from '@vercel/functions';
 import { adminAuth, adminDb, verifyUserToken } from './_lib/firebase-admin.js';
 import { clientError, methodNotAllowed } from './_lib/http.js';
 import { emailConfig, deliverQueuedEmailInline, verifySenderConfigured } from './_lib/email-service.js';
-import { sendVerifyCode, verifyKey } from './_lib/routes/email-verify-core.js';
+import { sendVerifyCode, confirmVerifyCode, verifyKey } from './_lib/routes/email-verify-core.js';
+import { emailInvoiceToRecipientCore } from './_lib/routes/invoice-core.js';
 import { reconcileBestEffort } from './_lib/order-core.js';
 import { detectAriaAccountIntent, resolveAriaAccountIntent } from './_lib/aria-account-core.js';
 
@@ -45,13 +46,31 @@ export default async function assistant(req,res) {
  }
  if(!previous.exists) await ref.set({conversationId,customerId:user?.uid||null,customerName:user?.name||user?.displayName||'Website visitor',customerEmail:user?.email||'',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
  const currentStatus=previous.exists?String(previous.data().status||'OPEN'):'OPEN';
- await ref.collection('messages').add({role:'user',content:message,createdAt:FieldValue.serverTimestamp()});
+ const pendingAccountAction=String(previous.data()?.pendingAccountAction||'');
+ const isVerificationCodeReply=pendingAccountAction==='verify_email' && /^\\d{6}$/.test(message) && Boolean(user?.uid);
+ if(!isVerificationCodeReply) await ref.collection('messages').add({role:'user',content:pendingAccountAction==='verify_email' && /^\\d{6}$/.test(message)?'[verification code submitted]':message,createdAt:FieldValue.serverTimestamp()});
  if(currentStatus==='IN_PROGRESS'||currentStatus==='NEEDS_SUPPORT') {
   await ref.set({lastMessage:message,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   const ticketId=previous.exists?String(previous.data().ticketId||''):'';
   await ref.collection('messages').add({role:'admin',content:'Message received. A HerStep support agent will reply here.',createdAt:FieldValue.serverTimestamp()});
   await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`,customerId:user?.uid||null,customerName:user?.name||user?.displayName||'Website visitor',customerEmail:user?.email||'',subject:'Aria chat needs human support',category:/payment|pay|mpesa|stk/i.test(message)?'Payment Issue':/delivery|shipping/i.test(message)?'Delivery Issue':/order|refund|cancel/i.test(message)?'Order Issue':'General Enquiry',conversationId,status:currentStatus==='IN_PROGRESS'?'IN_PROGRESS':'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   return res.status(200).json({conversationId,reply:'Your message has been sent to HerStep Support. A team member will reply in this chat. Please keep this window open.',products:[],agentJoined:true,needsHuman:true,ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`});
+ }
+ // Verification codes are accepted only after Aria requested one in this same signed-in chat.
+ // Do not store the six-digit secret in chat history.
+ if(isVerificationCodeReply) {
+  try {
+   const result=await confirmVerifyCode({db:adminDb,now:Date.now(),verifyKey:()=>verifyKey(process.env),markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true})},user,{code:message});
+   const reply=result?.verified?'Your email is now verified — you’re all set!':'I couldn’t confirm that code. Please try again.';
+   await ref.set({pendingAccountAction:result?.verified?null:'verify_email',lastMessage:'[verification code submitted]',lastReply:reply,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+   await ref.collection('messages').add({role:'assistant',content:reply,createdAt:FieldValue.serverTimestamp()});
+   return res.status(200).json({conversationId,reply,products:[],actions:[],needsHuman:false});
+  } catch(error) {
+   const reply=String(error?.message||'That code could not be confirmed. Please request a new verification code if it has expired.');
+   await ref.set({lastMessage:'[verification code submitted]',lastReply:reply,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+   await ref.collection('messages').add({role:'assistant',content:reply,createdAt:FieldValue.serverTimestamp()});
+   return res.status(200).json({conversationId,reply,products:[],actions:[],needsHuman:false});
+  }
  }
  // Explicit requests for a person bypass the language model so the handoff cannot be ignored.
  if(explicitlyRequestsHuman(message)) {
@@ -75,10 +94,12 @@ export default async function assistant(req,res) {
     verifyKey:()=>verifyKey(process.env),
     markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true}),
    },verifiedUser,{}),
+   sendInvoice:({uid,orderDocumentId,email})=>emailInvoiceToRecipientCore({db:adminDb,uid,orderDocumentId,email}),
   });
   const accountReply=String(accountResult?.reply||'I couldn’t retrieve that account information just now. Please try again or contact HerStep Support.');
   const actions=Array.isArray(accountResult?.actions)?accountResult.actions:[];
-  await ref.set({status:'OPEN',lastMessage:message,lastReply:accountReply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  const requestedVerificationCode=accountResult?.intent==='verification' && /requested a fresh verification code/i.test(accountReply);
+  await ref.set({status:'OPEN',lastMessage:message,lastReply:accountReply,pendingAccountAction:requestedVerificationCode?'verify_email':null,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   await ref.collection('messages').add({role:'assistant',content:accountReply,actions,createdAt:FieldValue.serverTimestamp()});
   return res.status(200).json({conversationId,reply:accountReply,products:[],actions,needsHuman:false});
  }
