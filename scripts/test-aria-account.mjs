@@ -20,7 +20,7 @@ await testCase('detects only account-action intents', async () => {
   assert.equal(detectAriaAccountIntent('payments'), 'payment');
   assert.equal(detectAriaAccountIntent('verification'), 'verification');
   assert.equal(detectAriaAccountIntent('codes'), 'verification');
-  assert.equal(detectAriaAccountIntent('What shoes go with a dress?'), null);
+  assert.equal(detectAriaAccountIntent('What shoes go with a dress?'), null);\n  assert.equal(detectAriaAccountIntent('I have received the code and want you to confirm it'), 'verification');\n  assert.equal(detectAriaAccountIntent('my money was deducted'), 'payment');\n  assert.equal(detectAriaAccountIntent('reset my password'), null);
 });
 await testCase('asks a follow-up when the customer only names an account topic', async () => {
   const orders = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'orders' });
@@ -28,7 +28,7 @@ await testCase('asks a follow-up when the customer only names an account topic',
   const payments = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'payments' });
   assert.match(payments.reply, /payment went through/i);
   const verification = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1' }, message: 'codes' });
-  assert.match(verification.reply, /send a verification code/i);
+  assert.match(verification.reply, /send a verification code/i);\n  const gotCode = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1', email_verified: false }, message: 'I have received the code and want you to confirm it' });\n  assert.match(gotCode.reply, /type the six-digit code/i);\n  assert.equal(gotCode.nextAction, 'verify_email');
 });
 await testCase('requires sign-in before showing private account data', async () => {
   const out = await resolveAriaAccountIntent({ db, user: null, message: 'show my orders' });
@@ -70,3 +70,24 @@ await testCase('uses existing verification flow and reports cooldown without lea
   assert.match(out.reply, /j\*\*\*@example.com/);
 });
 console.log('Passed ' + passed + ' Aria account tests.');
+
+await testCase('confirms a code only after an explicit pending verification action', async () => {
+  let submitted = '';
+  const out = await resolveAriaAccountIntent({
+    db, user: { uid: 'customer-1', email_verified: false }, message: '123456',
+    conversationState: { pendingAccountAction: 'verify_email' },
+    confirmVerification: async (user, code) => { submitted = code; return { verified: true }; },
+  });
+  assert.equal(submitted, '123456');
+  assert.match(out.reply, /email is now verified/i);
+  assert.equal(out.clearPendingAction, true);
+});
+await testCase('does not claim verification succeeded for an incorrect code', async () => {
+  const out = await resolveAriaAccountIntent({
+    db, user: { uid: 'customer-1', email_verified: false }, message: '123456',
+    conversationState: { pendingAccountAction: 'verify_email' },
+    confirmVerification: async () => { throw new Error('Incorrect code. 4 attempts left.'); },
+  });
+  assert.match(out.reply, /doesn’t match/i);
+  assert.equal(out.keepPendingAction, true);
+});
