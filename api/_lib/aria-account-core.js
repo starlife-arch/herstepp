@@ -9,7 +9,7 @@ export function detectAriaAccountIntent(message) {
   return null;
 }
 
-const iso = value => value?.toDate ? value.toDate().toISOString() : value || null;
+const iso = value => value?.toDate ? value.toDate().toISOString() : value instanceof Date ? value.toISOString() : value || null;
 const statusText = value => String(value || 'UNKNOWN').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 const money = value => 'KSh ' + (Number(value) || 0).toLocaleString('en-KE');
 
