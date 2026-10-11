@@ -16,6 +16,11 @@ const money = value => 'KSh ' + (Number(value) || 0).toLocaleString('en-KE');
 export async function resolveAriaAccountIntent({ db, user, message, sendVerification, sendInvoice }) {
   const intent = detectAriaAccountIntent(message);
   if (!intent) return null;
+  const topic = String(message || '').toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').replace(/\\s+/g, ' ').trim();
+  if (/^(help with )?orders?$/.test(topic)) return { intent, reply: 'Of course! What would you like help with for your orders — tracking an order, checking delivery, viewing order details, or something else?', actions: [] };
+  if (/^(help with )?payments?$/.test(topic)) return { intent, reply: 'I can help with payments. Would you like to check whether a payment went through, view a receipt, or troubleshoot a pending M-Pesa payment?', actions: [] };
+  if (/^(help with )?(verification|verify|codes?|email verification)$/.test(topic)) return { intent, reply: 'I can help verify your email. Would you like me to send a verification code, or have you already received a code and want me to confirm it?', actions: [] };
+  if (/^(help with )?invoices?$/.test(topic)) return { intent, reply: 'Would you like to download an invoice here, or have me email an invoice to an address you choose?', actions: [] };
   if (!user?.uid) {
     return { intent, reply: 'I can help with that securely. Please sign in to your HerStep account first, then ask me again so I can show only your own order and payment details.', actions: [] };
   }
