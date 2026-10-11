@@ -138,6 +138,37 @@ export async function resendInvoiceCore({ db, uid, orderDocumentId, now = Date.n
   };
 }
 
+// Customer-requested invoice email. The signed-in owner may choose a recipient,
+// but only for a confirmed-paid order that belongs to that customer.
+export async function emailInvoiceToRecipientCore({ db, uid, orderDocumentId, email, now = Date.now() }) {
+  const docId = String(orderDocumentId || '').trim();
+  const recipient = String(email || '').trim().toLowerCase();
+  if (!docId) throw clientError('orderDocumentId is required.', 400);
+  if (recipient.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(recipient)) {
+    throw clientError('Please provide a valid email address.', 400);
+  }
+  const { order, paid } = await loadPaidInvoiceSource(db, docId);
+  if (order.customerId !== uid) throw clientError('You do not have access to this invoice.', 403);
+  if (!paid) throw clientError(NOT_PAID_MESSAGE, 409);
+  await checkHourlyLimit(db, `EMAIL-${uid}`, 5, now, 'invoice email');
+  const emailOrder = { ...order, id: docId };
+  const { subject, htmlContent } = invoiceEmail(emailOrder);
+  const key = `${docId}-CUSTOMER-INVOICE-${uid}-${now}`;
+  const writes = [];
+  queueEmail({ set: (ref, data) => writes.push(ref.set(data)) }, db, {
+    key,
+    purpose: 'invoices',
+    to: recipient,
+    subject,
+    htmlContent,
+    attachInvoiceFor: docId,
+  });
+  await Promise.all(writes);
+  const result = await deliverQueuedEmailInline(db, key);
+  return { queued: true, sent: result?.sent === true, to: recipient, key,
+    ...(!result?.sent ? { reason: result?.error || result?.reason || 'Email delivery could not be confirmed.' } : {}) };
+}
+
 // Roles are stored UPPERCASE in users/{uid}.role ("CUSTOMER" | "ADMIN" |
 // "SUPER_ADMIN") — comparing against lowercase 'admin' meant admins were
 // treated as non-admins and got 403/404 on invoice access.
