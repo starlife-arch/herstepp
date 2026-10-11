@@ -1,6 +1,11 @@
 import { FieldValue } from 'firebase-admin/firestore';
-import { adminDb, verifyUserToken } from './_lib/firebase-admin.js';
+import { waitUntil } from '@vercel/functions';
+import { adminAuth, adminDb, verifyUserToken } from './_lib/firebase-admin.js';
 import { clientError, methodNotAllowed } from './_lib/http.js';
+import { emailConfig, deliverQueuedEmailInline, verifySenderConfigured } from './_lib/email-service.js';
+import { sendVerifyCode, verifyKey } from './_lib/routes/email-verify-core.js';
+import { reconcileBestEffort } from './_lib/order-core.js';
+import { detectAriaAccountIntent, resolveAriaAccountIntent } from './_lib/aria-account-core.js';
 
 const scope = /cheap|lowest|least expensive|affordable|cost|kes|ksh|shoe|heels?|sandals?|flats?|loafers?|platforms?|slides?|footwear|size|sizing|wedding|party|occasion|colour|color|price|budget|stock|available|order|delivery|payment|pay|cart|buy|purchase|product|return|exchange|refund|support|ticket|herstep|collection|shop|shopping|new arrival|bestseller|featured|dress|outfit|work|office|school|birthday|event|style|fashion/i;
 const contactText = 'For personal help, contact HerStep on WhatsApp: https://wa.me/254106624924 or email herstepcollection@gmail.com.';
@@ -56,6 +61,26 @@ export default async function assistant(req,res) {
   await ref.collection('messages').add({role:'assistant',content:reply,productIds:[],needsHuman:true,createdAt:FieldValue.serverTimestamp()});
   await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId,customerId:user?.uid||null,customerName:user?.name||user?.displayName||'Website visitor',customerEmail:user?.email||'',subject:'Customer requested a human support agent',category:/payment|pay|mpesa|stk/i.test(message)?'Payment Issue':/delivery|shipping/i.test(message)?'Delivery Issue':/order|refund|cancel/i.test(message)?'Order Issue':'General Enquiry',handoffReason:'Customer explicitly requested a human agent',conversationId,status:'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(2),...(previous.exists?{}:{createdAt:FieldValue.serverTimestamp()}),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   return res.status(200).json({conversationId,reply,products:[],needsHuman:true,ticketId,supportContacts:{whatsapp:'https://wa.me/254106624924',email:'herstepcollection@gmail.com',phone:'+254799021089'}});
+ }
+ const accountIntent=detectAriaAccountIntent(message);
+ if(accountIntent) {
+  if(accountIntent==='payment' && user?.uid) {
+   await reconcileBestEffort(adminDb,{customerId:user.uid}).catch(error=>console.error('[Aria account] payment reconcile failed:',error?.message||error));
+  }
+  const accountResult=await resolveAriaAccountIntent({
+   db:adminDb,user,message,
+   sendVerification:verifiedUser=>sendVerifyCode({
+    db:adminDb,now:Date.now(),waitUntil,deliverQueuedEmailInline,
+    verifySenderConfigured:()=>verifySenderConfigured(emailConfig()),
+    verifyKey:()=>verifyKey(process.env),
+    markAuthEmailVerified:uid=>adminAuth.updateUser(uid,{emailVerified:true}),
+   },verifiedUser,{}),
+  });
+  const accountReply=String(accountResult?.reply||'I couldn’t retrieve that account information just now. Please try again or contact HerStep Support.');
+  const actions=Array.isArray(accountResult?.actions)?accountResult.actions:[];
+  await ref.set({status:'OPEN',lastMessage:message,lastReply:accountReply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  await ref.collection('messages').add({role:'assistant',content:accountReply,actions,createdAt:FieldValue.serverTimestamp()});
+  return res.status(200).json({conversationId,reply:accountReply,products:[],actions,needsHuman:false});
  }
  const replyOutOfScope='I’m Aria, your HerStep Collection shopping assistant. I can help with our shoes, colours, sizes, prices, stock, orders, delivery and customer support, but I can’t answer unrelated questions. What kind of shoes are you looking for?';
  const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you)[!.? ]*$/i.test(message);
