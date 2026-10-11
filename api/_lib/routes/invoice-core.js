@@ -144,7 +144,7 @@ export async function emailInvoiceToRecipientCore({ db, uid, orderDocumentId, em
   const docId = String(orderDocumentId || '').trim();
   const recipient = String(email || '').trim().toLowerCase();
   if (!docId) throw clientError('orderDocumentId is required.', 400);
-  if (recipient.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(recipient)) {
+  if (recipient.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipient)) {
     throw clientError('Please provide a valid email address.', 400);
   }
   const { order, paid } = await loadPaidInvoiceSource(db, docId);
