@@ -51,6 +51,18 @@ await testCase('offers invoice download only for a confirmed paid order owned by
   assert.equal(out.actions[0].orderDocumentId, 'orderdoc0001');
   assert.doesNotMatch(JSON.stringify(out.actions), /orderdoc0002/);
 });
+await testCase('emails only the selected customer-owned paid invoice to the requested address', async () => {
+  let delivered = null;
+  const out = await resolveAriaAccountIntent({
+    db,
+    user: { uid: 'customer-1' },
+    message: 'Send invoice HS-2026-000001 to invoices@example.com',
+    sendInvoice: async args => { delivered = args; return { sent: true }; },
+  });
+  assert.deepEqual(delivered, { uid: 'customer-1', orderDocumentId: 'orderdoc0001', email: 'invoices@example.com' });
+  assert.match(out.reply, /sent invoice/i);
+  assert.doesNotMatch(out.reply, /HS-2026-000002/);
+});
 await testCase('uses existing verification flow and reports cooldown without leaking codes', async () => {
   let called = false;
   const out = await resolveAriaAccountIntent({ db, user: { uid: 'customer-1', email_verified: false }, message: 'verify my email', sendVerification: async () => { called = true; return { sent: true, maskedEmail: 'j***@example.com' }; } });
