@@ -75,7 +75,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   if (intent === 'invoice') {
     const recipient = input.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i)?.[0] || '';
     const eligible = [];
-    for (const order of (number ? selected : orders)) {
+    for (const order of ((number || invoiceRef) ? selected : orders)) {
       if (String(order.paymentStatus || '').toUpperCase() !== 'PAID' || !order.paymentId) continue;
       const paymentSnap = await db.collection('payments').doc(String(order.paymentId)).get();
       if (paymentSnap.exists && String(paymentSnap.data()?.status || '').toUpperCase() === 'PAID') {
