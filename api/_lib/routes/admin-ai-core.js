@@ -30,7 +30,7 @@ export function classifyAdminQuestion(message) {
   return 'overview';
 }
 
-export function summarizeAdminData({ orders = [], products = [], tickets = [], tips = [], now = new Date() } = {}) {
+export function summarizeAdminData({ orders = [], products = [], tickets = [], tips = [], expenses = [], now = new Date() } = {}) {
   const paidOrders = orders.filter(order => upper(order.paymentStatus) === 'PAID');
   const pendingOrders = orders.filter(order => ['PENDING', 'PROCESSING', ''].includes(upper(order.orderStatus)));
   const paymentPending = orders.filter(order => ['PENDING', 'PROCESSING', 'TIMEOUT'].includes(upper(order.paymentStatus)));
@@ -64,6 +64,8 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
 
   const paidTips = tips.filter(tip => upper(tip.status) === 'PAID');
   const tipTotal = paidTips.reduce((sum, tip) => sum + number(tip.amount), 0);
+  const expenseRows = expenses.filter(expense => Number.isFinite(Number(expense.amount)) && Number(expense.amount) > 0);
+  const expensesThisMonth = expenseRows.filter(expense => String(expense.expenseDate || '').slice(0, 7) === monthKey);
   const ticketStatuses = {};
   for (const ticket of tickets) {
     const status = upper(ticket.status) || 'UNKNOWN';
@@ -107,6 +109,7 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
     stock: { activeProducts, unitsInStock: totalStock, lowStockVariants, outOfStockVariants, lowStockItems: lowStockItems.sort((a, b) => a.quantity - b.quantity).slice(0, 30) },
     support: { ticketCount: tickets.length, statuses: ticketStatuses },
     tips: { paidTipCount: paidTips.length, paidTipValue: tipTotal },
+    expenses: { recordedCount: expenseRows.length, recordedValue: expenseRows.reduce((sum, expense) => sum + number(expense.amount), 0), thisMonthCount: expensesThisMonth.length, thisMonthValue: expensesThisMonth.reduce((sum, expense) => sum + number(expense.amount), 0), sampleWindow: 'Up to 300 most recent recorded expenses; this is not guaranteed to be a lifetime total.' },
     profit: {
       knownCostPaidOrderCount: knownCostOrders,
       paidOrderCount: paidOrders.length,
@@ -132,6 +135,7 @@ export function buildAdminFallbackAnswer(intent, report) {
   }
   if (intent === 'support') return 'Support snapshot: ' + report.support.ticketCount + ' tickets in the fetched report. Statuses: ' + (Object.entries(report.support.statuses).map(([k, v]) => k + ': ' + v).join(', ') || 'no tickets found') + '.';
   if (intent === 'tips') return 'Paid tips in the fetched report: ' + report.tips.paidTipCount + ', totalling ' + currency(report.tips.paidTipValue) + '.';
+  if (intent === 'expenses') return 'Operating expenses recorded in the recent report: ' + report.expenses.recordedCount + ' entries totalling ' + currency(report.expenses.recordedValue) + '. This month in the fetched expense sample: ' + report.expenses.thisMonthCount + ' entries totalling ' + currency(report.expenses.thisMonthValue) + '. ' + report.expenses.sampleWindow + ' This is not a net-profit calculation.';
   if (intent === 'payments') return 'Payment snapshot: ' + report.sales.paidOrderCount + ' paid orders totalling ' + currency(report.sales.paidOrderValue) + '; ' + report.sales.pendingPaymentCount + ' orders have pending/processing/timed-out payment status. This uses the newest order records fetched for the report.';
   if (intent === 'orders') return 'Order snapshot: ' + report.sampleWindow.orders + ' recent orders fetched. Statuses: ' + (Object.entries(report.sales.orderStatuses).map(([k, v]) => k + ': ' + v).join(', ') || 'no orders found') + '. ' + report.sales.pendingOrderCount + ' are pending/processing orders.';
   if (intent === 'sales') return 'Sales snapshot from the newest order records fetched: ' + report.sales.paidOrderCount + ' paid orders totalling ' + currency(report.sales.paidOrderValue) + '. In that fetched sample, today (Kenya time) has ' + report.sales.paidTodayCount + ' paid orders totalling ' + currency(report.sales.paidTodayValue) + ', and this month has ' + report.sales.paidThisMonthCount + ' paid orders totalling ' + currency(report.sales.paidThisMonthValue) + '. This is not guaranteed to be a lifetime total.';
