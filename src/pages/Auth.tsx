@@ -97,9 +97,9 @@ function GoogleSignInButton() {
 }
 
 function normalizePhone(value: string) {
-  let number = value.replace(/[\s()\-]/g, '');
+  let number = value.replace(/\D/g, '');
   if (number.startsWith('0')) number = `254${number.slice(1)}`;
-  if (number.startsWith('+')) number = number.slice(1);
+  else if (number.startsWith('7') || number.startsWith('1')) number = `254${number}`;
   return /^254[17]\d{8}$/.test(number) ? `+${number}` : null;
 }
 
@@ -239,7 +239,7 @@ export function Register() {
             {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
             <Input label="Full Name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Your full name" required />
             <Input label="Email" type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="your@email.com" required />
-            <Input label="Phone" value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} placeholder="+254 7XX XXX XXX" required />
+            <Input label="Phone" value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} placeholder="07…, 01…, 2547…, or +2547…" required />
             <Input label="Password" type="password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} placeholder="Create a password" required />
             <Button type="submit" size="lg" className="w-full" loading={loading}>Create Account</Button>
           </form>
