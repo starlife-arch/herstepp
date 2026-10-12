@@ -696,25 +696,28 @@ export default function AdminDashboard() {
       </aside>
 
       {/* Mobile Header */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-neutral-200 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-neutral-900 rounded-lg flex items-center justify-center">
+      <div className="lg:hidden fixed top-0 left-0 right-0 z-40 bg-white border-b border-neutral-200 px-3 py-2.5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="w-8 h-8 bg-neutral-900 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-xs">H</span>
             </div>
             <span className="font-semibold text-sm">Admin</span>
           </div>
-          <div className="flex items-center gap-2">
-            <select value={activeSection} onChange={e => setActiveSection(e.target.value)} className="text-sm border border-neutral-200 rounded-lg px-2 py-1.5">
-              {navItems.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-            </select>
-            <Link to="/admin/costs" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Cost &amp; Profit</Link><Link to="/admin/ai" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Admin AI</Link><Link to="/admin/ai-chats" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Aria Chats</Link><Link to="/admin/bulk-upload" className="text-xs font-medium bg-neutral-900 text-white rounded-lg px-2 py-2">Bulk Upload</Link>
-          </div>
+          <select aria-label="Admin dashboard section" value={activeSection} onChange={e => setActiveSection(e.target.value)} className="min-w-0 max-w-[58%] text-sm border border-neutral-200 rounded-lg px-2 py-2 bg-white">
+            {navItems.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
+          </select>
         </div>
+        <nav aria-label="Admin shortcuts" className="mt-2 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
+          <Link to="/admin/costs" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Cost &amp; Profit</Link>
+          <Link to="/admin/ai" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Admin AI</Link>
+          <Link to="/admin/ai-chats" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Aria Chats</Link>
+          <Link to="/admin/bulk-upload" className="shrink-0 text-sm font-medium bg-neutral-900 text-white rounded-lg px-3 py-2">Bulk Upload</Link>
+        </nav>
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 lg:ml-64 pt-16 lg:pt-0">
+      <main className="flex-1 min-w-0 lg:ml-64 pt-32 sm:pt-32 lg:pt-0">
         <div className="p-4 sm:p-6 lg:p-8">
           {activeSection === 'overview' && <AdminOverview res={ordersRes} orders={orders} />}
           {activeSection === 'orders' && <AdminOrders res={ordersRes} orders={orders} />}
