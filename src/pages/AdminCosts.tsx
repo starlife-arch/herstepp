@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ReceiptText } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { apiFetch } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
-import { Button, Card, Input, formatCurrency, formatDate } from '../components/ui';
+import { Button, Card, Input, formatCurrency } from '../components/ui';
 
 type Expense = { id: string; amount: number; description: string; category: string; expenseDate: string; reference?: string };
 type MissingCost = { orderId: string; itemIndex: number; productId: string; name: string; size: string; quantity: number; unitPrice: number; unitCost: number | null; orderCreatedAt: string | null };
