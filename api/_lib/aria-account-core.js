@@ -1,12 +1,12 @@
 // Deterministic, testable account-intent handling for Aria. Never trust the
 // language model to establish identity, order ownership, payment status or invoice eligibility.
 export function detectAriaAccountIntent(message) {
-  const text = String(message || '').toLowerCase().replace(/[^a-z0-9@._\\s-]/g, ' ').replace(/\\s+/g, ' ').trim();
-  if (/\\b(password|reset password|forgot password|forgot my password|change password)\\b/.test(text)) return null;
-  if (/\\b(verify|verification|verified|verification code|resend.*code|send.*code|confirm.*code|codes?|otp|one time password)\\b/.test(text) || /\\b(email|account)\\b.*\\b(confirm|verify|verified|code)\\b/.test(text) || /^(verify|verification|code|codes|otp|email verification)$/.test(text)) return 'verification';
-  if (/\\b(invoice|invoices|bill|bills|download.*invoice|my invoice|send.*invoice|email.*invoice)\\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
-  if (/\\b(payment|payments|paid|pay|mpesa|m-pesa|transaction|charged|money deducted|money taken|money sent|refund|receipt)\\b/.test(text)) return 'payment';
-  if (/\\b(order|orders|delivery|deliveries|tracking|track|parcel|package|purchase|shipment|shipping)\\b/.test(text) || /\\bHS-\\d{4}-\\d{6}\\b/i.test(text)) return 'order';
+  const text = String(message || '').toLowerCase().replace(/[^a-z0-9@._\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (/\b(password|reset password|forgot password|forgot my password|change password)\b/.test(text)) return null;
+  if (/\b(verify|verification|verified|verification code|resend.*code|send.*code|confirm.*code|codes?|otp|one time password)\b/.test(text) || /\b(email|account)\b.*\b(confirm|verify|verified|code)\b/.test(text) || /^(verify|verification|code|codes|otp|email verification)$/.test(text) || /\b(?:i have|i've|ive|already)\s+(?:received|got)\s+(?:it|one|the code)\b/.test(text)) return 'verification';
+  if (/\b(invoice|invoices|bill|bills|download.*invoice|my invoice|send.*invoice|email.*invoice)\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
+  if (/\b(payment|payments|paid|pay|mpesa|m-pesa|transaction|charged|money deducted|money taken|money sent|refund|receipt)\b/.test(text)) return 'payment';
+  if (/\b(order|orders|delivery|deliveries|tracking|track|parcel|package|purchase|shipment|shipping)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
   return null;
 }
 
@@ -29,7 +29,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   if (intent === 'verification') {
     if (user.email_verified === true && conversationState.pendingAccountAction !== 'verify_email') return { intent, reply: 'Your email is already verified. You’re all set!', actions: [] };
     const code = String(message || '').trim();
-    if (conversationState.pendingAccountAction === 'verify_email' && /^\\d{6}$/.test(code)) {
+    if (conversationState.pendingAccountAction === 'verify_email' && /^\d{6}$/.test(code)) {
       if (typeof confirmVerification !== 'function') return { intent, reply: 'I’m ready to check your code, but verification is temporarily unavailable. Please try again shortly.', actions: [] };
       try {
         const result = await confirmVerification(user, code);
@@ -43,7 +43,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
         return { intent, reply: 'I couldn’t verify that code just now. Please try again or contact HerStep Support.', actions: [], keepPendingAction: true };
       }
     }
-    const alreadyHasCode = /\\b(already|received|got|have)\\b.{0,45}\\b(code|otp|verification)\\b|\\b(confirm|check|verify)\\b.{0,45}\\b(code|otp)\\b/i.test(message);
+    const alreadyHasCode = /\b(already|received|got|have)\b.{0,45}\b(code|otp|verification)\b|\b(confirm|check|verify)\b.{0,45}\b(code|otp)\b|\b(?:i have|i've|ive|already)\s+(?:received|got)\s+(?:it|one|the code)\b/i.test(message);
     if (alreadyHasCode) return { intent, reply: 'No problem — please type the six-digit code you received here in our chat. I’ll check it for you; there’s no need to request another one.', actions: [], nextAction: 'verify_email' };
     if (user.email_verified === true) return { intent, reply: 'Your email is already verified. You’re all set!', actions: [] };
     try {
@@ -66,7 +66,8 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   const orders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt) }));
   const input = String(message || '');
   const number = input.match(/\bHS-\d{4}-\d{6}\b/i)?.[0]?.toUpperCase();
-  const selected = number ? orders.filter(order => String(order.orderId || '').toUpperCase() === number) : orders;
+  const invoiceRef = input.match(/\bINV-\d{4}-\d{6}\b/i)?.[0]?.toUpperCase();
+  const selected = number ? orders.filter(order => String(order.orderId || '').toUpperCase() === number) : invoiceRef ? orders.filter(order => String(order.invoiceNumber || '').toUpperCase() === invoiceRef || String(order.orderId || '').replace(/^HS-/i, 'INV-').toUpperCase() === invoiceRef) : orders;
   if ((number || invoiceRef) && selected.length === 0) {
     return { intent, reply: 'I couldn’t find that order on your account. Please check the order number, or ask me to show your recent orders.', actions: [] };
   }

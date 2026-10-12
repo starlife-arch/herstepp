@@ -107,14 +107,17 @@ export default async function assistant(req,res) {
  }
  const replyOutOfScope='I’m Aria, your HerStep Collection shopping assistant. I can help with our shoes, colours, sizes, prices, stock, orders, delivery and customer support, but I can’t answer unrelated questions. What kind of shoes are you looking for?';
  const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you)[!.? ]*$/i.test(message);
- if(!scope.test(message)&&!greeting) {
+ const historySnap=await ref.collection('messages').orderBy('createdAt','desc').limit(12).get();
+ const recentHistory=historySnap.docs.map(d=>({role:d.data().role,content:String(d.data().content||'')})).reverse();
+ const hasRelevantContext=recentHistory.slice(-6).some(m=>/order|payment|invoice|verification|verify|code|delivery|tracking|support|shoe|size|price|stock/i.test(m.content));
+ const contextualFollowUp=hasRelevantContext && (message.length<100 || /\b(this|that|it|they|those|these|one|already|yes|no|both|do that|send it|help me|the first|the second|what about|i have|received|got it)\b/i.test(message));
+ if(!scope.test(message)&&!greeting&&!contextualFollowUp) {
   await ref.set({status:'OPEN',lastMessage:message,lastReply:replyOutOfScope,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   await ref.collection('messages').add({role:'assistant',content:replyOutOfScope,productIds:[],createdAt:FieldValue.serverTimestamp()});
   return res.status(200).json({conversationId,reply:replyOutOfScope,products:[],needsHuman:false});
  }
  const snap=await adminDb.collection('products').where('status','==','ACTIVE').limit(1000).get();
  const products=snap.docs.map(d=>{const p=d.data(), inv=Array.isArray(p.inventory)?p.inventory.filter(x=>x&&Number(x.quantity)>0):[];return {id:d.id,name:String(p.name||''),sku:String(p.sku||''),description:String(p.description||'').slice(0,400),categoryId:String(p.categoryId||''),price:Number(p.salePrice)>0&&Number(p.salePrice)<Number(p.price)?Number(p.salePrice):Number(p.price||0),regularPrice:Number(p.price||0),inventory:inv.map(x=>({size:String(x.size),quantity:Number(x.quantity)})),sizes:inv.map(x=>String(x.size)),image:Array.isArray(p.images)?p.images[0]?.url||'':'',featured:!!p.featured,bestseller:!!p.bestseller,newArrival:!!p.newArrival};}).filter(p=>p.name);
- const historySnap=await ref.collection('messages').orderBy('createdAt','desc').limit(12).get();
  const history=historySnap.docs.slice().reverse().map(d=>({role:['assistant','admin'].includes(d.data().role)?'assistant':'user',content:String(d.data().content||'').slice(0,1000)}));
  const cheapestIntent=/\b(?:cheapest|cheaper|lowest priced|lowest price|least expensive|most affordable|cheapest one|cheapest shoes)\b/i.test(message);
  if(cheapestIntent) {

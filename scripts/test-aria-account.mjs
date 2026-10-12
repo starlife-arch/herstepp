@@ -22,6 +22,7 @@ await testCase('detects only account-action intents', async () => {
   assert.equal(detectAriaAccountIntent('codes'), 'verification');
   assert.equal(detectAriaAccountIntent('What shoes go with a dress?'), null);
   assert.equal(detectAriaAccountIntent('I have received the code and want you to confirm it'), 'verification');
+  assert.equal(detectAriaAccountIntent('I have received it'), 'verification');
   assert.equal(detectAriaAccountIntent('my money was deducted'), 'payment');
   assert.equal(detectAriaAccountIntent('reset my password'), null);
 });
