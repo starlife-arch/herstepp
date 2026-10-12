@@ -30,7 +30,7 @@ import {
 
 async function getOptionalUser(req) {
   const authorization = String(req.headers?.authorization || '');
-  const token = authorization.match(/^Bearer\\s+(.+)$/i)?.[1];
+  const token = authorization.match(/^Bearer\s+(.+)$/i)?.[1];
   return token ? verifyUserToken(token, false) : null;
 }
 
