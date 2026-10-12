@@ -103,6 +103,19 @@ function checkoutPayload() {
 console.log('order-core offline tests');
 // ---------------------------------------------------------------------------
 
+await test('normalizes common Kenyan phone formats to +254 E.164', async () => {
+  for (const [input, expected] of [
+    ['0712345678', '+254712345678'],
+    ['0112345678', '+254112345678'],
+    ['+254712345678', '+254712345678'],
+    ['254712345678', '+254712345678'],
+    ['254112345678', '+254112345678'],
+    ['+254112345678', '+254112345678'],
+  ]) {
+    assert.equal(normalizeKenyanPhone(input), expected, input);
+  }
+});
+
 await test('checkout payload without email creates the order (no "Email address is required")', async () => {
   const db = seedBase();
   const res = await createOrderCore(db, deps(db), checkoutPayload());

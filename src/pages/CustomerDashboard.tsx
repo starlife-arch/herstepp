@@ -433,16 +433,19 @@ function ProfileTab() {
 
   const saveProfilePhone = async (event: React.FormEvent) => {
     event.preventDefault();
-    const raw = phoneDraft.replace(/[\s()\-]/g, '');
-    if (!/^(\+254|0)[17]\d{8}$/.test(raw)) {
-      setPhoneError('Enter a valid Kenyan phone number, e.g. 0712 345 678.');
+    let digits = phoneDraft.replace(/\D/g, '');
+    if (digits.startsWith('0')) digits = `254${digits.slice(1)}`;
+    else if (digits.startsWith('7') || digits.startsWith('1')) digits = `254${digits}`;
+    const normalizedPhone = /^254[17]\d{8}$/.test(digits) ? `+${digits}` : '';
+    if (!normalizedPhone) {
+      setPhoneError('Enter a valid Kenyan number, e.g. 0712345678, 254712345678, or +254712345678.');
       return;
     }
     setPhoneError('');
     setPhoneSaving(true);
     try {
-      await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ phoneNumber: raw }) });
-      if (state.user) dispatch({ type: 'SET_USER', payload: { ...state.user, phone: raw.startsWith('+') ? raw : `+254${raw.slice(1)}` } });
+      await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ phoneNumber: normalizedPhone }) });
+      if (state.user) dispatch({ type: 'SET_USER', payload: { ...state.user, phone: normalizedPhone } });
       setPhoneDraft('');
     } catch (error) {
       setPhoneError(error instanceof Error ? error.message : 'Could not save your phone number.');
@@ -461,7 +464,7 @@ function ProfileTab() {
             <input
               value={phoneDraft}
               onChange={event => setPhoneDraft(event.target.value)}
-              placeholder="+254 7XX XXX XXX"
+              placeholder="07…, 01…, 2547…, or +2547…"
               className="flex-1 rounded-lg border border-yellow-300 bg-white px-3 py-2 text-sm text-neutral-900 focus:outline-none focus:ring-2 focus:ring-yellow-400"
             />
             <Button type="submit" size="sm" loading={phoneSaving}>Save phone</Button>

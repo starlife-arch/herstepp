@@ -14,6 +14,13 @@ import { usePromo } from '../lib/usePromo';
 
 type CheckoutConfig = CheckoutConfigResponse;
 
+function normalizeKenyanPhone(value: string): string | null {
+  let number = value.replace(/\D/g, '');
+  if (number.startsWith('0')) number = `254${number.slice(1)}`;
+  else if (number.startsWith('7') || number.startsWith('1')) number = `254${number}`;
+  return /^254[17]\d{8}$/.test(number) ? `+${number}` : null;
+}
+
 // Finite outcome of the payment poll. Anything else keeps polling until the
 // 90-second deadline turns into 'STILL_PENDING'.
 type PaymentOutcome = 'PAID' | 'CANCELLED' | 'FAILED' | 'TIMEOUT' | 'STILL_PENDING';
@@ -148,7 +155,7 @@ export default function Checkout() {
     const e: Record<string, string> = {};
     if (!form.fullName.trim()) e.fullName = 'Full name is required';
     if (!form.phone.trim()) e.phone = 'Phone number is required';
-    if (!/^(\+254|0)[17]\d{8}$/.test(form.phone.replace(/\s/g, ''))) e.phone = 'Enter a valid Kenyan phone number';
+    if (form.phone.trim() && !normalizeKenyanPhone(form.phone)) e.phone = 'Enter a valid Kenyan phone number, e.g. 0712345678, 254712345678, or +254712345678.';
     if (!form.email.trim()) e.email = 'Email is required';
     if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email';
     if (form.deliveryMethod === 'delivery' && !form.deliveryLocation.trim()) e.deliveryLocation = 'Delivery location is required';
@@ -158,15 +165,18 @@ export default function Checkout() {
 
   const handleContinue = () => {
     if (!validate()) return;
+    const normalizedPhone = normalizeKenyanPhone(form.phone);
+    if (!normalizedPhone) return; // validate() already shows the field error.
+    setForm(current => ({ ...current, phone: normalizedPhone }));
     // Google sign-ups have no phone on their profile. The delivery/M-Pesa
     // phone collected here is saved back to users/{uid} — ALWAYS when the
     // profile phone is empty, or when the user ticks "save to my profile" —
     // so future checkouts and the M-Pesa prompt work without re-typing.
     if (state.user) {
       const wantsSave = savePhoneToProfile || !state.user.phone;
-      if (wantsSave && state.user.phone !== form.phone.replace(/\s/g, '')) {
-        void apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ phoneNumber: form.phone }) })
-          .then(() => dispatch({ type: 'SET_USER', payload: { ...state.user!, phone: form.phone.replace(/\s/g, '') } }))
+      if (wantsSave && state.user.phone !== normalizedPhone) {
+        void apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ phoneNumber: normalizedPhone }) })
+          .then(() => dispatch({ type: 'SET_USER', payload: { ...state.user!, phone: normalizedPhone } }))
           .catch(() => { /* best-effort: checkout never blocks on profile sync */ });
       }
     }
@@ -489,7 +499,7 @@ export default function Checkout() {
                 )}
                 <Input label="Full Name" value={form.fullName} onChange={e => setForm({ ...form, fullName: e.target.value })} error={errors.fullName} placeholder="Enter your full name" />
                 <div>
-                  <Input label="Phone Number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} error={errors.phone} placeholder="+254 7XX XXX XXX" />
+                  <Input label="Phone Number" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} error={errors.phone} placeholder="07…, 01…, 2547…, or +2547…" />
                   {state.user && (
                     <label className="flex items-center gap-2 mt-2 text-sm text-neutral-600">
                       <input type="checkbox" checked={savePhoneToProfile} onChange={e => setSavePhoneToProfile(e.target.checked)} className="rounded border-neutral-300" disabled={!state.user.phone} />
