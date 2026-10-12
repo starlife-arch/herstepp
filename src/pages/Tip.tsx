@@ -12,6 +12,13 @@ import { Button, Card, Input, Badge, getStatusBadge, formatCurrency } from '../c
 import { apiFetch } from '../lib/api';
 
 // Hardcoded preset amounts (KSh) — shown as chips in a responsive grid.
+function normalizeKenyanPhone(value: string): string | null {
+  let number = value.replace(/\D/g, '');
+  if (number.startsWith('0')) number = `254${number.slice(1)}`;
+  else if (number.startsWith('7') || number.startsWith('1')) number = `254${number}`;
+  return /^254[17]\d{8}$/.test(number) ? `+${number}` : null;
+}
+
 const TIP_PRESETS = [50, 100, 200, 500, 1000, 2000, 5000, 10000];
 
 const TREAT_OPTIONS = [
@@ -147,7 +154,8 @@ export default function TipPage() {
     }
     const nextErrors: Record<string, string> = {};
     if (!amountValid) nextErrors.amount = 'Enter a whole number between KSh 10 and KSh 150,000.';
-    if (!/^\+?254[0-9\s-]{9,12}$/.test(phone.trim())) nextErrors.phone = 'Enter a Kenyan phone number (+254…).';
+    const normalizedPhone = normalizeKenyanPhone(phone);
+    if (!normalizedPhone) nextErrors.phone = 'Enter a valid Kenyan number, e.g. 0712345678, 254712345678, or +254712345678.';
     if (message.length > 200) nextErrors.message = 'Keep your message to 200 characters or fewer.';
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length) return;
@@ -159,7 +167,7 @@ export default function TipPage() {
     try {
       const res: any = await apiFetch('/api/tips/create', {
         method: 'POST',
-        body: JSON.stringify({ amount, treat, phone: phone.trim(), message: message.trim() }),
+        body: JSON.stringify({ amount, treat, phone: normalizeKenyanPhone(phone), message: message.trim() }),
       });
       const tip = res?.tip as TipView;
       if (!tip?.tipId) throw new Error('no-tip');
@@ -315,7 +323,7 @@ export default function TipPage() {
           value={phone}
           onChange={e => setPhone(e.target.value)}
           error={errors.phone || undefined}
-          placeholder="+254 7XX XXX XXX"
+          placeholder="07…, 01…, 2547…, or +2547…"
         />
 
         <div>
