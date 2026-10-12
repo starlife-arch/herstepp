@@ -19,7 +19,8 @@ function nairobiDateParts(value) {
 
 export function classifyAdminQuestion(message) {
   const text = String(message || '').toLowerCase();
-  if (/\b(profit|margin|cost of goods|cost price|expenses?)\b/.test(text)) return 'profit';
+  if (/\b(expense|expenses|overheads|rent|advertising spend|delivery spend)\b/.test(text)) return 'expenses';
+  if (/\b(profit|margin|cost of goods|cost price)\b/.test(text)) return 'profit';
   if (/\b(stock|inventory|out of stock|low stock|products?)\b/.test(text)) return 'stock';
   if (/\b(ticket|support|complaint|unresolved|customer service)\b/.test(text)) return 'support';
   if (/\b(tip|tips|tipping)\b/.test(text)) return 'tips';
