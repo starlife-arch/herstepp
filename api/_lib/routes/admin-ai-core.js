@@ -78,7 +78,7 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
     let complete = true;
     for (const item of items) {
       const unitCost = [item.unitCost, item.costPrice, item.cost].find(v => v !== undefined && v !== null && v !== '');
-      if (unitCost === undefined) { complete = false; break; }
+      if (unitCost === undefined || !Number.isFinite(Number(unitCost)) || Number(unitCost) < 0) { complete = false; break; }
       cost += number(unitCost) * Math.max(0, number(item.quantity));
     }
     if (complete) {
