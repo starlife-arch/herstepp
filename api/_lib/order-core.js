@@ -699,6 +699,7 @@ function flushPaymentEmails(db, result) {
     const orderData = orderSnapForNotify?.exists ? orderSnapForNotify.data() : null;
     telegramPayment(result.status, orderData || {}, { amount: undefined, failureReason: undefined });
     for (const key of result.emailKeys || []) await deliverEmailAfterCommit(db, key);
+    if (result.smsKey) await deliverSmsAfterCommit(db, result.smsKey);
   })().catch(error => {
     console.error('[order-core] post-commit payment notify failed:', error?.message || error);
   });
