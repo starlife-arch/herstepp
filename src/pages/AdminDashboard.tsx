@@ -675,6 +675,7 @@ export default function AdminDashboard() {
             </button>
           ))}
           <Link to="/admin/ai" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Sparkles className="w-4 h-4" /> Admin AI</Link>
+          <Link to="/admin/costs" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><CreditCard className="w-4 h-4" /> Cost &amp; Profit</Link>
           <Link to="/admin/ai-chats" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><MessageSquare className="w-4 h-4" /> Aria Chats</Link>
           <Link to="/admin/bulk-upload" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50">
             <Upload className="w-4 h-4" /> AI Bulk Shoe Upload
@@ -707,7 +708,7 @@ export default function AdminDashboard() {
             <select value={activeSection} onChange={e => setActiveSection(e.target.value)} className="text-sm border border-neutral-200 rounded-lg px-2 py-1.5">
               {navItems.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
             </select>
-            <Link to="/admin/ai" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Admin AI</Link><Link to="/admin/ai-chats" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Aria Chats</Link><Link to="/admin/bulk-upload" className="text-xs font-medium bg-neutral-900 text-white rounded-lg px-2 py-2">Bulk Upload</Link>
+            <Link to="/admin/costs" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Cost &amp; Profit</Link><Link to="/admin/ai" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Admin AI</Link><Link to="/admin/ai-chats" className="text-xs font-medium border border-neutral-300 rounded-lg px-2 py-2">Aria Chats</Link><Link to="/admin/bulk-upload" className="text-xs font-medium bg-neutral-900 text-white rounded-lg px-2 py-2">Bulk Upload</Link>
           </div>
         </div>
       </div>
