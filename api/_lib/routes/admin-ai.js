@@ -28,13 +28,14 @@ async function safeDocs(query, label) {
 }
 
 async function loadReportData() {
-  const [orders, products, tickets, tips] = await Promise.all([
+  const [orders, products, tickets, tips, expenses] = await Promise.all([
     safeDocs(adminDb.collection('orders').orderBy('createdAt', 'desc').limit(500), 'orders'),
     safeDocs(adminDb.collection('products').limit(500), 'products'),
     safeDocs(adminDb.collection('supportTickets').orderBy('updatedAt', 'desc').limit(200), 'support tickets'),
     safeDocs(adminDb.collection('tips').orderBy('createdAt', 'desc').limit(200), 'tips'),
+    safeDocs(adminDb.collection('businessExpenses').orderBy('expenseDate', 'desc').limit(300), 'business expenses'),
   ]);
-  return summarizeAdminData({ orders, products, tickets, tips });
+  return summarizeAdminData({ orders, products, tickets, tips, expenses });
 }
 
 async function askModel(message, intent, report) {
@@ -44,7 +45,7 @@ async function askModel(message, intent, report) {
     'You are the private, read-only Admin AI for HerStep Collection, a Kenyan online footwear store.',
     'Answer the administrator question using only the aggregate report JSON supplied below.',
     'Never invent facts, dates, totals, costs, profit, or causes. State that figures reflect the bounded report sample where relevant.',
-    'Profit: only discuss gross profit if knownGrossProfit is a number and knownCostPaidOrderCount equals paidOrderCount. Never call gross profit net profit. If cost coverage is incomplete, say it cannot be reliably calculated.',
+    'Profit: only discuss gross profit if knownGrossProfit is a number and knownCostPaidOrderCount equals paidOrderCount. Never call gross profit net profit. If cost coverage is incomplete, say it cannot be reliably calculated. Expenses are a separate bounded sample; do not subtract them from an unrelated order sample to claim net profit.',
     'Do not request, reveal, or infer customer passwords, authentication tokens, M-Pesa PINs, full phone numbers, private customer messages, or other personal data.',
     'This phase is strictly read-only. Do not claim to have changed an order, stock, payment, ticket, invoice, or customer record. Explain that operational actions must be done in the existing admin tools.',
     'Keep the answer concise, practical, and in KSh where money is shown.',

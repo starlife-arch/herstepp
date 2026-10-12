@@ -209,6 +209,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
         changes.push({ size: line.size, quantity: line.quantity, previousQuantity: before, newQuantity: after });
         const price = unitPrice(data);
         subtotal += price * line.quantity;
+        const variantCost = (Array.isArray(data.inventory) ? data.inventory : []).find(v => String(v.size) === String(line.size))?.costPrice;
         items.push({
           productId,
           name: data.name,
@@ -217,6 +218,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
           size: line.size,
           quantity: line.quantity,
           unitPrice: price,
+          unitCost: Number.isInteger(variantCost) && variantCost >= 0 ? variantCost : null,
           lineTotal: price * line.quantity,
           imageUrl: Array.isArray(data.images) ? data.images[0]?.url ?? null : null,
         });

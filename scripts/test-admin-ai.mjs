@@ -6,6 +6,7 @@ assert.equal(classifyAdminQuestion('Which stock is low?'), 'stock');
 assert.equal(classifyAdminQuestion('How are M-Pesa payments?'), 'payments');
 assert.equal(classifyAdminQuestion('How many support tickets are open?'), 'support');
 assert.equal(classifyAdminQuestion('Summarise paid tips'), 'tips');
+assert.equal(classifyAdminQuestion('How much did we spend on rent?'), 'expenses');
 assert.equal(classifyAdminQuestion('Give me an overview'), 'sales');
 
 const report = summarizeAdminData({
@@ -20,6 +21,7 @@ const report = summarizeAdminData({
   ],
   tickets: [{ status: 'OPEN' }, { status: 'RESOLVED' }],
   tips: [{ status: 'PAID', amount: 300 }, { status: 'PENDING', amount: 500 }],
+  expenses: [{ amount: 500, expenseDate: '2026-10-01' }, { amount: 200, expenseDate: '2026-09-20' }],
 });
 
 assert.equal(report.sales.paidOrderCount, 1);
@@ -34,6 +36,9 @@ assert.equal(report.stock.lowStockItems[0].name, 'Low-stock heel');
 assert.equal(report.support.ticketCount, 2);
 assert.equal(report.tips.paidTipCount, 1);
 assert.equal(report.tips.paidTipValue, 300);
+assert.equal(report.expenses.recordedValue, 700);
+assert.equal(report.expenses.thisMonthValue, 500);
+assert.match(buildAdminFallbackAnswer('expenses', report), /KSh 700/);
 assert.equal(report.profit.knownGrossProfit, 1100);
 assert.equal(report.profit.knownCostPaidOrderCount, 1);
 

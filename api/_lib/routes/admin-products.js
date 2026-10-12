@@ -28,6 +28,7 @@ export function validateProduct(input) {
   p.inventory.forEach(i => {
     assert(i && typeof i.size === 'string' && sizes.has(i.size) && !seen.has(i.size) && Number.isInteger(i.quantity) && i.quantity >= 0,
       'Inventory sizes must be unique strings from 30 to 45 with non-negative quantities.');
+    assert(i.costPrice === undefined || i.costPrice === null || (Number.isInteger(i.costPrice) && i.costPrice >= 0), 'Variant cost price must be a non-negative whole KSh amount or blank.');
     seen.add(i.size);
   });
   assert(Array.isArray(p.images) && p.images.length >= 1 && p.images.length <= 8, 'Provide between one and eight images.');
@@ -35,7 +36,7 @@ export function validateProduct(input) {
   assert(p.video === null || p.video === undefined || (typeof p.video.url === 'string' && typeof p.video.publicId === 'string' && p.video.resourceType === 'video'), 'Video is invalid.');
   assert(statuses.includes(p.status), 'Product status is invalid.');
   ['featured', 'bestseller', 'newArrival'].forEach(k => assert(typeof p[k] === 'boolean', `${k} must be true or false.`));
-  const inventory = p.inventory.map(i => ({ size: i.size, quantity: i.quantity }));
+  const inventory = p.inventory.map(i => ({ size: i.size, quantity: i.quantity, costPrice: i.costPrice === undefined || i.costPrice === null || i.costPrice === '' ? null : i.costPrice }));
   return {
     name: p.name.trim(),
     description: p.description,
