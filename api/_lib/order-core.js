@@ -880,11 +880,13 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
     // status; PROCESSING/PROCESSED/OUT_FOR_DELIVERY/DELIVERED/CANCELLED only —
     // queueOrderStatusEmail ignores anything else).
     queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderStatus });
+    const smsKey = queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatus });
 
-    return { ok: true, emailKey: `${orderDocumentId}-ORDER-${orderStatus}` };
+    return { ok: true, emailKey: `${orderDocumentId}-ORDER-${orderStatus}`, smsKey };
   }).then(result => {
-    // After commit: deliver the status email best-effort. Never throws.
+    // After commit: deliver the status email and SMS best-effort. Never throws.
     deliverEmailAfterCommit(db, result.emailKey);
+    if (result.smsKey) deliverSmsAfterCommit(db, result.smsKey);
     return { ok: true };
   });
 }
