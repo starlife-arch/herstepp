@@ -565,6 +565,13 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       failureReason: status === PAYMENT_STATUS.PAID ? null : (callback.reason || `M-Pesa ${status.toLowerCase()}`),
       receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
     });
+    const smsKey = queuePaymentSms(tx, db, {
+      orderDocumentId: payment.orderDocumentId,
+      order,
+      payment: { ...payment, id: paymentRef.id, paymentId: paymentRef.id, amount: paidAmount },
+      status,
+      receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
+    });
 
     // PAID also raises an "Invoice ready" in-app notification in the SAME
     // transaction (deterministic doc id -> replays are no-ops).
@@ -678,7 +685,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       });
     }
 
-    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys };
+    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys, smsKey };
   }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
 }
 
