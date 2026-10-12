@@ -6,7 +6,7 @@
 // written back as a complete new array — never with dotted paths like
 // `inventory.0.quantity`, which Firestore turns into a map and corrupts the doc.
 import { clientError } from './http.js';
-import { queuePaymentEmail, queueInvoiceReadyNotification, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
+import { queuePaymentEmail, queueInvoiceReadyNotification, queueOrderStatusEmail, queuePaymentSms, queueOrderStatusSms, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit, deliverSmsAfterCommit } from './notify.js';
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
@@ -565,6 +565,13 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       failureReason: status === PAYMENT_STATUS.PAID ? null : (callback.reason || `M-Pesa ${status.toLowerCase()}`),
       receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
     });
+    const smsKey = queuePaymentSms(tx, db, {
+      orderDocumentId: payment.orderDocumentId,
+      order,
+      payment: { ...payment, id: paymentRef.id, paymentId: paymentRef.id, amount: paidAmount },
+      status,
+      receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
+    });
 
     // PAID also raises an "Invoice ready" in-app notification in the SAME
     // transaction (deterministic doc id -> replays are no-ops).
@@ -678,7 +685,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       });
     }
 
-    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys };
+    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys, smsKey };
   }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
 }
 
@@ -691,7 +698,9 @@ function flushPaymentEmails(db, result) {
     const orderSnapForNotify = await db.collection('orders').doc(result.orderDocumentId || '').get().catch(() => null);
     const orderData = orderSnapForNotify?.exists ? orderSnapForNotify.data() : null;
     telegramPayment(result.status, orderData || {}, { amount: undefined, failureReason: undefined });
-    for (const key of result.emailKeys || []) await deliverEmailAfterCommit(db, key);
+    const deliveries = (result.emailKeys || []).map(key => deliverEmailAfterCommit(db, key));
+    if (result.smsKey) deliveries.push(deliverSmsAfterCommit(db, result.smsKey));
+    await Promise.all(deliveries);
   })().catch(error => {
     console.error('[order-core] post-commit payment notify failed:', error?.message || error);
   });
@@ -872,11 +881,13 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
     // status; PROCESSING/PROCESSED/OUT_FOR_DELIVERY/DELIVERED/CANCELLED only —
     // queueOrderStatusEmail ignores anything else).
     queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderStatus });
+    const smsKey = queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatus });
 
-    return { ok: true, emailKey: `${orderDocumentId}-ORDER-${orderStatus}` };
+    return { ok: true, emailKey: `${orderDocumentId}-ORDER-${orderStatus}`, smsKey };
   }).then(result => {
-    // After commit: deliver the status email best-effort. Never throws.
+    // After commit: deliver the status email and SMS best-effort. Never throws.
     deliverEmailAfterCommit(db, result.emailKey);
+    if (result.smsKey) deliverSmsAfterCommit(db, result.smsKey);
     return { ok: true };
   });
 }

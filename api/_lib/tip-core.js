@@ -226,6 +226,7 @@ export async function applyTipResultCore(db, deps, callback) {
       // key — a replayed webhook/poll can never double-send. Delivery runs
       // after commit, best-effort.
       try {
+        if (deps.queueTipThankYouSms) deps.queueTipThankYouSms(tx, { tip: { ...tip, status: PAYMENT_STATUS.PAID }, receiptNumber: tipReceiptNumberFor(tip.tipId) });
         if (deps.queueTipThankYouEmail) {
           deps.queueTipThankYouEmail(tx, {
             key: `${tip.tipId}-TIP-THANKYOU`,

@@ -17,7 +17,7 @@ import { getMpesaProvider } from '../mpesa-provider.js';
 import { methodNotAllowed } from '../http.js';
 import { sendTelegramMessage } from '../telegram.js';
 import { deliverQueuedEmailInline } from '../email-service.js';
-import { queueTipThankYouEmail, telegramTipReceived } from '../notify.js';
+import { queueTipThankYouEmail, queueTipThankYouSms, deliverSmsAfterCommit, telegramTipReceived } from '../notify.js';
 import {
   createTip,
   tipStatus,
@@ -37,6 +37,7 @@ export const tipDeps = {
   sendTelegramMessage,
   deliverQueuedEmailInline,
   queueTipThankYouEmail: (tx, payload) => queueTipThankYouEmail(tx, adminDb, payload),
+  queueTipThankYouSms: (tx, payload) => queueTipThankYouSms(tx, adminDb, payload),
 };
 
 // After a tip lands PAID: Telegram alert + thank-you email delivery, both
@@ -44,6 +45,7 @@ export const tipDeps = {
 function announcePaidTip(tip) {
   if (!tip) return;
   waitUntil(telegramTipReceived({ ...tip, treatLabel: TREAT_LABELS[tip.treat] }).catch(() => false));
+  waitUntil(deliverSmsAfterCommit(adminDb, `${tip.tipId}-TIP-THANKYOU-SMS`));
   waitUntil(deliverQueuedEmailInline(adminDb, `${tip.tipId}-TIP-THANKYOU`).catch(() => {}));
 }
 

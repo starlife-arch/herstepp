@@ -8,6 +8,7 @@ import { sendTelegramMessage } from './telegram.js';
 import { buildEmail, orderReceiptEmail, invoiceEmail, escapeHtml } from './email-templates.js';
 import { invoiceNumberFor } from './invoice-number.js';
 import { siteUrl } from './site-url.js';
+import { queueSms, deliverQueuedSms } from './sms-service.js';
 
 const money = n => `KSh ${(Number(n) || 0).toLocaleString('en-KE')}`;
 
@@ -67,7 +68,7 @@ export function telegramNewOrder(order) {
 // and a duplicate callback re-sends neither. Returns the list of queued keys
 // (empty for non-PAID when nothing could be queued) so the caller delivers
 // every one of them after commit.
-export function queuePaymentEmail(tx, db, { orderDocumentId, order, status, failureReason, receiptNumber }) {
+export function queuePaymentEmail(tx, db, { orderDocumentId, order, paymentId, status, failureReason, receiptNumber }) {
   const keys = [];
   try {
     if (!order?.customerEmail) return keys;
@@ -243,5 +244,75 @@ export function telegramTipReceived(tip) {
 export function deliverEmailAfterCommit(db, key) {
   return deliverQueuedEmailInline(db, key).catch(error => {
     console.error(`[notify] post-commit email delivery failed for ${key}:`, error?.message || error);
+  });
+}
+
+// ---- HashBack SMS notifications (queued in the business transaction) --------
+export function queuePaymentSms(tx, db, { orderDocumentId, order, payment, status, receiptNumber }) {
+  try {
+    const st = String(status || '').toUpperCase();
+    const phone = payment?.phone || order?.customerPhone || order?.delivery?.phone;
+    if (!phone || !order?.orderId) return null;
+    const base = siteUrl();
+    const orderUrl = `${base}/dashboard`;
+    const invoiceUrl = `${base}/dashboard`;
+    const attempt = String(payment?.paymentId || payment?.id || st).replace(/[^A-Za-z0-9_-]/g, '_');
+    let message;
+    if (st === 'PAID') {
+      message = `HerStep: Payment confirmed for order ${order.orderId} (KSh ${Number((payment?.amount ?? order.total) || 0).toLocaleString('en-KE')}). Receipt ${receiptNumber || payment?.receiptNumber || 'available in My Orders'}. Order/invoice: ${invoiceUrl}`;
+    } else {
+      const reason = st === 'TIMEOUT'
+        ? 'Your M-Pesa STK prompt timed out or was cancelled.'
+        : st === 'CANCELLED'
+          ? 'Your M-Pesa payment was cancelled.'
+          : 'Your M-Pesa payment was not completed.';
+      message = `HerStep: ${reason} Order ${order.orderId} is unpaid. Open My Orders and tap Pay Now to retry: ${orderUrl}`;
+    }
+    const key = `${orderDocumentId}-PAYMENT-${attempt}-SMS-${st}`;
+    queueSms(tx, db, { key, to: phone, message });
+    return key;
+  } catch (error) {
+    console.error('[notify] queuePaymentSms failed:', error?.message || error);
+    return null;
+  }
+}
+
+export function queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatus }) {
+  try {
+    const st = String(orderStatus || '').toUpperCase();
+    const phone = order?.customerPhone || order?.delivery?.phone;
+    const line = ORDER_STATUS_LINES[st];
+    if (!phone || !line || !order?.orderId) return null;
+    const key = `${orderDocumentId}-ORDER-${st}-SMS`;
+    queueSms(tx, db, {
+      key, to: phone,
+      message: `HerStep order ${order.orderId}: ${line} Details: ${siteUrl()}/dashboard`,
+    });
+    return key;
+  } catch (error) {
+    console.error('[notify] queueOrderStatusSms failed:', error?.message || error);
+    return null;
+  }
+}
+
+export function queueTipThankYouSms(tx, db, { tip, receiptNumber }) {
+  try {
+    if (!tip?.phone || !tip?.tipId) return null;
+    const key = `${tip.tipId}-TIP-THANKYOU-SMS`;
+    queueSms(tx, db, {
+      key, to: tip.phone,
+      message: `HerStep: Thank you for your KSh ${Number(tip.amount || 0).toLocaleString('en-KE')} tip! Receipt ${receiptNumber || tip.receiptNumber || tip.tipId}. Details: ${siteUrl()}/dashboard`,
+    });
+    return key;
+  } catch (error) {
+    console.error('[notify] queueTipThankYouSms failed:', error?.message || error);
+    return null;
+  }
+}
+
+export function deliverSmsAfterCommit(db, key) {
+  if (!key) return Promise.resolve();
+  return deliverQueuedSms(db, key).catch(error => {
+    console.error(`[notify] post-commit SMS delivery failed for ${key}:`, error?.message || error);
   });
 }
