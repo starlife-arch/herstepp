@@ -12,7 +12,7 @@
 // file only wires firebase-admin, the PrintPay provider and notify hooks.
 import { FieldValue } from 'firebase-admin/firestore';
 import { waitUntil } from '@vercel/functions';
-import { adminDb, requireUser } from '../firebase-admin.js';
+import { adminDb, requireUser, verifyUserToken } from '../firebase-admin.js';
 import { getMpesaProvider } from '../mpesa-provider.js';
 import { methodNotAllowed } from '../http.js';
 import { sendTelegramMessage } from '../telegram.js';
@@ -28,11 +28,18 @@ import {
   TREAT_LABELS,
 } from '../tip-core.js';
 
+async function getOptionalUser(req) {
+  const authorization = String(req.headers?.authorization || '');
+  const token = authorization.match(/^Bearer\\s+(.+)$/i)?.[1];
+  return token ? verifyUserToken(token, false) : null;
+}
+
 export const tipDeps = {
   db: adminDb,
   serverTimestamp: () => FieldValue.serverTimestamp(),
   provider: getMpesaProvider(),
   requireUser,
+  getOptionalUser,
   waitUntil,
   sendTelegramMessage,
   deliverQueuedEmailInline,
