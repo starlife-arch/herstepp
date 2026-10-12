@@ -1147,6 +1147,7 @@ function emptyForm() {
     price: '',
     salePrice: '',
     quantities: {} as Record<string, string>, // size -> qty string
+    costs: {} as Record<string, string>, // size -> cost price in KSh
     images: [] as ImageAsset[],
     video: null as { url: string; publicId: string; resourceType: 'video' } | null,
     status: 'DRAFT',
@@ -1287,8 +1288,9 @@ function validateProductForm(form: ReturnType<typeof emptyForm>): string | null 
   }
   const inventory = Object.entries(form.quantities)
     .filter(([size, q]) => SIZES.includes(size) && q !== '')
-    .map(([size, q]) => ({ size, quantity: Number(q) }))
+    .map(([size, q]) => ({ size, quantity: Number(q), costPrice: form.costs[size] === undefined || form.costs[size].trim() === '' ? null : Number(form.costs[size]) }))
     .filter(i => Number.isInteger(i.quantity) && i.quantity >= 0);
+  if (inventory.some(i => i.costPrice !== null && (!Number.isInteger(i.costPrice) || i.costPrice < 0))) return 'Variant cost prices must be non-negative whole KSh amounts or left blank.';
   if (inventory.length < 1) return 'Add stock for at least one size.';
   if (form.images.length < 1 || form.images.length > 8) return 'Provide between one and eight images.';
   if (!['DRAFT', 'ACTIVE', 'ARCHIVED'].includes(form.status)) return 'Product status is invalid.';
@@ -1305,7 +1307,8 @@ function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
   const [form, setForm] = useState<ReturnType<typeof emptyForm>>(() => {
     if (!product) return emptyForm();
     const quantities: Record<string, string> = {};
-    (Array.isArray(product.inventory) ? product.inventory : []).forEach((i: any) => { quantities[String(i.size)] = String(i.quantity ?? 0); });
+    const costs: Record<string, string> = {};
+    (Array.isArray(product.inventory) ? product.inventory : []).forEach((i: any) => { quantities[String(i.size)] = String(i.quantity ?? 0); costs[String(i.size)] = i.costPrice == null ? '' : String(i.costPrice); });
     return {
       name: product.name || '',
       description: product.description || '',
@@ -1314,6 +1317,7 @@ function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
       price: String(product.price ?? ''),
       salePrice: product.salePrice == null ? '' : String(product.salePrice),
       quantities,
+      costs,
       images: Array.isArray(product.images) ? product.images : [],
       video: product.video || null,
       status: product.status || 'DRAFT',
@@ -1366,7 +1370,7 @@ function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
     if (clientError) { setError(clientError); return; }
     const inventory = Object.entries(form.quantities)
       .filter(([size, q]) => SIZES.includes(size) && q !== '')
-      .map(([size, q]) => ({ size, quantity: Number(q) }))
+      .map(([size, q]) => ({ size, quantity: Number(q), costPrice: form.costs[size] === undefined || form.costs[size].trim() === '' ? null : Number(form.costs[size]) }))
       .filter(i => Number.isInteger(i.quantity) && i.quantity >= 0);
     const payload: Record<string, any> = {
       name: form.name.trim(),
@@ -1405,6 +1409,12 @@ function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
         </div>
         <div className="p-6 space-y-4">
           {error && <div role="alert" className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3">{error}</div>}
+          <div className="rounded-lg border border-neutral-200 p-4 space-y-2">
+            <div><h3 className="text-sm font-semibold text-neutral-900">Stock and purchase cost by size</h3><p className="text-xs text-neutral-500">Enter your actual cost per item in KSh. Leave blank if unknown; blank costs are never treated as zero.</p></div>
+            <div className="grid grid-cols-[0.7fr_1fr_1fr] gap-2 text-xs font-medium text-neutral-500"><span>Size</span><span>Quantity</span><span>Cost per item (KSh)</span></div>
+            {SIZES.filter(size => form.quantities[size] !== undefined && form.quantities[size] !== '').map(size => <div key={size} className="grid grid-cols-[0.7fr_1fr_1fr] gap-2 items-center"><span className="text-sm text-neutral-700">{size}</span><Input aria-label={`Quantity size ${size}`} value={form.quantities[size] || ''} onChange={e => setForm(f => ({ ...f, quantities: { ...f.quantities, [size]: e.target.value } }))} /><Input aria-label={`Cost price size ${size} in KSh`} value={form.costs[size] || ''} placeholder="e.g. 1800" onChange={e => setForm(f => ({ ...f, costs: { ...f.costs, [size]: e.target.value } }))} /></div>)}
+            <p className="text-xs text-neutral-500">Add a size below to enter its quantity and cost together.</p>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input label="Name" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             <Input label="SKU (auto-uppercased)" value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value.toUpperCase() }))} />
