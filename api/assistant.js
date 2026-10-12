@@ -22,6 +22,9 @@ const explicitlyRequestsHuman = value => {
 
 export default async function assistant(req,res) {
  const body=req.body||{};
+ const rawPageContext=body.pageContext&&typeof body.pageContext==='object'?body.pageContext:{};
+ const pageType=['home','product','category','cart','checkout','other'].includes(rawPageContext.pageType)?rawPageContext.pageType:'other';
+ const pageContext={path:typeof rawPageContext.path==='string'?rawPageContext.path.slice(0,160):'',pageType,productId:typeof rawPageContext.productId==='string'?rawPageContext.productId.slice(0,120):'',productName:typeof rawPageContext.productName==='string'?rawPageContext.productName.slice(0,120):'',category:typeof rawPageContext.category==='string'?rawPageContext.category.slice(0,80):'',cartItems:Array.isArray(rawPageContext.cartItems)?rawPageContext.cartItems.slice(0,5).map(item=>({name:typeof item?.name==='string'?item.name.slice(0,100):'',size:typeof item?.size==='string'?item.size.slice(0,30):'',quantity:Number.isFinite(Number(item?.quantity))?Math.max(1,Math.min(20,Number(item.quantity))):1})):[]};
  const conversationId=typeof (req.method==='GET'?req.query?.conversationId:body.conversationId)==='string'?(req.method==='GET'?req.query.conversationId:body.conversationId):'';
  if(!/^[a-zA-Z0-9_-]{12,80}$/.test(conversationId)) throw clientError('Please start a new chat and try again.');
  const authorization=String(req.headers?.authorization||'');
