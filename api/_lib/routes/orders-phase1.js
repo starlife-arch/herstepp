@@ -10,6 +10,7 @@ import { clientError, methodNotAllowed } from '../http.js';
 import { adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
 import { deliverEmailAfterCommit } from '../notify.js';
 import { retryPendingEmails } from '../email-service.js';
+import { retryPendingSms } from '../sms-service.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
@@ -153,6 +154,7 @@ export async function adminOrders(req, res) {
     // A small best-effort sweep keeps emails moving even if an earlier Vercel
     // invocation ended before Brevo replied. It is intentionally not awaited.
     waitUntil(retryPendingEmails(adminDb, { limit: 5 }));
+    waitUntil(retryPendingSms(adminDb, { limit: 5 }));
     let q = adminDb.collection('orders');
     const statusFilter = Array.isArray(req.query.orderStatus) ? req.query.orderStatus[0] : req.query.orderStatus;
     if (typeof statusFilter === 'string' && statusFilter) q = q.where('orderStatus', '==', statusFilter);
