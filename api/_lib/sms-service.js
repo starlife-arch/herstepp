@@ -103,3 +103,16 @@ export async function checkHashbackSmsStatus(messageId, { fetchImpl = globalThis
     return await response.json();
   } catch { return null; }
 }
+
+
+// Best-effort bounded retry sweep, invoked by admin activity just like email retry.
+export async function retryPendingSms(db, { limit = 5 } = {}) {
+  try {
+    const snap = await db.collection('smsOutbox').where('status', '==', 'PENDING').limit(Math.max(1, Math.min(20, Number(limit) || 5))).get();
+    const results = await Promise.all(snap.docs.map(doc => deliverQueuedSms(db, doc.data()?.key || doc.id)));
+    return { attempted: results.length, sent: results.filter(r => r?.sent).length };
+  } catch (error) {
+    console.error('[sms] retry sweep failed:', error?.message || error);
+    return { attempted: 0, sent: 0 };
+  }
+}
