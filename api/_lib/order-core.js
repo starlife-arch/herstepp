@@ -6,7 +6,7 @@
 // written back as a complete new array — never with dotted paths like
 // `inventory.0.quantity`, which Firestore turns into a map and corrupts the doc.
 import { clientError } from './http.js';
-import { queuePaymentEmail, queueInvoiceReadyNotification, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
+import { queuePaymentEmail, queueInvoiceReadyNotification, queueOrderStatusEmail, queuePaymentSms, queueOrderStatusSms, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit, deliverSmsAfterCommit } from './notify.js';
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
