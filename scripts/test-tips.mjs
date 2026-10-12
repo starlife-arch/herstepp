@@ -14,6 +14,7 @@ import {
   createTipCore,
   applyTipResultCore,
   createTip,
+  tipStatus,
   cancelTip,
   adminTips,
   publicTip,
@@ -124,6 +125,30 @@ await test('create makes TIP-000001 via counter and sends exactly ONE push', asy
   const created = await createTipCore(db, d, { uid: 'user-1', name: 'Jane', email: 'jane@example.com', input: validateTipInput(VALID) });
   assert.equal(created.id, 'TIP-000002'); // new tip → new push is allowed
   void before;
+});
+
+await test('guest Aria tip stores email and session token; only that session can check status', async () => {
+  resetTipRateLimits();
+  const db = seed();
+  const d = deps(db);
+  d.getOptionalUser = async () => null;
+  const guestSessionId = '0123456789abcdef0123456789abcdef';
+  const tip = await createTip(d, req({
+    ...VALID,
+    email: 'guest@example.com',
+    guestSessionId,
+  }));
+  assert.equal(tip.status, 'PENDING');
+  const stored = (await db.collection('tips').doc(tip.tipId).get()).data();
+  assert.equal(stored.customerId, '');
+  assert.equal(stored.customerEmail, 'guest@example.com');
+  assert.equal(stored.guestSessionId, guestSessionId);
+  const status = await tipStatus(d, { query: { tipId: tip.tipId, guestSessionId } });
+  assert.equal(status.tipId, tip.tipId);
+  await assert.rejects(
+    tipStatus(d, { query: { tipId: tip.tipId, guestSessionId: 'wrong-guest-session-token-12345' } }),
+    err => err.statusCode === 403,
+  );
 });
 
 await test('a tip that already has a providerReference never receives a second push', async () => {
