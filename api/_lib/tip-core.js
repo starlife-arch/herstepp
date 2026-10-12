@@ -78,7 +78,7 @@ export function validateTipInput(body) {
     if (message.length > TIP_MESSAGE_MAX) throw clientError(`Keep your message under ${TIP_MESSAGE_MAX} characters.`);
   }
   const email = typeof source.email === 'string' ? source.email.trim().toLowerCase() : '';
-  if (email && (email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email))) {
+  if (email && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     throw clientError('Enter a valid email address for your tip receipt.');
   }
   const guestSessionId = typeof source.guestSessionId === 'string' ? source.guestSessionId.trim() : '';
