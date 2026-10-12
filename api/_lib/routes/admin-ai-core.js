@@ -1,5 +1,21 @@
 const number = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 const upper = value => String(value || '').trim().toUpperCase();
+function asDate(value) {
+  try {
+    if (value?.toDate) return value.toDate();
+    const date = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  } catch { return null; }
+}
+function nairobiDateParts(value) {
+  const date = asDate(value);
+  if (!date) return null;
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Africa/Nairobi', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(date);
+  const fields = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return { day: fields.year + '-' + fields.month + '-' + fields.day, month: fields.year + '-' + fields.month };
+}
 
 export function classifyAdminQuestion(message) {
   const text = String(message || '').toLowerCase();
@@ -13,11 +29,15 @@ export function classifyAdminQuestion(message) {
   return 'overview';
 }
 
-export function summarizeAdminData({ orders = [], products = [], tickets = [], tips = [] } = {}) {
+export function summarizeAdminData({ orders = [], products = [], tickets = [], tips = [], now = new Date() } = {}) {
   const paidOrders = orders.filter(order => upper(order.paymentStatus) === 'PAID');
   const pendingOrders = orders.filter(order => ['PENDING', 'PROCESSING', ''].includes(upper(order.orderStatus)));
   const paymentPending = orders.filter(order => ['PENDING', 'PROCESSING', 'TIMEOUT'].includes(upper(order.paymentStatus)));
   const sales = paidOrders.reduce((sum, order) => sum + number(order.total), 0);
+  const todayKey = nairobiDateParts(now)?.day;
+  const monthKey = nairobiDateParts(now)?.month;
+  const paidToday = paidOrders.filter(order => nairobiDateParts(order.createdAt)?.day === todayKey);
+  const paidThisMonth = paidOrders.filter(order => nairobiDateParts(order.createdAt)?.month === monthKey);
   const statuses = {};
   for (const order of orders) {
     const status = upper(order.orderStatus) || 'UNKNOWN';
@@ -28,6 +48,7 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
   let lowStockVariants = 0;
   let outOfStockVariants = 0;
   let activeProducts = 0;
+  const lowStockItems = [];
   for (const product of products) {
     if (upper(product.status) !== 'ACTIVE') continue;
     activeProducts += 1;
@@ -36,6 +57,7 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
       totalStock += quantity;
       if (quantity === 0) outOfStockVariants += 1;
       else if (quantity <= 2) lowStockVariants += 1;
+      if (quantity <= 2) lowStockItems.push({ name: String(product.name || 'Unnamed product').slice(0, 120), size: String(variant?.size || ''), quantity });
     }
   }
 
@@ -73,11 +95,15 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
     sales: {
       paidOrderCount: paidOrders.length,
       paidOrderValue: sales,
+      paidTodayCount: paidToday.length,
+      paidTodayValue: paidToday.reduce((sum, order) => sum + number(order.total), 0),
+      paidThisMonthCount: paidThisMonth.length,
+      paidThisMonthValue: paidThisMonth.reduce((sum, order) => sum + number(order.total), 0),
       pendingPaymentCount: paymentPending.length,
       pendingOrderCount: pendingOrders.length,
       orderStatuses: statuses,
     },
-    stock: { activeProducts, unitsInStock: totalStock, lowStockVariants, outOfStockVariants },
+    stock: { activeProducts, unitsInStock: totalStock, lowStockVariants, outOfStockVariants, lowStockItems: lowStockItems.sort((a, b) => a.quantity - b.quantity).slice(0, 30) },
     support: { ticketCount: tickets.length, statuses: ticketStatuses },
     tips: { paidTipCount: paidTips.length, paidTipValue: tipTotal },
     profit: {
@@ -99,11 +125,14 @@ export function buildAdminFallbackAnswer(intent, report) {
     }
     return 'Recorded gross profit across the paid orders with complete cost data is ' + currency(report.profit.knownGrossProfit) + '. This is gross profit, not net profit, and excludes operating expenses. ' + report.profit.note;
   }
-  if (intent === 'stock') return 'Stock snapshot: ' + report.stock.activeProducts + ' active products, ' + report.stock.unitsInStock + ' units in stock, ' + report.stock.lowStockVariants + ' low-stock variants (1–2 units), and ' + report.stock.outOfStockVariants + ' out-of-stock variants.';
+  if (intent === 'stock') {
+    const items = (report.stock.lowStockItems || []).map(item => item.name + (item.size ? ' size ' + item.size : '') + ': ' + item.quantity + ' left').join('; ');
+    return 'Stock snapshot: ' + report.stock.activeProducts + ' active products, ' + report.stock.unitsInStock + ' units in stock, ' + report.stock.lowStockVariants + ' low-stock variants (1–2 units), and ' + report.stock.outOfStockVariants + ' out-of-stock variants. Low-stock list: ' + (items || 'no low-stock variants found in the fetched active product catalogue') + '.';
+  }
   if (intent === 'support') return 'Support snapshot: ' + report.support.ticketCount + ' tickets in the fetched report. Statuses: ' + (Object.entries(report.support.statuses).map(([k, v]) => k + ': ' + v).join(', ') || 'no tickets found') + '.';
   if (intent === 'tips') return 'Paid tips in the fetched report: ' + report.tips.paidTipCount + ', totalling ' + currency(report.tips.paidTipValue) + '.';
   if (intent === 'payments') return 'Payment snapshot: ' + report.sales.paidOrderCount + ' paid orders totalling ' + currency(report.sales.paidOrderValue) + '; ' + report.sales.pendingPaymentCount + ' orders have pending/processing/timed-out payment status. This uses the newest order records fetched for the report.';
   if (intent === 'orders') return 'Order snapshot: ' + report.sampleWindow.orders + ' recent orders fetched. Statuses: ' + (Object.entries(report.sales.orderStatuses).map(([k, v]) => k + ': ' + v).join(', ') || 'no orders found') + '. ' + report.sales.pendingOrderCount + ' are pending/processing orders.';
-  if (intent === 'sales') return 'Sales snapshot: ' + report.sales.paidOrderCount + ' paid orders totalling ' + currency(report.sales.paidOrderValue) + ' in the fetched order records. This is not guaranteed to be a lifetime total.';
+  if (intent === 'sales') return 'Sales snapshot from the newest order records fetched: ' + report.sales.paidOrderCount + ' paid orders totalling ' + currency(report.sales.paidOrderValue) + '. In that fetched sample, today (Kenya time) has ' + report.sales.paidTodayCount + ' paid orders totalling ' + currency(report.sales.paidTodayValue) + ', and this month has ' + report.sales.paidThisMonthCount + ' paid orders totalling ' + currency(report.sales.paidThisMonthValue) + '. This is not guaranteed to be a lifetime total.';
   return 'I’m your read-only Admin AI. I can summarise sales, order statuses, payment states, stock levels, support tickets, paid tips, and explain whether recorded cost data is sufficient to estimate gross profit. The report uses real records and clearly labels its sample window. Try asking “Summarise sales”, “Which stock is low?”, “How are payments?”, or “Can we calculate profit?”.';
 }
