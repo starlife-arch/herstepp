@@ -68,7 +68,7 @@ export function telegramNewOrder(order) {
 // and a duplicate callback re-sends neither. Returns the list of queued keys
 // (empty for non-PAID when nothing could be queued) so the caller delivers
 // every one of them after commit.
-export function queuePaymentEmail(tx, db, { orderDocumentId, order, status, failureReason, receiptNumber }) {
+export function queuePaymentEmail(tx, db, { orderDocumentId, order, paymentId, status, failureReason, receiptNumber }) {
   const keys = [];
   try {
     if (!order?.customerEmail) return keys;
