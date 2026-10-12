@@ -933,15 +933,15 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
     for (const o of candidates) {
       const doc = { id: o.id };
 
-      await db.runTransaction(async tx => {
+      const expiryNotifications = await db.runTransaction(async tx => {
         const orderRef = db.collection('orders').doc(doc.id);
         const orderSnap = await tx.get(orderRef);
         if (!orderSnap.exists) return;
         const order = orderSnap.data();
         // Re-check inside the transaction — it may have just been paid.
-        if (order.orderStatus !== 'PENDING' || !UNPAID_PAYMENT_STATUSES.includes(order.paymentStatus)) return;
+        if (order.orderStatus !== 'PENDING' || !UNPAID_PAYMENT_STATUSES.includes(order.paymentStatus)) return null;
         const createdMs = msOf(order.createdAt);
-        if (createdMs == null || createdMs > cutoff) return;
+        if (createdMs == null || createdMs > cutoff) return null;
 
         // Reads before writes: products for the stock restore AND the still
         // PENDING payment attempt (never leave "Cancelled order + Pending
@@ -1044,8 +1044,20 @@ export async function expireStaleOrders(db, deps = {}, now = Date.now()) {
           createdAt: deps.serverTimestamp(),
         });
 
+        // Expired unpaid orders need the same email + SMS as manual cancellation.
+        const expiredOrder = {
+          ...order,
+          orderStatus: 'CANCELLED',
+          paymentStatus: order.paymentStatus === PAYMENT_STATUS.PENDING ? PAYMENT_STATUS.TIMEOUT : order.paymentStatus,
+        };
+        queueOrderStatusEmail(tx, db, { orderDocumentId: doc.id, order: expiredOrder, orderStatus: 'CANCELLED' });
+        const smsKey = queueOrderStatusSms(tx, db, { orderDocumentId: doc.id, order: expiredOrder, orderStatus: 'CANCELLED' });
+
         expired += 1;
+        return { emailKey: `${doc.id}-ORDER-CANCELLED`, smsKey };
       });
+      if (expiryNotifications?.emailKey) await deliverEmailAfterCommit(db, expiryNotifications.emailKey);
+      if (expiryNotifications?.smsKey) await deliverSmsAfterCommit(db, expiryNotifications.smsKey);
     }
     return { expired };
   } catch (error) {
