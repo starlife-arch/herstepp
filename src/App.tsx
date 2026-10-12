@@ -20,6 +20,7 @@ import { PrivacyPolicy, TermsOfService } from './pages/StaticPages';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminBulkShoeUpload from './pages/AdminBulkShoeUpload';
 import AdminAIChats from './pages/AdminAIChats';
+import AdminAI from './pages/AdminAI';
 import TipPage from './pages/Tip';
 
 function ScrollToTop() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); }, [pathname]); return null; }
@@ -31,6 +32,7 @@ function AppRoutes() {
  if (location.pathname.startsWith('/admin')) return <Routes>
   <Route path="/admin/bulk-upload" element={<Wrap><RequireAdmin><AdminBulkShoeUpload /></RequireAdmin></Wrap>} />
   <Route path="/admin/ai-chats" element={<Wrap><RequireAdmin><AdminAIChats /></RequireAdmin></Wrap>} />
+  <Route path="/admin/ai" element={<Wrap><RequireAdmin><AdminAI /></RequireAdmin></Wrap>} />
   <Route path="/admin" element={<Wrap><RequireAdmin><AdminDashboard /></RequireAdmin></Wrap>} />
   <Route path="/admin/*" element={<Wrap><RequireAdmin><AdminDashboard /></RequireAdmin></Wrap>} />
  </Routes>;
