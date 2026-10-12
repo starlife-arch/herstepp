@@ -17,6 +17,7 @@ export function HerStepAIChat(){
  const navigate=useNavigate();
  const location=useLocation();
  useEffect(()=>{if(!state.authReady)return;setConversationId(getId(state.user?.id))},[state.authReady,state.user?.id]);
+ useEffect(()=>{setTipFlow(null);setMessages(current=>current.filter(m=>!m.localTip));},[conversationId]);
  useEffect(()=>{
   if(!open||!conversationId)return;
   let active=true;
