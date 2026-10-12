@@ -55,7 +55,7 @@ export function publicTip(id, data) {
 // are rejected outright.
 export function validateTipInput(body) {
   const source = body && typeof body === 'object' ? body : {};
-  const allowed = ['amount', 'treat', 'phone', 'message'];
+  const allowed = ['amount', 'treat', 'phone', 'message', 'email', 'guestSessionId'];
   for (const key of Object.keys(source)) {
     if (!allowed.includes(key)) throw clientError('Unknown tip field.');
   }
@@ -77,7 +77,15 @@ export function validateTipInput(body) {
     message = source.message.trim();
     if (message.length > TIP_MESSAGE_MAX) throw clientError(`Keep your message under ${TIP_MESSAGE_MAX} characters.`);
   }
-  return { amount, treat, phone, message };
+  const email = typeof source.email === 'string' ? source.email.trim().toLowerCase() : '';
+  if (email && (email.length > 254 || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email))) {
+    throw clientError('Enter a valid email address for your tip receipt.');
+  }
+  const guestSessionId = typeof source.guestSessionId === 'string' ? source.guestSessionId.trim() : '';
+  if (guestSessionId && !/^[A-Za-z0-9_-]{20,100}$/.test(guestSessionId)) {
+    throw clientError('The chat session has expired. Please start a new Aria chat.');
+  }
+  return { amount, treat, phone, message, email, guestSessionId };
 }
 
 // In-memory per-user rate limit: 5 creates per rolling 10 minutes.
@@ -110,7 +118,8 @@ export async function createTipCore(db, deps, { uid, name, email, input }) {
       tipId,
       customerId: uid,
       customerName: name || '',
-      customerEmail: email || '',
+      customerEmail: input.email || email || '',
+      guestSessionId: input.guestSessionId || '',
       amount: input.amount,
       treat: input.treat,
       message: input.message,
@@ -261,13 +270,17 @@ export async function applyTipResultCore(db, deps, callback) {
 // deps: { db, serverTimestamp, provider, requireUser, sendTelegramMessage?,
 //         queueTipThankYouEmail?, deliverQueuedEmailInline?, waitUntil? }
 
-async function loadOwnedTip(deps, user, tipId) {
+async function loadOwnedTip(deps, user, tipId, guestSessionId = '') {
   if (typeof tipId !== 'string' || !TIP_ID_RE.test(tipId)) throw clientError('Tip id is invalid.');
   const ref = deps.db.collection('tips').doc(tipId);
   const snap = await ref.get();
   if (!snap.exists) throw clientError('Tip not found.', 404);
   const data = snap.data();
-  if (data.customerId !== user.uid) throw clientError('Forbidden.', 403);
+  if (data.customerId) {
+    if (!user?.uid || data.customerId !== user.uid) throw clientError('Forbidden.', 403);
+  } else if (!data.guestSessionId || data.guestSessionId !== guestSessionId) {
+    throw clientError('Forbidden.', 403);
+  }
   return { ref, data };
 }
 
@@ -284,13 +297,18 @@ function deliverQueued(deps, key) {
 
 // POST /api/tips/create
 export async function createTip(deps, req) {
-  const user = await deps.requireUser(req);
-  checkTipRateLimit(user.uid);
   const input = validateTipInput(req.body);
+  const user = typeof deps.getOptionalUser === 'function'
+    ? await deps.getOptionalUser(req)
+    : await deps.requireUser(req);
+  if (!user && !input.guestSessionId) throw clientError('Please restart the tip flow in Aria chat.');
+  if (!user && !input.email) throw clientError('Enter an email address for your tip receipt.');
+  const rateKey = user?.uid || `guest:${input.guestSessionId}`;
+  checkTipRateLimit(rateKey);
   const created = await createTipCore(deps.db, deps, {
-    uid: user.uid,
-    name: user.displayName || user.name || '',
-    email: user.email || '',
+    uid: user?.uid || '',
+    name: user?.displayName || user?.name || '',
+    email: user?.email || input.email || '',
     input,
   });
 
@@ -327,10 +345,11 @@ export async function createTip(deps, req) {
 // than RECONCILE_TIMEOUT_MS (100 s) as TIMEOUT. A late verified PAID is
 // still accepted afterwards (webhook or a later poll).
 export async function tipStatus(deps, req) {
-  const user = await deps.requireUser(req);
+  const user = typeof deps.getOptionalUser === 'function' ? await deps.getOptionalUser(req) : await deps.requireUser(req);
   const query = req.query || {};
   const rawTipId = Array.isArray(query.tipId) ? query.tipId[0] : query.tipId;
-  const { ref, data } = await loadOwnedTip(deps, user, rawTipId);
+  const guestSessionId = Array.isArray(query.guestSessionId) ? query.guestSessionId[0] : String(query.guestSessionId || '');
+  const { ref, data } = await loadOwnedTip(deps, user, rawTipId, guestSessionId);
 
   let current = data;
   if (current.status === PAYMENT_STATUS.PENDING) {
@@ -394,8 +413,8 @@ export async function tipStatus(deps, req) {
 // (never cancel real money); otherwise CANCELLED "You cancelled the payment."
 // A late verified PAID still lands via applyTipResultCore's late-success path.
 export async function cancelTip(deps, req) {
-  const user = await deps.requireUser(req);
-  const { data } = await loadOwnedTip(deps, user, req.body?.tipId);
+  const user = typeof deps.getOptionalUser === 'function' ? await deps.getOptionalUser(req) : await deps.requireUser(req);
+  const { data } = await loadOwnedTip(deps, user, req.body?.tipId, String(req.body?.guestSessionId || ''));
 
   let current = data;
   if (current.status === PAYMENT_STATUS.PENDING) {
