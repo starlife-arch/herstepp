@@ -259,7 +259,7 @@ export function queuePaymentSms(tx, db, { orderDocumentId, order, payment, statu
     const attempt = String(payment?.paymentId || payment?.id || st).replace(/[^A-Za-z0-9_-]/g, '_');
     let message;
     if (st === 'PAID') {
-      message = `HerStep: Payment confirmed for order ${order.orderId} (KSh ${Number(payment?.amount ?? order.total || 0).toLocaleString('en-KE')}). Receipt ${receiptNumber || payment?.receiptNumber || 'available in My Orders'}. Order/invoice: ${invoiceUrl}`;
+      message = `HerStep: Payment confirmed for order ${order.orderId} (KSh ${Number((payment?.amount ?? order.total) || 0).toLocaleString('en-KE')}). Receipt ${receiptNumber || payment?.receiptNumber || 'available in My Orders'}. Order/invoice: ${invoiceUrl}`;
     } else {
       const reason = st === 'TIMEOUT'
         ? 'Your M-Pesa STK prompt timed out or was cancelled.'
