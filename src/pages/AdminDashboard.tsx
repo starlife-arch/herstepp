@@ -607,6 +607,7 @@ export default function AdminDashboard() {
   const { state, logout } = useApp();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('overview');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const ordersRes = useAdminData<any>('/api/admin/orders');
   const supportRes = useAdminData<any>('/api/admin/support');
@@ -704,10 +705,13 @@ export default function AdminDashboard() {
             </div>
             <span className="font-semibold text-sm">Admin</span>
           </div>
-          <select aria-label="Admin dashboard section" value={activeSection} onChange={e => setActiveSection(e.target.value)} className="min-w-0 max-w-[58%] text-sm border border-neutral-200 rounded-lg px-2 py-2 bg-white">
-            {navItems.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}
-          </select>
+          <button type="button" aria-label="Choose admin section" aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen(open => !open)} className="min-w-0 max-w-[62%] flex items-center justify-between gap-3 text-sm border border-neutral-200 rounded-lg px-3 py-2.5 bg-white">
+            <span className="truncate">{navItems.find(item => item.id === activeSection)?.label || 'Overview'}</span><span aria-hidden="true">{mobileNavOpen ? '⌃' : '⌄'}</span>
+          </button>
         </div>
+        {mobileNavOpen && <nav aria-label="Admin sections" className="mt-2 grid max-h-56 grid-cols-2 gap-1 overflow-y-auto rounded-xl border border-neutral-200 bg-white p-2 shadow-sm">
+          {navItems.map(item => <button type="button" key={item.id} onClick={() => { setActiveSection(item.id); setMobileNavOpen(false); }} className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === item.id ? 'bg-neutral-100 font-semibold text-neutral-900' : 'text-neutral-600 hover:bg-neutral-50'}`}><item.icon className="h-4 w-4 shrink-0" /><span>{item.label}</span></button>)}
+        </nav>}
         <nav aria-label="Admin shortcuts" className="mt-2 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
           <Link to="/admin/costs" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Cost &amp; Profit</Link>
           <Link to="/admin/ai" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Admin AI</Link>
