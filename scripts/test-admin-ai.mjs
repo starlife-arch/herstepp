@@ -9,12 +9,13 @@ assert.equal(classifyAdminQuestion('Summarise paid tips'), 'tips');
 assert.equal(classifyAdminQuestion('Give me an overview'), 'sales');
 
 const report = summarizeAdminData({
+  now: new Date('2026-10-12T12:00:00Z'),
   orders: [
-    { paymentStatus: 'PAID', orderStatus: 'DELIVERED', total: 2500, items: [{ quantity: 2, unitCost: 700 }] },
-    { paymentStatus: 'PENDING', orderStatus: 'PENDING', total: 1000, items: [{ quantity: 1 }] },
+    { paymentStatus: 'PAID', orderStatus: 'DELIVERED', total: 2500, createdAt: '2026-10-12T08:00:00Z', items: [{ quantity: 2, unitCost: 700 }] },
+    { paymentStatus: 'PENDING', orderStatus: 'PENDING', total: 1000, createdAt: '2026-10-11T08:00:00Z', items: [{ quantity: 1 }] },
   ],
   products: [
-    { status: 'ACTIVE', inventory: [{ quantity: 2 }, { quantity: 0 }, { quantity: 5 }] },
+    { name: 'Low-stock heel', status: 'ACTIVE', inventory: [{ size: '38', quantity: 2 }, { size: '39', quantity: 0 }, { size: '40', quantity: 5 }] },
     { status: 'DRAFT', inventory: [{ quantity: 100 }] },
   ],
   tickets: [{ status: 'OPEN' }, { status: 'RESOLVED' }],
@@ -23,10 +24,13 @@ const report = summarizeAdminData({
 
 assert.equal(report.sales.paidOrderCount, 1);
 assert.equal(report.sales.paidOrderValue, 2500);
+assert.equal(report.sales.paidTodayValue, 2500);
+assert.equal(report.sales.paidThisMonthValue, 2500);
 assert.equal(report.stock.activeProducts, 1);
 assert.equal(report.stock.unitsInStock, 7);
 assert.equal(report.stock.lowStockVariants, 1);
 assert.equal(report.stock.outOfStockVariants, 1);
+assert.equal(report.stock.lowStockItems[0].name, 'Low-stock heel');
 assert.equal(report.support.ticketCount, 2);
 assert.equal(report.tips.paidTipCount, 1);
 assert.equal(report.tips.paidTipValue, 300);
