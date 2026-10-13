@@ -11,6 +11,8 @@ import { detectAriaAccountIntent, resolveAriaAccountIntent } from './_lib/aria-a
 const scope = /cheap|lowest|least expensive|affordable|cost|kes|ksh|shoe|heels?|sandals?|flats?|loafers?|platforms?|slides?|footwear|size|sizing|wedding|party|occasion|colour|color|price|budget|stock|available|order|delivery|payment|pay|cart|buy|purchase|product|return|exchange|refund|support|ticket|herstep|collection|shop|shopping|new arrival|bestseller|featured|dress|outfit|work|office|school|birthday|event|style|fashion/i;
 const contactText = 'For personal help, contact HerStep on WhatsApp: https://wa.me/254106624924 or email herstepcollection@gmail.com.';
 const clean = v => typeof v === 'string' ? v.trim().slice(0, 2000) : '';
+const slugifyProductName = name => String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '') || 'shoe';
+const productHref = product => '/product/' + encodeURIComponent(slugifyProductName(product.name));
 const normalizeIntent = v => String(v || '').toLowerCase().replace(/[^a-z0-9\s']/g, ' ').replace(/\s+/g, ' ').trim();
 const explicitlyRequestsHuman = value => {
  const text = normalizeIntent(value);
@@ -108,13 +110,14 @@ export default async function assistant(req,res) {
   await ref.collection('messages').add({role:'assistant',content:accountReply,actions,createdAt:FieldValue.serverTimestamp()});
   return res.status(200).json({conversationId,reply:accountReply,products:[],actions,needsHuman:false});
  }
- const replyOutOfScope='I’m Aria, your HerStep Collection shopping assistant. I can help with our shoes, colours, sizes, prices, stock, orders, delivery and customer support, but I can’t answer unrelated questions. What kind of shoes are you looking for?';
+ const replyOutOfScope='I’m Aria, your HerStep Collection shopping assistant 😊 I’m best at helping with our shoes, styles, sizes, colours, prices, orders and delivery. I can’t help with recipes or unrelated topics, but I’m happy to help you find the right pair. Are you shopping for everyday wear, work, an event, or something else?';
+ const clearlyOffTopic = /\b(?:what can i cook|what should i cook|recipe|recipes|cooking ideas|cook for dinner|homework|solve this equation|politics|president of|weather forecast|write my essay)\b/i.test(message);
  const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you)[!.? ]*$/i.test(message);
  const historySnap=await ref.collection('messages').orderBy('createdAt','desc').limit(12).get();
  const recentHistory=historySnap.docs.map(d=>({role:d.data().role,content:String(d.data().content||'')})).reverse();
  const hasRelevantContext=recentHistory.slice(-6).some(m=>/order|payment|invoice|verification|verify|code|delivery|tracking|support|shoe|size|price|stock/i.test(m.content));
  const contextualFollowUp=(hasRelevantContext && (message.length<100 || /\b(this|that|it|they|those|these|one|already|yes|no|both|do that|send it|help me|the first|the second|what about|i have|received|got it)\b/i.test(message))) || (pageContext.pageType==='product' && message.length<100 && /\b(this|that|it|they|those|these|one|what about|compare|similar|available|size|colour|color|price)\b/i.test(message));
- if(!scope.test(message)&&!greeting&&!contextualFollowUp) {
+ if(clearlyOffTopic || (!scope.test(message)&&!greeting&&!contextualFollowUp)) {
   await ref.set({status:'OPEN',lastMessage:message,lastReply:replyOutOfScope,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   await ref.collection('messages').add({role:'assistant',content:replyOutOfScope,productIds:[],createdAt:FieldValue.serverTimestamp()});
   return res.status(200).json({conversationId,reply:replyOutOfScope,products:[],needsHuman:false});
@@ -135,7 +138,7 @@ export default async function assistant(req,res) {
   const verifiedIds=cheapest.map(p=>p.id);
   await ref.set({status:'OPEN',lastMessage:message,lastReply:verifiedReply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   await ref.collection('messages').add({role:'assistant',content:verifiedReply,productIds:verifiedIds,createdAt:FieldValue.serverTimestamp()});
-  return res.status(200).json({conversationId,reply:verifiedReply,products:cheapest.map(p=>({id:p.id,name:p.name,sku:p.sku,price:p.price,regularPrice:p.regularPrice,sizes:p.sizes,inventory:p.inventory,image:p.image,href:'/product/'+p.id,featured:p.featured,bestseller:p.bestseller,newArrival:p.newArrival})),needsHuman:false});
+  return res.status(200).json({conversationId,reply:verifiedReply,products:cheapest.map(p=>({id:p.id,name:p.name,sku:p.sku,price:p.price,regularPrice:p.regularPrice,sizes:p.sizes,inventory:p.inventory,image:p.image,href:productHref(p),featured:p.featured,bestseller:p.bestseller,newArrival:p.newArrival})),needsHuman:false});
  }
  const key=String(process.env.GROQ_API_KEY||'').trim();
  let reply='', ids=[], needsHuman=false;
@@ -144,26 +147,35 @@ export default async function assistant(req,res) {
   try { const response=await fetch('https://api.groq.com/openai/v1/chat/completions',{method:'POST',headers:{Authorization:`Bearer ${key}`,'Content-Type':'application/json'},body:JSON.stringify({model:String(process.env.GROQ_CHAT_MODEL||'qwen/qwen3.8-27b').trim(),temperature:.2,max_tokens:600,response_format:{type:'json_object'},messages:[{role:'system',content:prompt},...history.slice(-7)]}),signal:AbortSignal.timeout(20000)}); if(response.ok){const data=await response.json(), parsed=JSON.parse(data.choices[0].message.content);reply=clean(parsed.reply);ids=Array.isArray(parsed.productIds)?parsed.productIds.filter(id=>products.some(p=>p.id===id)).slice(0,4):[];needsHuman=needsHuman||parsed.needsHuman===true;}else console.error('HerStep AI assistant model error:',response.status,(await response.text()).slice(0,250)); } catch(e){console.error('HerStep AI assistant request failed:',String(e).slice(0,200));}
  }
  if(!reply){
-  // Graceful contextual fallback when the language-model request fails.
-  const recentUserMessages=history.filter(m=>m.role==='user').slice(-6).map(m=>m.content);
+  // Deterministic fallback keeps the conversation useful even when Groq is unavailable.
+  const recentUserMessages=history.filter(m=>m.role==='user').slice(-8).map(m=>m.content);
   const conversationText=recentUserMessages.join(' ').toLowerCase();
-  const occasionTerms=['wedding','work','office','party','birthday','school','church','casual','holiday','graduation','formal'];
+  const occasionTerms=['wedding','work','office','party','birthday','school','church','casual','holiday','graduation','formal','kitchen','cooking'];
   const occasion=occasionTerms.find(term=>message.toLowerCase().includes(term)||conversationText.includes(term));
-  const sizeProvided=/\b(?:size\s*)?(?:3[0-9]|4[0-5])\b/i.test(conversationText);
+  const sizeMatch=conversationText.match(/\b(?:shoe\s*)?size\s*(?:is\s*)?(3[0-9]|4[0-5])\b/i)||conversationText.match(/\bi\s+wear\s+(3[0-9]|4[0-5])\b/i);
+  const requestedSize=sizeMatch?.[1]||'';
+  const sizeProvided=Boolean(requestedSize)||/\b(?:size\s*)?(?:3[0-9]|4[0-5])\b/i.test(conversationText);
+  const budgetMatch=conversationText.match(/\b(?:ksh|kes|budget|under|below)\s*(?:ksh|kes)?\s*(\d{2,6})\b/i);
   const budgetProvided=/\b(?:ksh|kes|shilling|budget|under|below|between)\b/i.test(conversationText);
   const colourProvided=/\b(?:black|white|red|blue|pink|brown|beige|nude|gold|silver|green|cream|purple)\b/i.test(conversationText);
-  const stocked=products.filter(p=>p.inventory.length>0&&Number.isFinite(p.price)&&p.price>0);
-  const pattern=occasion==='wedding'?/heel|pump|court|sandal|elegant|formal|dress/i:occasion==='work'||occasion==='office'?/flat|loafer|low heel|office|formal/i:occasion==='party'||occasion==='birthday'?/heel|sandal|platform|dress|party/i:occasion==='school'?/flat|loafer|sneaker|school/i:/heel|sandal|flat|loafer|dress/i;
-  const matching=occasion?stocked.filter(p=>pattern.test(p.name+' '+p.description+' '+p.categoryId)):stocked;
+  const stocked=products.filter(p=>p.inventory.length>0&&Number.isFinite(p.price)&&p.price>0&&(!requestedSize||p.inventory.some(item=>String(item.size)===requestedSize)));
+  const pattern=occasion==='wedding'?/heel|pump|court|sandal|elegant|formal|dress/i:occasion==='work'||occasion==='office'||occasion==='kitchen'||occasion==='cooking'?/flat|loafer|low heel|comfortable|work|closed/i:occasion==='party'||occasion==='birthday'?/heel|sandal|platform|dress|party/i:occasion==='school'?/flat|loafer|sneaker|school/i:/heel|sandal|flat|loafer|dress/i;
+  let matching=occasion?stocked.filter(p=>pattern.test(p.name+' '+p.description+' '+p.categoryId)):stocked;
+  if(budgetMatch){const max=Number(budgetMatch[1]);if(Number.isFinite(max)&&max>0)matching=matching.filter(p=>p.price<=max);}
   const recommendations=(matching.length?matching:stocked).slice(0,3);
   if(!products.length) reply='I’m sorry — I can’t reach the live catalogue right now. You can still browse the shop, and I can try again if you send another message.';
+  else if(sizeProvided&&!stocked.length) reply='Thanks — I’ve noted size '+requestedSize+'. I can’t confirm any currently in-stock shoes in that size from the live catalogue right now. Would you like me to check another size or show you the full shop?';
   else if(occasion&&recommendations.length){
    ids=recommendations.map(p=>p.id);
    const list=recommendations.map(p=>p.name+' (KSh '+p.price.toLocaleString()+')').join('; ');
-   if(occasion==='wedding') reply='Wedding shoes — lovely! 💛 I checked the live catalogue and these in-stock options may be a good starting point: '+list+'. '+(sizeProvided?'Would you prefer heels or flats?':colourProvided?'Which shoe size do you wear?':budgetProvided?'Which shoe size should I check?':'What shoe size do you wear?');
-   else reply='Got it — '+occasion+' shoes. I checked the live catalogue and these in-stock options may suit you: '+list+'. '+(sizeProvided?'Would you like heels or flats?':colourProvided?'What shoe size do you wear?':'What shoe size and colour would you prefer?');
-  } else if(message.trim().split(/\s+/).length<=5&&history.length>1) reply='Got it — thanks for telling me. I’ll use that as part of what you’re looking for. What shoe size do you wear so I can narrow down the live catalogue?';
-  else reply='I’m Aria, your HerStep shopping assistant 😊 I can check our live shoes, prices and available sizes with you. What shoe size or budget should I start with?';
+   if(occasion==='wedding') reply='Wedding shoes — lovely! 💛 I checked the live catalogue and these in-stock options may be a good starting point: '+list+'. '+(sizeProvided?'Would you prefer heels or flats?':colourProvided?'Which colour would you prefer?':budgetProvided?'Would you prefer heels or flats?':'What shoe size do you wear?');
+   else if(occasion==='cooking'||occasion==='kitchen') reply='For cooking or standing in the kitchen, comfort and stability matter. These in-stock styles may be worth a look: '+list+'. Do you prefer closed shoes or open sandals?';
+   else reply='Got it — '+occasion+' shoes. I checked the live catalogue and these in-stock options may suit you: '+list+'. '+(sizeProvided?'Would you prefer heels or flats?':colourProvided?'What shoe style do you prefer?':'What colour would you prefer?');
+  } else if(sizeProvided&&recommendations.length){
+   ids=recommendations.map(p=>p.id);
+   reply='Size '+requestedSize+' — got it! 😊 I’ve checked the live catalogue for shoes with stock in your size: '+recommendations.map(p=>p.name+' (KSh '+p.price.toLocaleString()+')').join('; ')+'. What occasion or budget should I use to narrow these down?';
+  } else if(message.trim().split(/\s+/).length<=5&&history.length>1) reply='Thanks, I’ll keep that in mind. I won’t ask you for the same detail again. Are you looking for everyday shoes, work shoes, or a pair for a special occasion?';
+  else reply='I’m Aria, your HerStep shopping assistant 😊 Tell me what you have in mind—everyday comfort, work, a special occasion, a colour, or a budget—and I’ll help you explore the live catalogue.';
  }
  const chosen=products.filter(p=>ids.includes(p.id));
  const ticketId=needsHuman?`AI-${conversationId.slice(0,8).toUpperCase()}`:null;
