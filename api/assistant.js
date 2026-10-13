@@ -162,9 +162,11 @@ export default async function assistant(req,res) {
   const pattern=occasion==='wedding'?/heel|pump|court|sandal|elegant|formal|dress/i:occasion==='work'||occasion==='office'||occasion==='kitchen'||occasion==='cooking'?/flat|loafer|low heel|comfortable|work|closed/i:occasion==='party'||occasion==='birthday'?/heel|sandal|platform|dress|party/i:occasion==='school'?/flat|loafer|sneaker|school/i:/heel|sandal|flat|loafer|dress/i;
   let matching=occasion?stocked.filter(p=>pattern.test(p.name+' '+p.description+' '+p.categoryId)):stocked;
   if(budgetMatch){const max=Number(budgetMatch[1]);if(Number.isFinite(max)&&max>0)matching=matching.filter(p=>p.price<=max);}
-  const recommendations=(matching.length?matching:stocked).slice(0,3);
+  const recommendations=(matching.length?matching:((occasion||budgetMatch)?[]:stocked)).slice(0,3);
   if(!products.length) reply='I’m sorry — I can’t reach the live catalogue right now. You can still browse the shop, and I can try again if you send another message.';
   else if(sizeProvided&&!stocked.length) reply='Thanks — I’ve noted size '+requestedSize+'. I can’t confirm any currently in-stock shoes in that size from the live catalogue right now. Would you like me to check another size or show you the full shop?';
+  else if(budgetMatch&&!recommendations.length) reply='I couldn’t find an in-stock match within KSh '+Number(budgetMatch[1]).toLocaleString()+(requestedSize?' in size '+requestedSize:'')+'. Would you like to increase your budget a little or see the closest options?';
+  else if(occasion&&!recommendations.length) reply='I couldn’t find a clear match for '+occasion+' in the live catalogue right now. I can still help you compare the available shoes—would you prefer comfort, flats, or heels?';
   else if(occasion&&recommendations.length){
    ids=recommendations.map(p=>p.id);
    const list=recommendations.map(p=>p.name+' (KSh '+p.price.toLocaleString()+')').join('; ');
