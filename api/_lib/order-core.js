@@ -111,7 +111,7 @@ export function applyDecrement(inventoryArray, size, quantity, productName) {
   if (current < quantity) {
     throw clientError(`Only ${current} left of ${productName} in size ${size}.`, 409);
   }
-  return inventoryArray.map((entry, n) => (n === index ? { size: entry.size, quantity: current - quantity } : { size: entry.size, quantity: Number(entry.quantity) || 0 }));
+  return inventoryArray.map((entry, n) => ({ size: entry.size, quantity: n === index ? current - quantity : (Number(entry.quantity) || 0), ...(entry.costPrice !== undefined ? { costPrice: entry.costPrice } : {}) }));
 }
 
 export function deriveStock(inventoryArray) {
@@ -125,9 +125,9 @@ export function deriveStock(inventoryArray) {
 export function restoreInventory(inventoryArray, size, quantity) {
   const index = inventoryArray.findIndex(i => i.size === size);
   if (index === -1) {
-    return [...inventoryArray.map(i => ({ size: i.size, quantity: Number(i.quantity) || 0 })), { size, quantity }];
+    return [...inventoryArray.map(i => ({ size: i.size, quantity: Number(i.quantity) || 0, ...(i.costPrice !== undefined ? { costPrice: i.costPrice } : {}) })), { size, quantity, costPrice: null }];
   }
-  return inventoryArray.map((entry, n) => (n === index ? { size: entry.size, quantity: (Number(entry.quantity) || 0) + quantity } : { size: entry.size, quantity: Number(entry.quantity) || 0 }));
+  return inventoryArray.map((entry, n) => ({ size: entry.size, quantity: n === index ? (Number(entry.quantity) || 0) + quantity : (Number(entry.quantity) || 0), ...(entry.costPrice !== undefined ? { costPrice: entry.costPrice } : {}) }));
 }
 
 // Guard against documents already corrupted by the old dotted-path writes:
@@ -200,7 +200,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       if (data.status !== 'ACTIVE') throw clientError(`${data.name || productId} is unavailable right now.`, 409);
       requireInventoryArray(productId, data);
 
-      let inventory = data.inventory.map(i => ({ size: i.size, quantity: Number(i.quantity) || 0 }));
+      let inventory = data.inventory.map(i => ({ size: i.size, quantity: Number(i.quantity) || 0, ...(i.costPrice !== undefined ? { costPrice: i.costPrice } : {}) }));
       const changes = [];
       for (const line of productLines) {
         const before = inventory.find(i => i.size === line.size)?.quantity ?? 0;
