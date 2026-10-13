@@ -73,6 +73,9 @@ function xmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
+function slugifyProductName(name) { return String(name || '').normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '') || 'shoe'; }
+function productPath(product) { return `/product/${encodeURIComponent(slugifyProductName(product.name))}`; }
+
 function lastmodOf(item) {
   const d = iso(item.updatedAt) || iso(item.createdAt);
   return d ? d.slice(0, 10) : null;
@@ -100,7 +103,7 @@ export async function sitemap(req, res) {
     push(`${base}/support`, null);
     push(`${base}/tip`, null);
     for (const category of categories) push(`${base}/shop?category=${encodeURIComponent(category.id)}`, lastmodOf(category));
-    for (const product of products) push(`${base}/product/${encodeURIComponent(product.id)}`, lastmodOf(product));
+    for (const product of products) push(`${base}${productPath(product)}`, lastmodOf(product));
     xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
   } catch (error) {
     console.error('[seo] sitemap failed:', error?.message || error);
@@ -127,7 +130,7 @@ export async function productSitemap(req, res) {
     const base = siteUrl();
     const products = await loadActiveProducts();
     const urls = products.slice(0, 5000).map(product => {
-      const loc = `${base}/product/${encodeURIComponent(product.id)}`;
+      const loc = `${base}${productPath(product)}`;
       const lastmod = lastmodOf(product);
       return `  <url><loc>${xmlEscape(loc)}</loc>${lastmod ? `<lastmod>${xmlEscape(lastmod)}</lastmod>` : ''}</url>`;
     });
@@ -275,11 +278,15 @@ export async function productPage(req, res) {
   let status = 200;
   try {
     const base = siteUrl();
-    const canonical = `${base}/product/${encodeURIComponent(String(id || ''))}`;
+    let canonical = `${base}/product/${encodeURIComponent(String(id || ''))}`;
     const plain = await fetchIndexHtml(req);
     let product = null;
     try {
-      if (typeof id === 'string' && id) product = await loadProduct(id);
+      if (typeof id === 'string' && id) {
+        product = await loadProduct(id);
+        if (!product) product = (await loadActiveProducts()).find(item => slugifyProductName(item.name) === id) || null;
+        if (product) canonical = `${base}${productPath(product)}`;
+      }
     } catch (error) {
       console.error('[seo] product load failed:', error?.message || error);
       product = null;
