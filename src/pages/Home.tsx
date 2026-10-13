@@ -6,6 +6,7 @@ import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 import { loadHero, heroImageUrl, heroVideoUrl, type HeroData, type HeroSlide } from '../lib/storefront';
 import type { Product } from '../types';
+import { productPath } from '../lib/product-slug';
 
 // Internal ctaUrl values (# and /...) navigate with the router; https links
 // open normally in a new tab.
@@ -355,7 +356,7 @@ export function ProductCard({ product }: { product: Product }) {
   const availableSizes = product.inventory.filter(s => s.quantity > 0).map(s => s.size);
 
   return (
-    <Link to={`/product/${product.id}`} className="group">
+    <Link to={productPath(product)} className="group">
       <Card hover className="overflow-hidden">
         <div className="relative aspect-square bg-neutral-100 overflow-hidden">
           <img

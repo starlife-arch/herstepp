@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { productPath } from '../lib/product-slug';
 import { Minus, Plus, Trash2, ArrowLeft } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { effectivePrice, hasDiscount } from '../context/AppContext';
@@ -55,7 +56,7 @@ export default function Cart() {
                   <div className="flex-1 min-w-0">
                     <div className="flex justify-between gap-2">
                       <div>
-                        <Link to={`/product/${item.product.id}`} className="font-medium text-neutral-900 text-sm hover:underline">
+                        <Link to={productPath(item.product)} className="font-medium text-neutral-900 text-sm hover:underline">
                           {item.product.name}
                         </Link>
                         <p className="text-xs text-neutral-500 mt-0.5">Size: {item.size}</p>

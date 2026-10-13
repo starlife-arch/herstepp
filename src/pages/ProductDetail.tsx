@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import React, { useEffect, useState } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
+import { productPath, slugifyProductName } from '../lib/product-slug';
 import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Badge, Skeleton, EmptyState, formatCurrency } from '../components/ui';
@@ -8,11 +9,14 @@ import { usePageMeta } from '../hooks/usePageMeta';
 
 export default function ProductDetail() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const { state, dispatch, reloadCatalog } = useApp();
   const { products, catalogLoading, catalogError } = state;
-  const product = products.find(p => p.id === id);
+  const decodedId = id ? decodeURIComponent(id) : '';
+  const product = products.find(p => p.id === decodedId) || products.find(p => slugifyProductName(p.name) === decodedId);
   // Hook is called unconditionally, BEFORE any early return below; it uses the
   // real `product` variable (null-safe), never an undefined helper name.
+  useEffect(() => { if (product && decodedId !== slugifyProductName(product.name)) navigate(productPath(product), { replace: true }); }, [product, decodedId, navigate]);
   usePageMeta(
     product ? `${product.name} | HerStep Collection` : 'Product | HerStep Collection',
     product?.description

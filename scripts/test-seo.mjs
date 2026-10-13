@@ -89,7 +89,7 @@ await test('contains only ACTIVE products with absolute herstepcollection.shop U
   assert.ok(res.body.includes('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'));
   assert.ok(res.body.includes('<loc>https://herstepcollection.shop?case='), 'home URL uses siteUrl()');
   for (const path of ['/shop', '/contact', '/support', '/tip']) assert.ok(res.body.includes(`<loc>https://herstepcollection.shop?case=${new URL(process.env.SITE_URL).searchParams.get('case')}${path}</loc>`), `missing ${path}`);
-  assert.ok(res.body.includes('/product/p-active'));
+  assert.ok(res.body.includes('/product/chunky-heel-sandal'));
   assert.ok(res.body.includes('/shop?category=cat-heels'));
   assert.ok(!res.body.includes('p-archived'), 'archived products must not appear');
   assert.ok(!res.body.includes('p-draft'), 'draft products must not appear');
@@ -113,8 +113,8 @@ await test('injects title, canonical, og:image and JSON-LD with the EFFECTIVE (s
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['cache-control'], 'public, s-maxage=300, stale-while-revalidate=600');
   assert.ok(res.body.includes('<title>Chunky Heel Sandal | HerStep Collection</title>'));
-  assert.ok(res.body.includes('<link rel="canonical" href="https://herstepcollection.shop/product/p-active">') === false, 'href uses quotes escaped form');
-  assert.ok(/<link rel="canonical" href="[^"]*\/product\/p-active"/.test(res.body));
+  assert.ok(res.body.includes('<link rel="canonical" href="https://herstepcollection.shop/product/chunky-heel-sandal">'));
+  assert.ok(/<link rel="canonical" href="[^"]*\/product\/chunky-heel-sandal"/.test(res.body));
   assert.ok(res.body.includes('og:image'));
   assert.ok(res.body.includes('f_auto,q_auto,w_1200,h_630,c_fill'), 'og:image is Cloudinary-optimised');
   const ldMatch = res.body.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/);
@@ -129,6 +129,16 @@ await test('injects title, canonical, og:image and JSON-LD with the EFFECTIVE (s
   assert.equal(ld.brand.name, 'HerStep Collection');
   assert.ok(res.body.includes('product:price:amount" content="2800"'));
   assert.ok(res.body.includes('summary_large_image'));
+});
+
+await test('readable slug URLs resolve and legacy product IDs canonicalise to the slug', async () => {
+  await freshSeoModule();
+  const legacy = await call({ route: 'product-page', id: 'p-active' });
+  assert.ok(legacy.body.includes('/product/chunky-heel-sandal'), 'legacy ID still resolves with the new canonical URL');
+  const slug = await call({ route: 'product-page', id: 'chunky-heel-sandal' });
+  assert.equal(slug.statusCode, 200);
+  assert.ok(slug.body.includes('<title>Chunky Heel Sandal | HerStep Collection</title>'));
+  assert.ok(slug.body.includes('/product/chunky-heel-sandal'));
 });
 
 await test('HTML in product names is escaped (a <script> name is neutralised)', async () => {
