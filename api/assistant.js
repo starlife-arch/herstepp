@@ -11,6 +11,7 @@ import { detectAriaAccountIntent, resolveAriaAccountIntent } from './_lib/aria-a
 const scope = /cheap|lowest|least expensive|affordable|cost|kes|ksh|shoe|heels?|sandals?|flats?|loafers?|platforms?|slides?|footwear|size|sizing|wedding|party|occasion|colour|color|price|budget|stock|available|order|delivery|payment|pay|cart|buy|purchase|product|return|exchange|refund|support|ticket|herstep|collection|shop|shopping|new arrival|bestseller|featured|dress|outfit|work|office|school|birthday|event|style|fashion/i;
 const contactText = 'For personal help, contact HerStep on WhatsApp: https://wa.me/254106624924 or email herstepcollection@gmail.com.';
 const clean = v => typeof v === 'string' ? v.trim().slice(0, 2000) : '';
+const validShoePrice = value => Number.isFinite(Number(value)) && Number(value) >= 50 && Number(value) <= 1000000;
 const slugifyProductName = name => String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '') || 'shoe';
 const productHref = product => '/product/' + encodeURIComponent(slugifyProductName(product.name));
 const normalizeIntent = v => String(v || '').toLowerCase().replace(/[^a-z0-9\s']/g, ' ').replace(/\s+/g, ' ').trim();
@@ -112,7 +113,13 @@ export default async function assistant(req,res) {
  }
  const replyOutOfScope='I’m Aria, your HerStep Collection shopping assistant 😊 I’m best at helping with our shoes, styles, sizes, colours, prices, orders and delivery. I can’t help with recipes or unrelated topics, but I’m happy to help you find the right pair. Are you shopping for everyday wear, work, an event, or something else?';
  const clearlyOffTopic = /\b(?:what can i cook|what should i cook|recipe|recipes|cooking ideas|cook for dinner|homework|solve this equation|politics|president of|weather forecast|write my essay)\b/i.test(message);
- const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you)[!.? ]*$/i.test(message);
+  const greeting = /^(hi|hello|hey|good morning|good afternoon|good evening|how are you|how's it going|how are things|how have you been|what's up)[!.? ]*$/i.test(message);
+  if (greeting) {
+   const reply = /how are you|how's it going|how are things|how have you been|what's up/i.test(message) ? 'I’m doing well, thank you for asking 😊 I’m here with you. And how are you? If you’re browsing shoes, I can help with that too.' : 'Hey there! 😊 Lovely to see you. What can I help you find today? We can browse together, compare prices, or look for a style you have in mind.';
+   await ref.set({status:'OPEN',lastMessage:message,lastReply:reply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+   await ref.collection('messages').add({role:'assistant',content:reply,productIds:[],createdAt:FieldValue.serverTimestamp()});
+   return res.status(200).json({conversationId,reply,products:[],needsHuman:false});
+  }
  const historySnap=await ref.collection('messages').orderBy('createdAt','desc').limit(12).get();
  const recentHistory=historySnap.docs.map(d=>({role:d.data().role,content:String(d.data().content||'')})).reverse();
  const hasRelevantContext=recentHistory.slice(-6).some(m=>/order|payment|invoice|verification|verify|code|delivery|tracking|support|shoe|size|price|stock/i.test(m.content));
@@ -123,11 +130,11 @@ export default async function assistant(req,res) {
   return res.status(200).json({conversationId,reply:replyOutOfScope,products:[],needsHuman:false});
  }
  const snap=await adminDb.collection('products').where('status','==','ACTIVE').limit(1000).get();
- const products=snap.docs.map(d=>{const p=d.data(), inv=Array.isArray(p.inventory)?p.inventory.filter(x=>x&&Number(x.quantity)>0):[];return {id:d.id,name:String(p.name||''),sku:String(p.sku||''),description:String(p.description||'').slice(0,400),categoryId:String(p.categoryId||''),price:Number(p.salePrice)>0&&Number(p.salePrice)<Number(p.price)?Number(p.salePrice):Number(p.price||0),regularPrice:Number(p.price||0),inventory:inv.map(x=>({size:String(x.size),quantity:Number(x.quantity)})),sizes:inv.map(x=>String(x.size)),image:Array.isArray(p.images)?p.images[0]?.url||'':'',featured:!!p.featured,bestseller:!!p.bestseller,newArrival:!!p.newArrival};}).filter(p=>p.name);
+  const products=snap.docs.map(d=>{const p=d.data(), inv=Array.isArray(p.inventory)?p.inventory.filter(x=>x&&Number(x.quantity)>0):[], basePrice=Number(p.price), salePrice=Number(p.salePrice), price=validShoePrice(salePrice)&&validShoePrice(basePrice)&&salePrice<basePrice?salePrice:basePrice;return {id:d.id,name:String(p.name||''),sku:String(p.sku||''),description:String(p.description||'').slice(0,400),categoryId:String(p.categoryId||''),price,regularPrice:basePrice,inventory:inv.map(x=>({size:String(x.size),quantity:Number(x.quantity)})),sizes:inv.map(x=>String(x.size)),image:Array.isArray(p.images)?p.images[0]?.url||'':'',featured:!!p.featured,bestseller:!!p.bestseller,newArrival:!!p.newArrival};}).filter(p=>p.name&&validShoePrice(p.price));
  const history=historySnap.docs.slice().reverse().map(d=>({role:['assistant','admin'].includes(d.data().role)?'assistant':'user',content:String(d.data().content||'').slice(0,1000)}));
  const cheapestIntent=/\b(?:cheapest|cheaper|lowest priced|lowest price|least expensive|most affordable|cheapest one|cheapest shoes)\b/i.test(message);
  if(cheapestIntent) {
-  const stocked=products.filter(p=>p.inventory.length>0&&Number.isFinite(p.price)&&p.price>0).sort((a,b)=>a.price-b.price||a.name.localeCompare(b.name));
+   const stocked=products.filter(p=>p.inventory.length>0&&validShoePrice(p.price)).sort((a,b)=>a.price-b.price||a.name.localeCompare(b.name));
   const cheapest=stocked.slice(0,4);
   const priorRecommended=historySnap.docs.find(d=>d.data().role==='assistant'&&Array.isArray(d.data().productIds)&&d.data().productIds.length)?.data().productIds||[];
   const followUp=/\b(?:this|that|it|they|those|these|one)\b/i.test(message)&&/\b(?:cheapest|cheaper|lowest|least expensive)\b/i.test(message);
@@ -158,13 +165,19 @@ export default async function assistant(req,res) {
   const budgetMatch=conversationText.match(/\b(?:ksh|kes|budget|under|below)\s*(?:ksh|kes)?\s*(\d{2,6})\b/i);
   const budgetProvided=/\b(?:ksh|kes|shilling|budget|under|below|between)\b/i.test(conversationText);
   const colourProvided=/\b(?:black|white|red|blue|pink|brown|beige|nude|gold|silver|green|cream|purple)\b/i.test(conversationText);
-  const stocked=products.filter(p=>p.inventory.length>0&&Number.isFinite(p.price)&&p.price>0&&(!requestedSize||p.inventory.some(item=>String(item.size)===requestedSize)));
+  const stocked=products.filter(p=>p.inventory.length>0&&validShoePrice(p.price)&&(!requestedSize||p.inventory.some(item=>String(item.size)===requestedSize)));
   const pattern=occasion==='wedding'?/heel|pump|court|sandal|elegant|formal|dress/i:occasion==='work'||occasion==='office'||occasion==='kitchen'||occasion==='cooking'?/flat|loafer|low heel|comfortable|work|closed/i:occasion==='party'||occasion==='birthday'?/heel|sandal|platform|dress|party/i:occasion==='school'?/flat|loafer|sneaker|school/i:/heel|sandal|flat|loafer|dress/i;
   let matching=occasion?stocked.filter(p=>pattern.test(p.name+' '+p.description+' '+p.categoryId)):stocked;
   if(budgetMatch){const max=Number(budgetMatch[1]);if(Number.isFinite(max)&&max>0)matching=matching.filter(p=>p.price<=max);}
   const recommendations=(matching.length?matching:((occasion||budgetMatch)?[]:stocked)).slice(0,3);
-  if(!products.length) reply='I’m sorry — I can’t reach the live catalogue right now. You can still browse the shop, and I can try again if you send another message.';
-  else if(sizeProvided&&!stocked.length) reply='Thanks — I’ve noted size '+requestedSize+'. I can’t confirm any currently in-stock shoes in that size from the live catalogue right now. Would you like me to check another size or show you the full shop?';
+   const latest=message.trim().toLowerCase();
+   const isShortPreference=/^(?:heels?|flats?|sandals?|loafers?|black|white|red|blue|pink|brown|beige|nude|gold|silver|green|cream|purple|size\s*(?:3[0-9]|4[0-5])|(?:3[0-9]|4[0-5])|yes|yeah|yep|no|nope|okay|ok|sure|please|the first|the second|show me|full shop|another size)$/i.test(latest);
+   const recentAssistant=history.filter(m=>m.role==='assistant').slice(-1)[0]?.content||'';
+   const previousAskedAboutSizeAlternatives=/another size|full shop|different size|nearby size/i.test(recentAssistant);
+   if(!products.length) reply='I’m sorry — I can’t reach the live catalogue right now. You can still browse the shop, and I can try again if you send another message.';
+   else if(previousAskedAboutSizeAlternatives && /^(?:yes|yeah|yep|sure|okay|ok|please)$/i.test(latest)) reply='Of course 😊 Which would you prefer: I can look at nearby sizes, or show you all the shoes currently in the shop.';
+   else if(sizeProvided&&!stocked.length && isShortPreference) reply='Got it — '+( /heel/i.test(latest)?'you’d prefer heels':/flat/i.test(latest)?'you’d prefer flats':/sandals?/i.test(latest)?'you’d prefer sandals':/black/i.test(latest)?'you’d like black shoes':/white/i.test(latest)?'you’d like white shoes':'I’ll keep that preference in mind')+'. I still can’t confirm stock in size '+requestedSize+'. Would you like me to check nearby sizes for that style, or show you all available options?';
+   else if(sizeProvided&&!stocked.length) reply='I remember you need size '+requestedSize+', and I can’t confirm any in-stock shoes in that size right now. We can try nearby sizes or browse the full shop—which would you prefer?';
   else if(budgetMatch&&!recommendations.length) reply='I couldn’t find an in-stock match within KSh '+Number(budgetMatch[1]).toLocaleString()+(requestedSize?' in size '+requestedSize:'')+'. Would you like to increase your budget a little or see the closest options?';
   else if(occasion&&!recommendations.length) reply='I couldn’t find a clear match for '+occasion+' in the live catalogue right now. I can still help you compare the available shoes—would you prefer comfort, flats, or heels?';
   else if(occasion&&recommendations.length){
