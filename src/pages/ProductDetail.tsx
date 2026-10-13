@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { productPath, slugifyProductName } from '../lib/product-slug';
 import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
