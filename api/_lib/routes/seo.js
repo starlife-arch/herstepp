@@ -73,7 +73,7 @@ function xmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
-function slugifyProductName(name) { return String(name || '').normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '') || 'shoe'; }
+function slugifyProductName(name) { return String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '') || 'shoe'; }
 function productPath(product) { return `/product/${encodeURIComponent(slugifyProductName(product.name))}`; }
 
 function lastmodOf(item) {
