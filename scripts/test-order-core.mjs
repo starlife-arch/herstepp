@@ -168,6 +168,19 @@ await test('two sizes of ONE product decrement correctly with a single product u
   assert.equal(order.total, order.subtotal + order.deliveryFee - order.discount, 'server total is subtotal + fee - discount');
 });
 
+await test('variant costs survive stock reservation and are snapshotted onto order items', async () => {
+  const db = seedBase({ product: { inventory: [
+    { size: '38', quantity: 5, costPrice: 150 },
+    { size: '40', quantity: 3, costPrice: 250 },
+    { size: '42', quantity: 2, costPrice: 300 },
+  ] } });
+  const result = await createOrderCore(db, deps(db), checkoutPayload());
+  const product = db.__doc('products', PRODUCT_ID);
+  assert.deepEqual(Object.fromEntries(product.inventory.map(i => [i.size, i.costPrice])), { '38': 150, '40': 250, '42': 300 });
+  const order = db.__doc('orders', result.order.id).data;
+  assert.deepEqual(order.items.map(i => i.unitCost), [150, 250]);
+});
+
 await test('delivery fees use Juja, Kiambu, configured-area and default rules', async () => {
   const settings = { deliveryEnabled: true, deliveryRates: { outsideJuja: 100, kiambu: 200, defaultCounty: 500, counties: { Nairobi: 300 } } };
   assert.equal(deliveryFee(settings, 'Juja'), 0);
