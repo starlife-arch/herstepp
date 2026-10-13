@@ -13,6 +13,10 @@ function xmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
+function slugifyProductName(name) {
+  return String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '') || 'shoe';
+}
+
 function lastmodOf(product) {
   const value = product?.updatedAt || product?.createdAt;
   if (!value) return null;
@@ -43,7 +47,7 @@ export default async function productSitemap(req, res) {
 
     const urls = snapshot.docs.map(doc => {
       const product = doc.data() || {};
-      const loc = `${CANONICAL}/product/${encodeURIComponent(doc.id)}`;
+      const loc = `${CANONICAL}/product/${encodeURIComponent(slugifyProductName(product.name))}`;
       const lastmod = lastmodOf(product);
       return `  <url><loc>${xmlEscape(loc)}</loc>${lastmod ? `<lastmod>${xmlEscape(lastmod)}</lastmod>` : ''}</url>`;
     });
