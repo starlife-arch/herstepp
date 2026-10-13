@@ -180,25 +180,59 @@ if (vercelJson) {
   }
 }
 
-// ---- Phase 3c: SEO rewrites must beat the SPA fallback ----------------------
-// /sitemap.xml and /product/:id are handled by api/catalog.js routes; if they
-// sat AFTER the catch-all rewrite the SPA would swallow them.
+// ---- Phase 3c: SEO routes and product SPA fallback --------------------------
+// The sitemap must be served by the catalog API. Product detail URLs are
+// client-rendered by the SPA so direct shares and refreshes return HTML rather
+// than a JSON API error. Keep the product rewrite before the catch-all fallback.
 {
   const rewrites = Array.isArray(vercelJson?.rewrites) ? vercelJson.rewrites : [];
   const idxOf = pred => rewrites.findIndex(pred);
   const fallbackIdx = idxOf(r => String(r.source).startsWith('/(('));
   let seoFails = 0;
-  for (const [source, destination, routeName] of [
-    ['/sitemap.xml', '/api/catalog?route=sitemap', 'sitemap'],
-    ['/product/:id', '/api/catalog?route=product-page&id=:id', 'product-page'],
-  ]) {
-    const i = idxOf(r => r.source === source && r.destination === destination);
-    if (i < 0) { seoFails += 1; failed = true; console.error(`SEO FAIL: rewrite ${source} -> ${destination} missing from vercel.json`); continue; }
-    if (fallbackIdx >= 0 && i > fallbackIdx) { seoFails += 1; failed = true; console.error(`SEO FAIL: rewrite ${source} must come BEFORE the SPA fallback`); }
+
+  const sitemapDestination = '/api/catalog?route=sitemap';
+  const sitemapIdx = idxOf(r => r.source === '/sitemap.xml' && r.destination === sitemapDestination);
+  if (sitemapIdx < 0) {
+    seoFails += 1; failed = true;
+    console.error(`SEO FAIL: rewrite /sitemap.xml -> ${sitemapDestination} missing from vercel.json`);
+  } else {
+    if (fallbackIdx >= 0 && sitemapIdx > fallbackIdx) {
+      seoFails += 1; failed = true;
+      console.error('SEO FAIL: rewrite /sitemap.xml must come BEFORE the SPA fallback');
+    }
     const catalogSrc = readFileSync(path.join(apiDir, 'catalog.js'), 'utf8');
-    if (!catalogSrc.includes(`'${routeName}'`)) { seoFails += 1; failed = true; console.error(`SEO FAIL: route "${routeName}" is not registered in api/catalog.js`); }
+    if (!catalogSrc.includes("'sitemap'")) {
+      seoFails += 1; failed = true;
+      console.error('SEO FAIL: route "sitemap" is not registered in api/catalog.js');
+    }
   }
-  if (!seoFails) console.log('check-api: sitemap + product-page rewrites precede the SPA fallback and are registered');
+
+  const productIdx = idxOf(r => r.source === '/product/:id');
+  if (productIdx < 0) {
+    seoFails += 1; failed = true;
+    console.error('SEO FAIL: rewrite /product/:id is missing from vercel.json');
+  } else {
+    const productDestination = String(rewrites[productIdx].destination || '');
+    const isSpaFallback = productDestination === '/index.html';
+    const isCatalogRewrite = productDestination === '/api/catalog?route=product-page&id=:id';
+    if (!isSpaFallback && !isCatalogRewrite) {
+      seoFails += 1; failed = true;
+      console.error('SEO FAIL: /product/:id must route to /index.html or the registered catalog product-page handler');
+    }
+    if (fallbackIdx >= 0 && productIdx > fallbackIdx) {
+      seoFails += 1; failed = true;
+      console.error('SEO FAIL: rewrite /product/:id must come BEFORE the SPA fallback');
+    }
+    if (isCatalogRewrite) {
+      const catalogSrc = readFileSync(path.join(apiDir, 'catalog.js'), 'utf8');
+      if (!catalogSrc.includes("'product-page'")) {
+        seoFails += 1; failed = true;
+        console.error('SEO FAIL: route "product-page" is not registered in api/catalog.js');
+      }
+    }
+  }
+
+  if (!seoFails) console.log('check-api: sitemap route and product detail routing are valid and precede the SPA fallback');
 }
 
 // ---- Phase 4: readable source ---------------------------------------------
