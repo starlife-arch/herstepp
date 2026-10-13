@@ -13,7 +13,7 @@ import { detectAriaAccountIntent, resolveAriaAccountIntent } from './_lib/aria-a
 // ========================
 const scope = /cheap|lowest|least expensive|affordable|cost|kes|ksh|shoe|heels?|sandals?|flats?|loafers?|platforms?|slides?|footwear|size|sizing|wedding|party|occasion|colour|color|price|budget|stock|available|order|delivery|payment|pay|cart|buy|purchase|product|return|exchange|refund|support|ticket|herstep|collection|shop|shopping|new arrival|bestseller|featured|dress|outfit|work|office|school|birthday|event|style|fashion/i;
 
-const conversational = /\b(how are you|how's it going|how are things|who are you|what'?s your name|what is your name|can you help|what can you do|what do you do|tell me about (you|yourself)|are you (a )?(bot|human|ai|real)|nice to meet you|thank you|thanks|thank u|good to (see|meet) you|long time|good job|well done|are you there|you there)\b/i;
+const conversational = /\b(how are you|how'?s it going|how are things|who are you|what'?s your name|what is your name|can you help|what can you do|what do you do|tell me about (you|yourself)|are you (a )?(bot|human|ai|real)|nice to meet you|thank you|thanks|thank u|good to (see|meet) you|good job|well done|are you there|you there)\b/i;
 
 const greeting = /^(hi|hello|hey|hiya|yo|sup|heya|hallo|helo|hii+|good morning|good afternoon|good evening|good day|morning|evening|greetings|howdy)[!.?,\s]*$/i;
 
@@ -32,7 +32,7 @@ const explicitlyRequestsHuman = value => {
 };
 
 // ========================
-// USER MEMORY (NEW)
+// USER MEMORY (PER SIGNED-IN USER)
 // ========================
 async function getProfile(userId) {
   if (!userId) return {};
@@ -88,7 +88,61 @@ function buildProfileContext(profile) {
   if (profile.shoeSize) bits.push('Shoe size: ' + profile.shoeSize);
   if (profile.occasion) bits.push('Shopping for: ' + profile.occasion);
   if (profile.budget) bits.push('Budget: KSh ' + profile.budget);
-  return bits.length ? '\nKNOWN ABOUT THIS CUSTOMER (use naturally, do not ask again): ' + bits.join('. ') + '.' : '';
+  return bits.length ? '\nKNOWN ABOUT THIS CUSTOMER (use naturally, do NOT ask again): ' + bits.join('. ') + '.' : '';
+}
+
+// ========================
+// TOKEN-BUDGET-AWARE PRODUCT SELECTION
+// ========================
+function pickRelevantProducts(allProducts, message) {
+  const msgLower = String(message || '').toLowerCase();
+  const sizeMatch = msgLower.match(/\b(?:size|eu|uk)\s*(\d{2})\b/);
+  const size = sizeMatch ? sizeMatch[1] : null;
+
+  const scored = allProducts.map(p => {
+    let score = 0;
+    const text = (p.name + ' ' + p.description).toLowerCase();
+
+    // Price intent
+    if (/cheap|budget|affordable|lowest|least expensive/.test(msgLower)) {
+      score += Math.max(0, 2000 - p.price) / 2000 * 5;
+    }
+
+    // Occasion
+    if (msgLower.includes('wedding') && /wedding|bridal|elegant|rhinestone|glitter/.test(text)) score += 3;
+    if ((msgLower.includes('work') || msgLower.includes('office')) && /work|office|flat|loafer/.test(text)) score += 3;
+    if (msgLower.includes('party') && /party|glitter|rhinestone|stiletto/.test(text)) score += 3;
+    if (msgLower.includes('casual') && /casual|flat|slide|sandal/.test(text)) score += 2;
+    if (msgLower.includes('church') && /flat|block heel|modest/.test(text)) score += 2;
+
+    // Category words
+    if (msgLower.includes('heel') && /heel/i.test(p.name)) score += 2;
+    if (msgLower.includes('flat') && /flat/i.test(p.name)) score += 2;
+    if (msgLower.includes('sandal') && /sandal|slide/i.test(p.name)) score += 2;
+    if (msgLower.includes('platform') && /platform/i.test(p.name)) score += 2;
+    if (msgLower.includes('stiletto') && /stiletto/i.test(p.name)) score += 3;
+    if (msgLower.includes('loafer') && /loafer/i.test(p.name)) score += 3;
+
+    // Size match
+    if (size && p.sizes.includes(size)) score += 4;
+
+    // Soft preference for quality signals
+    if (p.featured) score += 0.5;
+    if (p.bestseller) score += 0.5;
+    if (p.newArrival) score += 0.3;
+    if (p.sizes.length > 0) score += 0.2;
+
+    return { p, score };
+  });
+
+  const matched = scored.filter(x => x.score > 0).sort((a, b) => b.score - a.score).slice(0, 30).map(x => x.p);
+  if (matched.length) return matched;
+
+  // Fallback: cheapest in-stock items
+  return allProducts
+    .filter(p => p.sizes.length > 0)
+    .sort((a, b) => a.price - b.price)
+    .slice(0, 30);
 }
 
 // ========================
@@ -291,7 +345,7 @@ export default async function assistant(req, res) {
   }
 
   // ========================
-  // NEW: Profile-aware memory (extract + load)
+  // NEW: Profile-aware memory
   // ========================
   const profileUpdates = extractProfileInfo(message);
   if (user?.uid && Object.keys(profileUpdates).length) {
@@ -320,7 +374,6 @@ export default async function assistant(req, res) {
   const isGreeting = greeting.test(message.trim());
   const isConversational = conversational.test(message);
 
-  // Only block genuinely unrelated stuff — and even then, be human about it.
   if (!scope.test(message) && !isGreeting && !isConversational && !contextualFollowUp) {
     await ref.set({
       status: 'OPEN',
@@ -335,7 +388,7 @@ export default async function assistant(req, res) {
 
   // ====== Existing: catalogue load ======
   const snap = await adminDb.collection('products').where('status', '==', 'ACTIVE').limit(1000).get();
-  const products = snap.docs.map(d => {
+  const allProducts = snap.docs.map(d => {
     const p = d.data();
     const inv = Array.isArray(p.inventory) ? p.inventory.filter(x => x && Number(x.quantity) > 0) : [];
     return {
@@ -355,12 +408,18 @@ export default async function assistant(req, res) {
     };
   }).filter(p => p.name);
 
+  // Full list kept for cheapest-shoe logic
+  const products = allProducts;
+
+  // Trimmed list sent to the AI to stay under Groq token limits
+  const catalogueForAI = pickRelevantProducts(allProducts, message);
+
   const history = historySnap.docs.slice().reverse().map(d => ({
     role: ['assistant', 'admin'].includes(d.data().role) ? 'assistant' : 'user',
     content: String(d.data().content || '').slice(0, 1000)
   }));
 
-  // ====== Existing: cheapest shoe logic (untouched) ======
+  // ====== Existing: cheapest shoe logic (uses full catalogue) ======
   const cheapestIntent = /\b(?:cheapest|cheaper|lowest priced|lowest price|least expensive|most affordable|cheapest one|cheapest shoes)\b/i.test(message);
   if (cheapestIntent) {
     const stocked = products.filter(p => p.inventory.length > 0 && Number.isFinite(p.price) && p.price > 0).sort((a, b) => a.price - b.price || a.name.localeCompare(b.name));
@@ -385,51 +444,34 @@ export default async function assistant(req, res) {
     });
   }
 
-  // ====== Existing: Groq call — prompt upgraded with memory ======
+  // ====== Existing: Groq call (prompt trimmed + trimmed catalogue) ======
   const key = String(process.env.GROQ_API_KEY || '').trim();
   let reply = '', ids = [], needsHuman = false;
 
   if (key) {
-    const prompt = `You are Aria, the warm, friendly, human-like personal shopping assistant for HerStep Collection, a Kenyan ladies' shoe shop.${profileContext}
+    const prompt = `You are Aria, the warm, friendly, human-like shopping assistant for HerStep Collection (Kenyan ladies' shoes).${profileContext}
 
-IDENTITY:
-- Your name is Aria. If someone asks who you are, say "I'm Aria" naturally.
-- Only explain that you are an AI if the customer directly asks if you're a bot/AI/human. Answer honestly when asked.
-- Never rename yourself.
+IDENTITY: You are Aria. Say "I'm Aria" if asked. Only say you're an AI if the customer directly asks if you're a bot/AI/human. Never rename yourself.
 
-PERSONALITY:
-- Warm, caring, feminine, patient, confident, conversational — like a helpful personal stylist.
-- Use natural language with occasional emojis 👠💕✨.
-- NEVER sound like a FAQ machine or a generic branded chatbot.
-- NEVER repeat the same greeting twice.
-- NEVER ask for information you already have (name, size, occasion, budget).
-- If you know the customer's name, use it naturally.
-- Handle greetings, small talk ("how are you", "what's your name"), and gentle off-topic questions briefly, then return to shopping naturally.
-- Only redirect genuinely unrelated requests (recipes, general trivia, politics, homework) — and do it warmly, not robotically.
+PERSONALITY: Warm, feminine, patient, confident, like a personal stylist. Use natural language with occasional emojis 👠💕. NEVER sound like a FAQ machine. NEVER repeat the same greeting twice. NEVER ask for info you already have (name/size/occasion/budget). Use the customer's name if known.
 
-CONVERSATION:
-- Treat short follow-ups like "is this the cheapest?", "what about that one?", "why?", "are you sure?" in context.
-- Do not classify them as unrelated just because they omit shoe keywords.
-- Use only the live catalogue for product facts. Never invent products, prices, SKUs, stock, sizes, links, policies or materials.
-- Recommend only products with at least one in-stock size.
-- If nothing matches, be honest and offer alternatives.
-- Links use /product/{id}.
-- If human help is needed, set needsHuman=true. Don't claim a ticket has been created.
+CONVERSATION: Handle greetings, small talk ("how are you", "what's your name"), and gentle off-topic questions briefly, then return to shopping naturally. Only redirect genuinely unrelated topics (recipes, politics, homework) — warmly, not robotically. Treat short follow-ups like "is this the cheapest?", "what about that one?", "why?", "are you sure?" in context.
+
+FACTS: Use ONLY the live catalogue for product facts. Never invent products, prices, SKUs, stock, sizes, links, policies or materials. Recommend only in-stock sizes. Links: /product/{id}. If nothing matches, be honest and offer alternatives. If human help is needed, set needsHuman=true (don't claim a ticket was made).
 
 Return JSON only: {"reply":"...","productIds":["exact ids from catalogue, max 4"],"needsHuman":false}.
-CATALOGUE:
-${JSON.stringify(products.map(({ id, name, sku, description, price, regularPrice, sizes, inventory, featured, bestseller, newArrival }) => ({ id, name, sku, description, price, regularPrice, sizes, inventory, featured, bestseller, newArrival })))}`;
+CATALOGUE:\n${JSON.stringify(catalogueForAI.map(({ id, name, sku, description, price, regularPrice, sizes, featured, bestseller, newArrival }) => ({ id, name, sku, description: description.slice(0, 150), price, regularPrice, sizes, featured, bestseller, newArrival })))}`;
 
     try {
       const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model: String(process.env.GROQ_CHAT_MODEL || 'qwen/qwen3.8-27b').trim(),
+          model: String(process.env.GROQ_CHAT_MODEL || 'llama-3.1-8b-instant').trim(),
           temperature: 0.4,
-          max_tokens: 600,
+          max_tokens: 500,
           response_format: { type: 'json_object' },
-          messages: [{ role: 'system', content: prompt }, ...history.slice(-7)]
+          messages: [{ role: 'system', content: prompt }, ...history.slice(-4)]
         }),
         signal: AbortSignal.timeout(20000)
       });
@@ -440,20 +482,29 @@ ${JSON.stringify(products.map(({ id, name, sku, description, price, regularPrice
         ids = Array.isArray(parsed.productIds) ? parsed.productIds.filter(id => products.some(p => p.id === id)).slice(0, 4) : [];
         needsHuman = needsHuman || parsed.needsHuman === true;
       } else {
-        console.error('HerStep AI assistant model error:', response.status, (await response.text()).slice(0, 250));
+        const errText = (await response.text()).slice(0, 250);
+        console.error('HerStep AI assistant model error:', response.status, errText);
       }
     } catch (e) {
       console.error('HerStep AI assistant request failed:', String(e).slice(0, 200));
     }
   }
 
-  // ====== NEW: warmer fallback (was robotic before) ======
+  // ====== Warmer, non-repeating fallback ======
   if (!reply) {
     const firstName = profile.name ? ', ' + profile.name : '';
     const sizeHint = profile.shoeSize ? ` I remember you're a size ${profile.shoeSize}.` : '';
-    reply = products.length
-      ? `Hi${firstName}! 💕 I'm here to help you find the perfect pair.${sizeHint} Tell me the occasion, style, colour, or budget and I'll pull up some options.`
-      : `Hi${firstName}! 💕 Our live catalogue is loading right now — try again in a moment, or tell me what you're looking for and I'll help as soon as it's back.`;
+    const occasionHint = profile.occasion ? ` Looking for ${profile.occasion} shoes?` : '';
+
+    if (isGreeting) {
+      reply = `Hi${firstName}! 👋💕 I'm Aria — lovely to see you.${sizeHint}${occasionHint} What are you shopping for today?`;
+    } else if (isConversational) {
+      reply = `I'm Aria, your HerStep shopping assistant 💕 I'm doing great, thank you for asking! Tell me the occasion, style, colour, or budget and I'll find you something lovely.${sizeHint}`;
+    } else if (products.length) {
+      reply = `Hi${firstName}! 💕 I'm here to help you find the perfect pair.${sizeHint} Tell me the occasion, style, colour, or budget and I'll pull up some options.`;
+    } else {
+      reply = `Hi${firstName}! 💕 Our live catalogue is loading right now — try again in a moment, or tell me what you're looking for and I'll help as soon as it's back.`;
+    }
     ids = [];
   }
 
