@@ -5,6 +5,11 @@ const iso=v=>v?.toDate?v.toDate().toISOString():v||null;
 export default async function adminAIChats(req,res){
  const admin=await requireAdmin(req);
  if(req.method==='GET'){
+  if(req.query?.feedback==='1'){
+   const snap=await adminDb.collection('aiConversations').orderBy('updatedAt','desc').limit(500).get();
+   const feedback=snap.docs.map(d=>({id:d.id,...d.data(),createdAt:iso(d.data().createdAt),updatedAt:iso(d.data().updatedAt),feedbackSubmittedAt:iso(d.data().feedbackSubmittedAt)})).filter(c=>c.feedbackSubmittedAt||Number.isInteger(c.rating)).sort((a,b)=>new Date(b.feedbackSubmittedAt||b.updatedAt||0).getTime()-new Date(a.feedbackSubmittedAt||a.updatedAt||0).getTime());
+   return res.json({feedback});
+  }
   const id=typeof req.query?.id==='string'?req.query.id:'';
   if(id){if(!/^[a-zA-Z0-9_-]{12,80}$/.test(id))throw clientError('Conversation not found.',404);const ref=adminDb.collection('aiConversations').doc(id),snap=await ref.get();if(!snap.exists)throw clientError('Conversation not found.',404);const messages=await ref.collection('messages').orderBy('createdAt','asc').limit(200).get();return res.json({conversation:{id:snap.id,...snap.data(),createdAt:iso(snap.data().createdAt),updatedAt:iso(snap.data().updatedAt)},messages:messages.docs.map(d=>({id:d.id,...d.data(),createdAt:iso(d.data().createdAt)}))});}
   const snap=await adminDb.collection('aiConversations').orderBy('updatedAt','desc').limit(100).get();return res.json({conversations:snap.docs.map(d=>({id:d.id,...d.data(),createdAt:iso(d.data().createdAt),updatedAt:iso(d.data().updatedAt)}))});
