@@ -132,6 +132,16 @@ export default async function assistant(req,res) {
  const snap=await adminDb.collection('products').where('status','==','ACTIVE').limit(1000).get();
   const products=snap.docs.map(d=>{const p=d.data(), inv=Array.isArray(p.inventory)?p.inventory.filter(x=>x&&Number(x.quantity)>0):[], basePrice=Number(p.price), salePrice=Number(p.salePrice), price=validShoePrice(salePrice)&&validShoePrice(basePrice)&&salePrice<basePrice?salePrice:basePrice;return {id:d.id,name:String(p.name||''),sku:String(p.sku||''),description:String(p.description||'').slice(0,400),categoryId:String(p.categoryId||''),price,regularPrice:basePrice,inventory:inv.map(x=>({size:String(x.size),quantity:Number(x.quantity)})),sizes:inv.map(x=>String(x.size)),image:Array.isArray(p.images)?p.images[0]?.url||'':'',featured:!!p.featured,bestseller:!!p.bestseller,newArrival:!!p.newArrival};}).filter(p=>p.name&&validShoePrice(p.price));
  const history=historySnap.docs.slice().reverse().map(d=>({role:['assistant','admin'].includes(d.data().role)?'assistant':'user',content:String(d.data().content||'').slice(0,1000)}));
+ const latestUserText=normalizeIntent(message);
+ const lastAssistantText=history.filter(m=>m.role==='assistant').slice(-1)[0]?.content||'';
+ const affirmative=/^(?:yes|yeah|yep|yup|sure|okay|ok|of course|please)$/i.test(latestUserText);
+ const greetingOffer=/how are you|how about you|if you(?:'|’)re browsing shoes|i can help with that too|what can i help you find today/i.test(lastAssistantText);
+ if(affirmative&&greetingOffer) {
+   const reply='Lovely 😊 What would you like help with today — finding a pair of shoes, comparing prices, checking a size, or choosing something for a particular occasion?';
+   await ref.set({status:'OPEN',lastMessage:message,lastReply:reply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+   await ref.collection('messages').add({role:'assistant',content:reply,productIds:[],createdAt:FieldValue.serverTimestamp()});
+   return res.status(200).json({conversationId,reply,products:[],needsHuman:false});
+ }
  const cheapestIntent=/\b(?:cheapest|cheaper|lowest priced|lowest price|least expensive|most affordable|cheapest one|cheapest shoes)\b/i.test(message);
  if(cheapestIntent) {
    const stocked=products.filter(p=>p.inventory.length>0&&validShoePrice(p.price)).sort((a,b)=>a.price-b.price||a.name.localeCompare(b.name));
