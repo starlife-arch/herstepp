@@ -39,8 +39,9 @@ export default async function assistant(req,res) {
   if(!snap.exists) return res.status(200).json({status:'OPEN',messages:[]});
   const ownerId=String(snap.data().customerId||'');
   if((ownerId&&ownerId!==user?.uid)||(!ownerId&&user)) throw clientError('Conversation not found.',404);
-  const messages=await ref.collection('messages').orderBy('createdAt','desc').limit(100).get();
-  return res.status(200).json({status:snap.data().status||'OPEN',messages:messages.docs.reverse().map(d=>({id:d.id,...d.data(),createdAt:d.data().createdAt?.toDate?d.data().createdAt.toDate().toISOString():d.data().createdAt||null}))});
+  const messageQuery=ref.collection('messages').orderBy('createdAt','desc');
+  const messages=await (req.query?.export==='1'?messageQuery.get():messageQuery.limit(100).get());
+  return res.status(200).json({status:snap.data().status||'OPEN',ratingSubmitted:Boolean(snap.data().feedbackSubmittedAt),messages:messages.docs.reverse().map(d=>({id:d.id,...d.data(),createdAt:d.data().createdAt?.toDate?d.data().createdAt.toDate().toISOString():d.data().createdAt||null}))});
  }
  if(req.method!=='POST') return methodNotAllowed(res,['GET','POST']);
  const previous=await ref.get();
