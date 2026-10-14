@@ -20,6 +20,7 @@ import { PrivacyPolicy, TermsOfService } from './pages/StaticPages';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminBulkShoeUpload from './pages/AdminBulkShoeUpload';
 import AdminAIChats from './pages/AdminAIChats';
+import AdminAriaFeedback from './pages/AdminAriaFeedback';
 import AdminAI from './pages/AdminAI';
 import AdminCosts from './pages/AdminCosts';
 import TipPage from './pages/Tip';
@@ -33,6 +34,7 @@ function AppRoutes() {
  if (location.pathname.startsWith('/admin')) return <Routes>
   <Route path="/admin/bulk-upload" element={<Wrap><RequireAdmin><AdminBulkShoeUpload /></RequireAdmin></Wrap>} />
   <Route path="/admin/ai-chats" element={<Wrap><RequireAdmin><AdminAIChats /></RequireAdmin></Wrap>} />
+  <Route path="/admin/aria-feedback" element={<Wrap><RequireAdmin><AdminAriaFeedback /></RequireAdmin></Wrap>} />
   <Route path="/admin/ai" element={<Wrap><RequireAdmin><AdminAI /></RequireAdmin></Wrap>} />
   <Route path="/admin/costs" element={<Wrap><RequireAdmin><AdminCosts /></RequireAdmin></Wrap>} />
   <Route path="/admin" element={<Wrap><RequireAdmin><AdminDashboard /></RequireAdmin></Wrap>} />
