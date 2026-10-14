@@ -100,6 +100,25 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
     };
   }
 
+  const orderCountQuestion = intent === 'order' && /\b(?:how many|number of|count of|total number|total count)\b.{0,45}\b(?:orders?|purchases?)\b|\b(?:orders?|purchases?)\b.{0,35}\b(?:how many|count|total|number)\b/i.test(input);
+  if (orderCountQuestion && !number && !invoiceRef) {
+    let total = orders.length;
+    let exact = false;
+    try {
+      const countSnap = await db.collection('orders').where('customerId', '==', user.uid).count().get();
+      const countValue = Number(countSnap.data()?.count);
+      if (Number.isFinite(countValue)) { total = countValue; exact = true; }
+    } catch (error) {
+      console.error('[Aria account] order count aggregation unavailable:', error?.message || error);
+    }
+    return {
+      intent,
+      reply: exact
+        ? 'I checked your HerStep account records: you have ' + total + ' order' + (total === 1 ? '' : 's') + ' in total. That includes all orders linked to your signed-in account, not just the five recent orders shown in chat.'
+        : 'I could retrieve ' + orders.length + ' recent order records for your account, but I couldn’t verify the all-time total just now. I don’t want to guess; please try again shortly.',
+      actions: [],
+    };
+  }
   const list = (number ? selected : orders).slice(0, 5);
   if (intent === 'payment') {
     return {
