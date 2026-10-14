@@ -43,13 +43,22 @@ export default async function assistant(req,res) {
   return res.status(200).json({status:snap.data().status||'OPEN',messages:messages.docs.reverse().map(d=>({id:d.id,...d.data(),createdAt:d.data().createdAt?.toDate?d.data().createdAt.toDate().toISOString():d.data().createdAt||null}))});
  }
  if(req.method!=='POST') return methodNotAllowed(res,['GET','POST']);
- const message=clean(body.message);
- if(!message||message.length>1200) throw clientError('Enter a message under 1,200 characters.');
  const previous=await ref.get();
  if(previous.exists) {
   const ownerId=String(previous.data().customerId||'');
   if((ownerId&&ownerId!==user?.uid)||(!ownerId&&user)) throw clientError('Conversation not found.',404);
  }
+ if(body.action==='feedback') {
+  const rating=Number(body.rating);
+  const feedback=typeof body.feedback==='string'?body.feedback.trim().slice(0,1000):'';
+  if(!Number.isInteger(rating)||rating<1||rating>5) throw clientError('Please choose a rating from 1 to 5 stars.');
+  if(!previous.exists) throw clientError('Conversation not found.',404);
+  await ref.collection('feedback').doc('customer-rating').set({rating,feedback,customerId:user?.uid||null,createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  await ref.set({rating,feedback,feedbackSubmittedAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  return res.status(200).json({ok:true});
+ }
+ const message=clean(body.message);
+ if(!message||message.length>1200) throw clientError('Enter a message under 1,200 characters.');
  if(!previous.exists) await ref.set({conversationId,customerId:user?.uid||null,customerName:user?.name||user?.displayName||'Website visitor',customerEmail:user?.email||'',createdAt:FieldValue.serverTimestamp(),updatedAt:FieldValue.serverTimestamp()},{merge:true});
  const currentStatus=previous.exists?String(previous.data().status||'OPEN'):'OPEN';
  const pendingAccountAction=String(previous.data()?.pendingAccountAction||'');
