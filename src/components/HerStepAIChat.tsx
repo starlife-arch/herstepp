@@ -2,7 +2,7 @@ import React,{useEffect,useRef,useState} from 'react';
 import {Link,useLocation,useNavigate} from 'react-router-dom';
 import {Send,X,ExternalLink,Headphones,ShoppingBag,Download,Star} from 'lucide-react';
 import {apiDownload,apiFetch} from '../lib/api';
-import {useApp} from '../context/AppContext';
+import {useApp,effectivePrice} from '../context/AppContext';
 import { productPath } from '../lib/product-slug';
 
 type Product={id:string;name:string;sku:string;price:number;href:string;image?:string;sizes:string[];inventory:{size:string;quantity:number}[]};
