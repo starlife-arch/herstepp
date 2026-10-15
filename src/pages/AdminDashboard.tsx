@@ -4,13 +4,14 @@
 // GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image, Sparkles } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image, Sparkles, Star } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 
 import { apiFetch, apiDownload } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { SupportChat } from '../components/SupportChat';
+import { AdminReviews } from '../components/AdminReviews';
 import { toUiTicket } from '../lib/supportAdapter';
 import { ORDER_STATUSES, nextOrderStatuses, humanStatus } from '../lib/orderTransitions';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
@@ -660,6 +661,7 @@ export default function AdminDashboard() {
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'orders', label: 'Orders', icon: ShoppingBag },
     { id: 'products', label: 'Products', icon: Package },
+    { id: 'reviews', label: 'Reviews', icon: Star },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'tips', label: 'Tips', icon: Heart },
@@ -750,6 +752,7 @@ export default function AdminDashboard() {
           {activeSection === 'overview' && <AdminOverview res={ordersRes} orders={orders} />}
           {activeSection === 'orders' && <AdminOrders res={ordersRes} orders={orders} />}
           {activeSection === 'products' && <AdminProducts />}
+          {activeSection === 'reviews' && <AdminReviews />}
           {activeSection === 'customers' && <AdminCustomers />}
           {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
           {activeSection === 'tips' && <AdminTips />}
