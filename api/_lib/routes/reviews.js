@@ -12,10 +12,9 @@ export default async function reviews(req, res) {
     if (!productId || productId.length > 160) throw clientError('A valid product is required.');
     const snap = await adminDb.collection('reviews')
       .where('productId', '==', productId)
-      .where('status', '==', 'APPROVED')
       .limit(100)
       .get();
-    const reviews = snap.docs.map(doc => {
+    const reviews = snap.docs.filter(doc => doc.data().status === 'APPROVED').map(doc => {
       const d = doc.data();
       return {
         id: doc.id,
@@ -50,10 +49,10 @@ export default async function reviews(req, res) {
     // Only a successful, paid order containing this product qualifies.
     const orders = await adminDb.collection('orders')
       .where('customerId', '==', user.uid)
-      .where('paymentStatus', '==', 'PAID')
       .limit(100)
       .get();
     const purchased = orders.docs.some(doc =>
+      String(doc.data().paymentStatus).toUpperCase() === 'PAID' &&
       Array.isArray(doc.data().items) &&
       doc.data().items.some(item => String(item.productId) === productId && Number(item.quantity) > 0)
     );
