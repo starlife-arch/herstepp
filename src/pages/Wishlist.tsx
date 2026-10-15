@@ -87,7 +87,7 @@ export default function Wishlist() {
                 <Link to={productPath(product)} className="font-semibold text-neutral-900 hover:underline">{product.name}</Link>
                 <p className="font-bold text-neutral-900">{formatCurrency(effectivePrice(product))}</p>
                 <div className="flex gap-2">
-                  <Link to={productPath(product)} className="flex-1"><Button block>View shoe</Button></Link>
+                  <Link to={productPath(product)} className="flex-1"><Button className="w-full">View shoe</Button></Link>
                   <Button variant="outline" disabled={removing === item.productId} onClick={() => void remove(item.productId)} aria-label={`Remove ${product.name} from wishlist`}>
                     <Trash2 className="h-4 w-4" /> {removing === item.productId ? 'Removing…' : 'Remove'}
                   </Button>
