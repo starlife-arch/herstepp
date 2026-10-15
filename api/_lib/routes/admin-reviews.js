@@ -4,7 +4,7 @@ import { clientError, methodNotAllowed } from '../http.js';
 const iso = value => value?.toDate?.().toISOString?.() ?? value ?? null;
 
 export default async function adminReviews(req, res) {
-  await requireAdmin(req);
+  const admin = await requireAdmin(req);
 
   if (req.method === 'GET') {
     const rawStatus = Array.isArray(req.query.status) ? req.query.status[0] : req.query.status;
@@ -48,7 +48,7 @@ export default async function adminReviews(req, res) {
     await ref.update({
       status,
       moderatedAt: new Date(),
-      moderatedBy: (await requireAdmin(req)).uid,
+      moderatedBy: admin.uid,
       updatedAt: new Date(),
     });
     return res.json({ message: status === 'APPROVED' ? 'Review approved.' : 'Review rejected.', reviewId, status });
