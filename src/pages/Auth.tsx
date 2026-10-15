@@ -189,6 +189,8 @@ export function Login() {
 export function Register() {
   usePageMeta('Create Account | HerStep Collection', undefined, true);
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (location.state as { from?: string } | null)?.from || '/dashboard';
   const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -217,7 +219,7 @@ export function Register() {
       try {
         await apiFetch('/api/auth/verify/send', { method: 'POST', body: JSON.stringify({}) });
       } catch { /* VerifyEmail retries the send when it mounts */ }
-      navigate('/verify-email', { replace: true });
+      navigate('/verify-email', { replace: true, state: { from } });
     } catch (caughtError) {
       setError(authErrorMessage(caughtError));
     } finally {
