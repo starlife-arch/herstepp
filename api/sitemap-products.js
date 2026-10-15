@@ -14,7 +14,7 @@ function xmlEscape(value) {
 }
 
 function slugifyProductName(name) {
-  return String(name || '').normalize('NFKD').replace(/[\\u0300-\\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '');
+  return String(name || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 100).replace(/-+$/g, '');
 }
 
 function lastmodOf(product) {
@@ -64,7 +64,7 @@ export default async function productSitemap(req, res) {
 
     const xml = `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-${urls.join('\\n')}
+${urls.join('\n')}
 </urlset>
 `;
 
