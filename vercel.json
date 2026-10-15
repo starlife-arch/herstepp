@@ -49,6 +49,10 @@
       "destination": "/api/catalog?route=categories"
     },
     {
+      "source": "/api/wishlist",
+      "destination": "/api/users?route=wishlist"
+    },
+    {
       "source": "/api/reviews",
       "destination": "/api/users?route=reviews"
     },

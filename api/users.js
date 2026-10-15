@@ -7,6 +7,7 @@ export default (req, res) => dispatchRoute(req, res, {
   dashboard: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.dashboard }))),
   notifications: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.notifications }))),
   reviews: lazyRoute(() => import('./_lib/routes/reviews.js')),
+  wishlist: lazyRoute(() => import('./_lib/routes/wishlist.js')),
   support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.list }))),
   'support/create': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.create }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.message }))),
