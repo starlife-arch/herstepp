@@ -5,6 +5,7 @@ import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-rea
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Badge, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 import { usePageMeta } from '../hooks/usePageMeta';
+import { ProductReviews } from '../components/ProductReviews';
 
 
 export default function ProductDetail() {
@@ -233,6 +234,8 @@ export default function ProductDetail() {
           </Card>
         </div>
       </div>
+
+      <ProductReviews productId={product.id} />
 
       {/* Toast */}
       {state.toast && (

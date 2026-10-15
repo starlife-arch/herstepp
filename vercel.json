@@ -49,6 +49,10 @@
       "destination": "/api/catalog?route=categories"
     },
     {
+      "source": "/api/reviews",
+      "destination": "/api/users?route=reviews"
+    },
+    {
       "source": "/api/admin/products",
       "destination": "/api/admin?route=products"
     },
@@ -59,6 +63,10 @@
     {
       "source": "/api/admin/products/:id/archive",
       "destination": "/api/admin?route=product-archive&id=:id"
+    },
+    {
+      "source": "/api/admin/reviews",
+      "destination": "/api/admin?route=reviews"
     },
     {
       "source": "/api/admin/categories",

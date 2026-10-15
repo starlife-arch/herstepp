@@ -6,6 +6,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'auth/verify/confirm': lazyRoute(() => import('./_lib/routes/email-verify.js').then(m => ({ default: m.verifyConfirm }))),
   dashboard: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.dashboard }))),
   notifications: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.notifications }))),
+  reviews: lazyRoute(() => import('./_lib/routes/reviews.js')),
   support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.list }))),
   'support/create': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.create }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.message }))),
