@@ -50,7 +50,7 @@
     },
     {
       "source": "/api/reviews",
-      "destination": "/api/catalog?route=reviews"
+      "destination": "/api/users?route=reviews"
     },
     {
       "source": "/api/admin/products",
