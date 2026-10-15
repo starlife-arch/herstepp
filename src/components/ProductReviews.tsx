@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Star } from 'lucide-react';
+import { onAuthStateChanged } from 'firebase/auth';
 import { apiFetch } from '../lib/api';
 import { getFirebase } from '../lib/firebase';
 import { Card, Button } from './ui';
@@ -41,13 +42,14 @@ export function ProductReviews({ productId }: { productId: string }) {
   }, [productId]);
 
   useEffect(() => {
+    let unsubscribe: (() => void) | undefined;
     let active = true;
     getFirebase().then(({ auth }) => {
-      if (active) setSignedIn(Boolean(auth.currentUser));
-      return null;
+      if (!active) return;
+      unsubscribe = onAuthStateChanged(auth, user => setSignedIn(Boolean(user)));
     }).catch(() => undefined);
     void loadReviews();
-    return () => { active = false; };
+    return () => { active = false; unsubscribe?.(); };
   }, [loadReviews]);
 
   const submit = async (event: React.FormEvent) => {
