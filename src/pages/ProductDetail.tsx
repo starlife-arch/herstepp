@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { productPath, slugifyProductName } from '../lib/product-slug';
 import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
+import { WishlistButton } from '../components/WishlistButton';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Badge, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -131,7 +132,7 @@ export default function ProductDetail() {
         <div>
           <div className="mb-4">
             <p className="text-sm text-neutral-500 mb-1">{state.categories.find(c => c.id === product.categoryId)?.name}</p>
-            <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1>
+            <div className="flex items-start justify-between gap-3"><h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1><WishlistButton productId={product.id} /></div>
             <p className="text-sm text-neutral-400">SKU: {product.sku}</p>
           </div>
 
