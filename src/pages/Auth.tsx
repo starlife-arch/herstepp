@@ -190,8 +190,14 @@ export function Register() {
   usePageMeta('Create Account | HerStep Collection', undefined, true);
   const navigate = useNavigate();
   const location = useLocation();
-  const from = (location.state as { from?: string } | null)?.from || '/dashboard';
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '' });
+  const returnState = (location.state as { from?: string; checkoutForm?: { fullName?: string; email?: string; phone?: string } } | null);
+  const from = returnState?.from || '/dashboard';
+  const [form, setForm] = useState({
+    name: returnState?.checkoutForm?.fullName || '',
+    email: returnState?.checkoutForm?.email || '',
+    phone: returnState?.checkoutForm?.phone || '',
+    password: '',
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
