@@ -75,6 +75,16 @@ export default function Checkout() {
     deliveryLocation: '',
     instructions: '',
   });
+  useEffect(() => {
+    try {
+      const draft = sessionStorage.getItem('herstep-checkout-draft');
+      if (draft) {
+        const parsed = JSON.parse(draft);
+        setForm(current => ({ ...current, ...parsed }));
+        sessionStorage.removeItem('herstep-checkout-draft');
+      }
+    } catch { /* checkout remains usable if session storage is unavailable */ }
+  }, []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   // "save to my profile" for the delivery/M-Pesa phone (used when the signed-in
   // profile has no phone yet — e.g. Google sign-ups).
@@ -368,7 +378,19 @@ export default function Checkout() {
     }
   };
 
-  const handlePay = () => { void runFlow(null); };
+  const handlePay = () => {
+    if (!state.user) {
+      try { sessionStorage.setItem('herstep-checkout-draft', JSON.stringify(form)); } catch { /* optional draft restore */ }
+      navigate('/register', { state: { from: '/checkout' } });
+      return;
+    }
+    if (!state.emailVerified) {
+      try { sessionStorage.setItem('herstep-checkout-draft', JSON.stringify(form)); } catch { /* optional draft restore */ }
+      navigate('/verify-email', { state: { from: '/checkout' } });
+      return;
+    }
+    void runFlow(null);
+  };
   const handleRetryPayment = () => { void runFlow(orderDocId || resumeOrderDocId); }; // SAME order (doc id internal only), no second order
 
   // /checkout?order=<doc id>: "Pay now" from the dashboard. Skip the details
