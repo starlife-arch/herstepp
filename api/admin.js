@@ -16,6 +16,7 @@ export default (req, res) => dispatchRoute(req, res, {
   expenses: lazyRoute(() => import('./_lib/routes/admin-expenses.js').then(m => ({ default: m.expenses }))),
   'order-costs': lazyRoute(() => import('./_lib/routes/admin-order-costs.js').then(m => ({ default: m.orderCosts }))),
   orders: lazyRoute(() => import('./_lib/routes/orders-phase1.js').then(m => ({ default: m.adminOrders }))),
+  reviews: lazyRoute(() => import('./_lib/routes/admin-reviews.js')),
   'promo-codes': lazyRoute(() => import('./_lib/routes/admin-promo-codes.js')),
   support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminList }))),
   'support/status': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminStatus }))),
