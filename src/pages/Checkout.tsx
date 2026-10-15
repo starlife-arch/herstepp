@@ -381,7 +381,7 @@ export default function Checkout() {
   const handlePay = () => {
     if (!state.user) {
       try { sessionStorage.setItem('herstep-checkout-draft', JSON.stringify(form)); } catch { /* optional draft restore */ }
-      navigate('/register', { state: { from: '/checkout' } });
+      navigate('/register', { state: { from: '/checkout', checkoutForm: { fullName: form.fullName, email: form.email, phone: form.phone } } });
       return;
     }
     if (!state.emailVerified) {
