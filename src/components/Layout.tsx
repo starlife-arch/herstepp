@@ -14,6 +14,7 @@ export function Header() {
   const navLinks = [
     { to: '/', label: 'Home' },
     { to: '/shop', label: 'Shop' },
+    ...(state.user ? [{ to: '/wishlist', label: 'Wishlist' }] : []),
     { to: '/track', label: 'Track Order' },
     { to: '/support', label: 'Support' },
     { to: '/contact', label: 'Contact' },
