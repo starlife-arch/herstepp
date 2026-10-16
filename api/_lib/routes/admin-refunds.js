@@ -131,12 +131,12 @@ export async function adminRefunds(req, res) {
       const resultByKey = new Map(inspectionResults.map(item => [String(item.productId) + ':' + String(item.size), String(item.condition || '').toUpperCase()]));
       const inspectedItems = record.items.map(item => {
         const condition = resultByKey.get(String(item.productId) + ':' + String(item.size));
-        if (!condition || !['RESELLABLE', 'DAMAGED', 'INSPECTION'].includes(condition)) throw clientError('Inspect every returned item and choose its condition before processing.');
+        if (!condition || !['RESELLABLE', 'DAMAGED'].includes(condition)) throw clientError('Inspect every returned item and mark it Resalable or Damaged before processing.');
         return { ...item, condition };
       });
       const approved = inspectedItems.filter(item => item.condition === 'RESELLABLE');
       const productRefs = [...new Set(approved.map(item => item.productId))].map(id => adminDb.collection('products').doc(id));
-      const products = await tx.getAll(...productRefs);
+      const products = productRefs.length ? await tx.getAll(...productRefs) : [];
       const byId = new Map(products.map((snap, i) => [productRefs[i].id, snap]));
       const updated = new Map();
       for (const item of approved) {
