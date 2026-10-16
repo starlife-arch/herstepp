@@ -66,10 +66,11 @@ export async function adminRefunds(req, res) {
       const paymentRef = typeof paymentId === 'string' && paymentId ? adminDb.collection('payments').doc(paymentId) : null;
       const paymentSnap = paymentRef ? await tx.get(paymentRef) : null;
       tx.update(refundRef, { status: 'CONFIRMED', providerReference, confirmedBy: admin.uid, confirmedAt: now, updatedAt: now });
-      tx.update(orderRef, { paymentStatus: 'REFUNDED', refundStatus: 'CONFIRMED', refundConfirmedAt: now, refundConfirmedBy: admin.uid, updatedAt: now });
-      if (paymentRef && paymentSnap?.exists) tx.update(paymentRef, { status: 'REFUNDED', refundReference: providerReference, refundedAt: now, updatedAt: now });
+      const isFullRefund = amount === Number(freshOrder.data().total || 0);
+      tx.update(orderRef, { ...(isFullRefund ? { paymentStatus: 'REFUNDED' } : {}), refundStatus: isFullRefund ? 'CONFIRMED' : 'PARTIALLY_REFUNDED', refundConfirmedAmount: amount, refundConfirmedAt: now, refundConfirmedBy: admin.uid, updatedAt: now });
+      if (isFullRefund && paymentRef && paymentSnap?.exists) tx.update(paymentRef, { status: 'REFUNDED', refundReference: providerReference, refundedAt: now, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_CONFIRMED', entityType: 'ORDER', entityId: orderDocumentId, amount, reason, providerReference, createdAt: now });
-      tx.set(adminDb.collection('orderStatusHistory').doc(), { orderId: freshOrder.data().orderId || orderDocumentId, orderDocumentId, customerId: freshOrder.data().customerId || null, eventType: 'REFUND_CONFIRMED', previousStatus: freshOrder.data().paymentStatus, newStatus: 'REFUNDED', paymentStatus: 'REFUNDED', note: reason, source: 'ADMIN', createdAt: now });
+      tx.set(adminDb.collection('orderStatusHistory').doc(), { orderId: freshOrder.data().orderId || orderDocumentId, orderDocumentId, customerId: freshOrder.data().customerId || null, eventType: 'REFUND_CONFIRMED', previousStatus: freshOrder.data().paymentStatus, newStatus: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED', paymentStatus: isFullRefund ? 'REFUNDED' : freshOrder.data().paymentStatus, note: reason, source: 'ADMIN', createdAt: now });
     });
     return res.json({ ok: true, status: 'CONFIRMED', message: 'Refund confirmation recorded.' });
   }
