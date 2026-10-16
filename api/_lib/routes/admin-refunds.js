@@ -13,9 +13,13 @@ function refundStatus(order) {
 export async function adminRefunds(req, res) {
   const admin = await requireAdmin(req);
   if (req.method === 'GET') {
-    const snap = await adminDb.collection('refundRecords').orderBy('createdAt', 'desc').limit(100).get().catch(async () => ({ docs: [] }));
-    const refunds = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt), updatedAt: iso(doc.data().updatedAt) }));
-    return res.json({ refunds });
+    const [refundSnap, returnSnap, creditSnap] = await Promise.all([
+      adminDb.collection('refundRecords').orderBy('createdAt', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+      adminDb.collection('stockReturns').orderBy('createdAt', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+      adminDb.collection('creditNotes').orderBy('createdAt', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+    ]);
+    const mapRows = snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt), updatedAt: iso(doc.data().updatedAt) }));
+    return res.json({ refunds: mapRows(refundSnap), stockReturns: mapRows(returnSnap), creditNotes: mapRows(creditSnap) });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
 
@@ -123,7 +127,14 @@ export async function adminRefunds(req, res) {
       if (!returnSnap.exists || returnSnap.data().orderDocumentId !== orderDocumentId) throw clientError('Stock return not found for this order.', 404);
       const record = returnSnap.data();
       if (record.status !== 'PENDING_INSPECTION') throw clientError('This return has already been processed.', 409);
-      const approved = record.items.filter(item => item.condition === 'RESELLABLE');
+      const inspectionResults = Array.isArray(body.inspectionResults) ? body.inspectionResults : [];
+      const resultByKey = new Map(inspectionResults.map(item => [String(item.productId) + ':' + String(item.size), String(item.condition || '').toUpperCase()]));
+      const inspectedItems = record.items.map(item => {
+        const condition = resultByKey.get(String(item.productId) + ':' + String(item.size));
+        if (!condition || !['RESELLABLE', 'DAMAGED', 'INSPECTION'].includes(condition)) throw clientError('Inspect every returned item and choose its condition before processing.');
+        return { ...item, condition };
+      });
+      const approved = inspectedItems.filter(item => item.condition === 'RESELLABLE');
       const productRefs = [...new Set(approved.map(item => item.productId))].map(id => adminDb.collection('products').doc(id));
       const products = await tx.getAll(...productRefs);
       const byId = new Map(products.map((snap, i) => [productRefs[i].id, snap]));
@@ -144,7 +155,7 @@ export async function adminRefunds(req, res) {
         tx.update(adminDb.collection('products').doc(productId), { inventory, ...derived, updatedAt: now });
         tx.set(adminDb.collection('inventoryLogs').doc(), { action: 'RETURN_RESTOCK', orderDocumentId, stockReturnId, productId, changes: inventory, actorUid: admin.uid, reason, createdAt: now });
       }
-      tx.update(returnRef, { status: 'PROCESSED', processedBy: admin.uid, processedAt: now, restockedItemCount: approved.length, updatedAt: now });
+      tx.update(returnRef, { items: inspectedItems, status: 'PROCESSED', processedBy: admin.uid, processedAt: now, restockedItemCount: approved.length, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'STOCK_RETURN_PROCESSED', entityType: 'ORDER', entityId: orderDocumentId, stockReturnId, restockedItemCount: approved.length, reason, createdAt: now });
     });
     return res.json({ ok: true, status: 'PROCESSED', message: 'Return processed. Only items marked resellable were returned to stock.' });
