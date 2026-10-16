@@ -13,6 +13,7 @@ import { productImageUrl, handleImageError } from '../lib/productImage';
 import { SupportChat } from '../components/SupportChat';
 import { AdminReviews } from '../components/AdminReviews';
 import AdminEmailCampaigns from '../components/AdminEmailCampaigns';
+import AdminSmsCampaigns from '../components/AdminSmsCampaigns';
 import { toUiTicket } from '../lib/supportAdapter';
 import { ORDER_STATUSES, nextOrderStatuses, humanStatus } from '../lib/orderTransitions';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
@@ -670,6 +671,7 @@ export default function AdminDashboard() {
     { id: 'support', label: 'Support', icon: MessageSquare },
     { id: 'messages', label: 'Messages', icon: Mail },
     { id: 'email-campaigns', label: 'Email Campaigns', icon: Mail },
+    { id: 'sms-campaigns', label: 'SMS Campaigns', icon: MessageSquare },
     { id: 'promotions', label: 'Promotions', icon: Tag },
     { id: 'storefront', label: 'Storefront', icon: Image },
     { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -763,6 +765,7 @@ export default function AdminDashboard() {
           {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
           {activeSection === 'messages' && <AdminMessages />}
           {activeSection === 'email-campaigns' && <AdminEmailCampaigns />}
+          {activeSection === 'sms-campaigns' && <AdminSmsCampaigns />}
           {activeSection === 'promotions' && <PromotionsPanel />}
           {activeSection === 'storefront' && <StorefrontPanel />}
           {activeSection === 'notifications' && <NotificationsPanel />}
