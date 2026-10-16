@@ -89,7 +89,7 @@ export function emailId(key) {
 // attachInvoiceFor: order document id whose invoice PDF must be generated AT
 // SEND TIME and attached. The PDF bytes are NEVER stored in this outbox doc
 // (Firestore ~1 MiB document limit) — regeneration also makes retries work.
-export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, attachInvoiceFor = null }) {
+export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, textContent = null, attachInvoiceFor = null }) {
   if (!key || !to || !subject || !htmlContent) {
     throw new Error('queueEmail requires key, purpose, to, subject and htmlContent.');
   }
@@ -100,6 +100,7 @@ export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, att
     to: String(to).trim().toLowerCase(),
     subject: String(subject),
     htmlContent: String(htmlContent),
+    textContent: textContent ? String(textContent) : null,
     status: 'PENDING',
     attachInvoiceFor: attachInvoiceFor ? String(attachInvoiceFor) : null,
     createdAt: FieldValue.serverTimestamp(),
@@ -110,7 +111,7 @@ export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, att
 
 // POST to Brevo. Throws on any failure — callers catch.
 // attachments: [{ name, content: <base64 string> }] (Brevo v3 smtp/email shape).
-export async function sendEmail({ purpose, to, subject, htmlContent, attachments }, cfg = emailConfig(), fetchImpl = globalThis.fetch) {
+export async function sendEmail({ purpose, to, subject, htmlContent, textContent, attachments }, cfg = emailConfig(), fetchImpl = globalThis.fetch) {
   const senderEmail = cfg.senders[purpose];
   if (!cfg.apiKey || !senderEmail) {
     throw new Error(`Email not configured for purpose "${purpose}".`);
@@ -121,6 +122,7 @@ export async function sendEmail({ purpose, to, subject, htmlContent, attachments
     subject,
     htmlContent,
   };
+  if (textContent) body.textContent = String(textContent);
   if (Array.isArray(attachments) && attachments.length) body.attachment = attachments;
   if (cfg.replyTo) body.replyTo = { email: cfg.replyTo };
   const response = await fetchImpl(BREVO_URL, {
@@ -199,7 +201,7 @@ export async function deliverQueuedEmail(db, docId, { cfg = emailConfig(), fetch
 
     try {
       await sendEmail(
-        { purpose: claimed.purpose, to: claimed.to, subject: claimed.subject, htmlContent: claimed.htmlContent, attachments },
+        { purpose: claimed.purpose, to: claimed.to, subject: claimed.subject, htmlContent: claimed.htmlContent, textContent: claimed.textContent || undefined, attachments },
         cfg,
         fetchImpl,
       );
