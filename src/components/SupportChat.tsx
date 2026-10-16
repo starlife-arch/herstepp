@@ -10,7 +10,7 @@ const imageExtensions = new Set(["jpg","jpeg","png","webp","gif","bmp","tif","ti
 const imageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp', 'image/tiff', 'image/avif', 'image/heic', 'image/heif', 'image/x-icon', 'image/vnd.microsoft.icon']);
 const isSupportedImage = (file: File) => {
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
-  return imageExtensions.has(extension) && (imageTypes.has(file.type.toLowerCase()) || !file.type || file.type === 'application/octet-stream');
+  return imageExtensions.has(extension) && (file.type.toLowerCase().startsWith('image/') || !file.type || file.type === 'application/octet-stream');
 };
 
 export async function uploadSupportImages(files: File[]) {
