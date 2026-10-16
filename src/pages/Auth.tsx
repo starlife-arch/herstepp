@@ -130,7 +130,8 @@ export function Login() {
     try {
       const { auth } = await getFirebase();
       await signInWithEmailAndPassword(auth, email.trim(), password);
-      navigate('/dashboard');
+      // Replace the login history entry so the sign-in screen is not left behind.
+      navigate('/dashboard', { replace: true });
     } catch (caughtError) {
       setError(authErrorMessage(caughtError));
     } finally {
