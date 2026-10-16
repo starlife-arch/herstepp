@@ -11,6 +11,7 @@ import { usePageMeta } from '../hooks/usePageMeta';
 import { apiFetch, apiDownload } from '../lib/api';
 import { productImageUrl, handleImageError } from '../lib/productImage';
 import { SupportChat } from '../components/SupportChat';
+import AdminEmailCampaigns from '../components/AdminEmailCampaigns';
 import { toUiTicket } from '../lib/supportAdapter';
 import { ORDER_STATUSES, nextOrderStatuses, humanStatus } from '../lib/orderTransitions';
 import { Card, Badge, Button, formatCurrency, formatDate, getStatusBadge, EmptyState, Input } from '../components/ui';
@@ -641,6 +642,7 @@ export default function AdminDashboard() {
     { id: 'support', label: 'Support', icon: MessageSquare },
     { id: 'messages', label: 'Messages', icon: Mail },
     { id: 'promotions', label: 'Promotions', icon: Tag },
+    { id: 'email-campaigns', label: 'Email Campaigns', icon: Mail },
     { id: 'storefront', label: 'Storefront', icon: Image },
     { id: 'notifications', label: 'Notifications', icon: Bell },
     { id: 'settings', label: 'Settings', icon: Settings },
@@ -723,6 +725,7 @@ export default function AdminDashboard() {
           {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
           {activeSection === 'messages' && <AdminMessages />}
           {activeSection === 'promotions' && <PromotionsPanel />}
+          {activeSection === 'email-campaigns' && <AdminEmailCampaigns />}
           {activeSection === 'storefront' && <StorefrontPanel />}
           {activeSection === 'notifications' && <NotificationsPanel />}
           {activeSection === 'settings' && <DeliverySettings />}

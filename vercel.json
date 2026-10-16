@@ -1,6 +1,9 @@
 {
   "rewrites": [
-    { "source": "/api/admin/ai-chats", "destination": "/api/admin?route=ai-chats" },
+    {
+      "source": "/api/admin/ai-chats",
+      "destination": "/api/admin?route=ai-chats"
+    },
     {
       "source": "/api/firebase-config",
       "destination": "/api/catalog?route=firebase-config"
@@ -116,6 +119,14 @@
     {
       "source": "/api/tips",
       "destination": "/api/payments?route=tips/list"
+    },
+    {
+      "source": "/api/admin/email-campaigns",
+      "destination": "/api/admin?route=email-campaigns"
+    },
+    {
+      "source": "/api/marketing/unsubscribe",
+      "destination": "/api/users?route=marketing/unsubscribe"
     },
     {
       "source": "/api/admin/customers",

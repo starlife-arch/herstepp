@@ -430,6 +430,31 @@ function ProfileTab() {
   const [phoneDraft, setPhoneDraft] = useState('');
   const [phoneSaving, setPhoneSaving] = useState(false);
   const [phoneError, setPhoneError] = useState('');
+  const [marketingConsent, setMarketingConsent] = useState(false);
+  const [marketingSaving, setMarketingSaving] = useState(false);
+  const [marketingMessage, setMarketingMessage] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/dashboard').then((data: any) => {
+      if (!cancelled) setMarketingConsent(data?.profile?.marketingConsent === true);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  const updateMarketingConsent = async (checked: boolean) => {
+    setMarketingSaving(true);
+    setMarketingMessage('');
+    try {
+      await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ marketingConsent: checked }) });
+      setMarketingConsent(checked);
+      setMarketingMessage(checked ? 'You are subscribed to HerStep marketing emails.' : 'You have opted out of marketing emails.');
+    } catch (error: any) {
+      setMarketingMessage(error?.message || 'Could not update your email preference.');
+    } finally {
+      setMarketingSaving(false);
+    }
+  };
 
   const saveProfilePhone = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -493,6 +518,18 @@ function ProfileTab() {
             <p className="text-sm font-medium text-neutral-900 capitalize">{state.user?.role}</p>
           </div>
         </div>
+      </Card>
+      <Card className="p-5 space-y-3">
+        <div>
+          <h3 className="font-semibold text-neutral-900">Marketing emails</h3>
+          <p className="mt-1 text-sm text-neutral-500">Choose whether HerStep Collection may email you about sales, promotions, new stock and website features. Order, payment and account emails are unaffected.</p>
+        </div>
+        <label className="flex items-start gap-3 text-sm text-neutral-800">
+          <input type="checkbox" checked={marketingConsent} disabled={marketingSaving} onChange={event => void updateMarketingConsent(event.target.checked)} className="mt-1 h-4 w-4" />
+          <span>Yes, send me marketing emails from HerStep Collection.</span>
+        </label>
+        {marketingSaving && <p className="text-xs text-neutral-500">Saving preference…</p>}
+        {marketingMessage && <p role="status" className="text-sm text-neutral-600">{marketingMessage}</p>}
       </Card>
     </div>
   );
