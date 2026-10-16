@@ -76,7 +76,7 @@ export async function adminRefunds(req, res) {
       ]);
       if (!freshOrder.exists || !freshRefund.exists) throw clientError('Refund request not found.', 404);
       const r = freshRefund.data();
-      if (r.orderDocumentId !== orderDocumentId || r.status !== 'REQUESTED') throw clientError('Refund request is not eligible for confirmation.', 409);
+      if (r.orderDocumentId !== orderDocumentId || !['REQUESTED', 'APPROVED'].includes(r.status)) throw clientError('Refund request is not eligible for confirmation.', 409);
       if (r.amount !== amount) throw clientError('Confirmed amount must match the requested amount.', 409);
       const alreadyRefunded = priorRefunds.docs.filter(doc => doc.id !== refundRecordId && doc.data().status === 'CONFIRMED').reduce((sum, doc) => sum + (Number(doc.data().amount) || 0), 0);
       if (amount > Number(freshOrder.data().total || 0) - alreadyRefunded) throw clientError('Confirmed amount exceeds the remaining refundable balance.', 409);
@@ -117,6 +117,48 @@ export async function adminRefunds(req, res) {
       sendTelegramMessage(`✅ Refund confirmed\nOrder: ${notification.orderNumber}\nCustomer: ${notification.customerName}\nAmount: KSh ${notification.amount.toLocaleString('en-KE')}\nReference: ${notification.providerReference}\nStatus: ${notification.isFullRefund ? 'Fully refunded' : 'Partial refund'}`),
     ]).catch(error => console.error('[admin-refunds] confirmation notification failed:', error?.message || error)));
     return res.json({ ok: true, status: 'CONFIRMED', message: 'Refund confirmation recorded and notifications queued.' });
+  }
+
+  if (action === 'APPROVE_REFUND') {
+    const refundRecordId = cleanText(body.refundRecordId, 100);
+    if (!refundRecordId) throw clientError('Choose a pending refund request to approve.');
+    const refundRef = adminDb.collection('refundRecords').doc(refundRecordId);
+    const notification = await adminDb.runTransaction(async tx => {
+      const [freshOrder, freshRefund] = await Promise.all([tx.get(orderRef), tx.get(refundRef)]);
+      if (!freshOrder.exists || !freshRefund.exists || freshRefund.data().orderDocumentId !== orderDocumentId) throw clientError('Refund request not found for this order.', 404);
+      const refund = freshRefund.data();
+      if (refund.status !== 'REQUESTED') throw clientError('Only a pending refund request can be approved.', 409);
+      const freshData = freshOrder.data();
+      tx.update(refundRef, { status: 'APPROVED', approvalNote: reason, approvedBy: admin.uid, approvedAt: now, updatedAt: now });
+      tx.update(orderRef, { refundStatus: 'APPROVED', refundApprovedAt: now, refundApprovalNote: reason, updatedAt: now });
+      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_APPROVED', entityType: 'ORDER', entityId: orderDocumentId, refundRecordId, amount: refund.amount, reason, createdAt: now });
+      const customerEmail = cleanText(freshData.customerEmail || freshData.email || freshData.delivery?.email, 254).toLowerCase();
+      const customerPhone = freshData.delivery?.phone || freshData.phone || '';
+      const orderNumber = cleanText(freshData.orderId || orderDocumentId, 80);
+      const amountText = `KSh ${Number(refund.amount || 0).toLocaleString('en-KE')}`;
+      let emailKey = null;
+      if (customerEmail) {
+        const email = buildEmail(
+          `Refund request approved — ${orderNumber}`,
+          `Hi ${freshData.customerName || freshData.delivery?.fullName || 'there'},\n\nYour refund request for order ${orderNumber} has been approved.\nApproved amount: ${amountText}\n\nOur team is arranging the refund. This approval does not mean the money has already been sent; we will notify you again when the refund is confirmed as completed.\n\nNote from the team: ${reason}`,
+          { ctaLabel: 'View my orders', ctaUrl: `${siteUrl()}/account` },
+        );
+        emailKey = `${refundRecordId}-REFUND-APPROVED-EMAIL`;
+        queueEmail(tx, adminDb, { key: emailKey, purpose: 'refunds', to: customerEmail, subject: email.subject, htmlContent: email.htmlContent });
+      }
+      const smsQueued = queueSms(tx, adminDb, {
+        key: `${refundRecordId}-REFUND-APPROVED-SMS`,
+        to: customerPhone,
+        message: `HerStep Collection: Your refund request for order ${orderNumber} was approved for KSh ${Number(refund.amount || 0).toLocaleString('en-KE')}. Payment is being arranged; this is not confirmation that funds have been sent.`,
+      });
+      return { emailKey, smsQueued, customerEmail, customerName: freshData.customerName || freshData.delivery?.fullName || 'Customer', orderNumber, amount: refund.amount };
+    });
+    waitUntil(Promise.all([
+      notification.emailKey ? deliverQueuedEmailInline(adminDb, notification.emailKey) : Promise.resolve(null),
+      notification.smsQueued ? deliverQueuedSms(adminDb, `${refundRecordId}-REFUND-APPROVED-SMS`) : Promise.resolve(null),
+      sendTelegramMessage(`🟡 Refund request approved\nOrder: ${notification.orderNumber}\nCustomer: ${notification.customerName}\nAmount: KSh ${Number(notification.amount || 0).toLocaleString('en-KE')}\nNote: ${reason}\nRefund still needs to be sent and confirmed.`),
+    ]).catch(error => console.error('[admin-refunds] approval notification failed:', error?.message || error)));
+    return res.json({ ok: true, status: 'APPROVED', message: 'Refund request approved and customer notifications queued. Send the refund separately, then confirm it here.' });
   }
 
   if (action === 'REJECT_REFUND') {
