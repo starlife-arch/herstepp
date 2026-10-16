@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Star } from 'lucide-react';
+import { Star, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { onAuthStateChanged } from 'firebase/auth';
 import { apiFetch } from '../lib/api';
 import { getFirebase } from '../lib/firebase';
@@ -13,6 +13,8 @@ type Review = {
   customerName: string;
   verifiedPurchase: boolean;
   createdAt?: string | null;
+  helpfulCount?: number;
+  notHelpfulCount?: number;
 };
 
 export function ProductReviews({ productId }: { productId: string }) {
@@ -26,6 +28,7 @@ export function ProductReviews({ productId }: { productId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
+  const [voting, setVoting] = useState<string | null>(null);
 
   const loadReviews = useCallback(async () => {
     setLoading(true);
@@ -51,6 +54,17 @@ export function ProductReviews({ productId }: { productId: string }) {
     void loadReviews();
     return () => { active = false; unsubscribe?.(); };
   }, [loadReviews]);
+
+  const voteOnReview = async (review: Review, vote: 'helpful' | 'notHelpful') => {
+    if (!signedIn) { setMessage({ text: 'Sign in to vote on a review.', error: true }); return; }
+    setVoting(review.id); setMessage(null);
+    try {
+      const result: any = await apiFetch('/api/reviews', { method: 'POST', body: JSON.stringify({ action: 'vote', reviewId: review.id, vote }) });
+      setReviews(current => current.map(item => item.id === review.id ? { ...item, helpfulCount: result.helpfulCount, notHelpfulCount: result.notHelpfulCount } : item));
+      setMessage({ text: 'Your vote has been recorded.', error: false });
+    } catch (error: any) { setMessage({ text: error?.message || 'Your vote could not be saved.', error: true }); }
+    finally { setVoting(null); }
+  };
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -129,6 +143,14 @@ export function ProductReviews({ productId }: { productId: string }) {
                 </div>
               </div>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">{review.comment}</p>
+              <div className="mt-4 border-t border-neutral-100 pt-3">
+                <p className="text-xs font-medium text-neutral-600 mb-2">Was this helpful?</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => void voteOnReview(review, 'helpful')} disabled={voting === review.id} className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50" aria-label="Like this review"><ThumbsUp className="h-4 w-4" /> Like <span className="text-neutral-500">({review.helpfulCount || 0})</span></button>
+                  <button type="button" onClick={() => void voteOnReview(review, 'notHelpful')} disabled={voting === review.id} className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 disabled:opacity-50" aria-label="Dislike this review"><ThumbsDown className="h-4 w-4" /> Dislike <span className="text-neutral-500">({review.notHelpfulCount || 0})</span></button>
+                </div>
+                {!signedIn && <p className="mt-2 text-xs text-neutral-500">Sign in to vote. One vote per review; you can change it later.</p>}
+              </div>
             </Card>
           ))}
         </div>
