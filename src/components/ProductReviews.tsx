@@ -127,7 +127,7 @@ export function ProductReviews({ productId }: { productId: string }) {
 
       {message && <p role="status" className={`text-sm ${message.error ? 'text-red-700' : 'text-emerald-700'}`}>{message.text}</p>}
       {loading ? <p className="text-sm text-neutral-500">Loading reviews…</p> : reviews.length === 0 ? (
-        <Card className="p-5 text-sm text-neutral-500">No approved reviews yet. If you have purchased this product, sign in to be the first to review it.</Card>
+        <Card className="p-5 text-sm text-neutral-500">No approved customer reviews yet. The sample examples below are illustrative only; if you purchased this product, sign in to leave a genuine review.</Card>
       ) : (
         <div className="space-y-3">
           {reviews.map(review => (
