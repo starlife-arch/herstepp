@@ -67,15 +67,15 @@ function unsubscribeUrl(recipient) {
 function campaignText(campaign, recipient) {
   if (campaign.format === 'html' && isFullHtmlTemplate(campaign.message)) {
     const plain = campaign.message
-      .replace(/<\\s*(script|style|head|title)[^>]*>[\\s\\S]*?<\\s*\\/\\s*\\1\\s*>/gi, ' ')
-      .replace(/<\\s*br\\s*\\/?\\s*>/gi, '\\n')
-      .replace(/<\\s*\\/\\s*(p|div|tr|h[1-6]|li)\\s*>/gi, '\\n')
+      .replace(/<\s*(script|style|head|title)[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, ' ')
+      .replace(/<\s*br\s*\/?\s*>/gi, '\n')
+      .replace(/<\s*\/\s*(p|div|tr|h[1-6]|li)\s*>/gi, '\n')
       .replace(/<[^>]+>/g, ' ')
       .replace(/&nbsp;/gi, ' ')
       .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
       .replace(/&#39;|&apos;/gi, "'").replace(/&quot;/gi, '"')
-      .replace(/[ \\t]+/g, ' ').replace(/\\n[ \\t]+/g, '\\n').trim();
-    return [plain, '', `Unsubscribe: ${unsubscribeUrl(recipient)}`].filter(Boolean).join('\\n');
+      .replace(/[ \t]+/g, ' ').replace(/\n[ \t]+/g, '\n').trim();
+    return [plain, '', `Unsubscribe: ${unsubscribeUrl(recipient)}`].filter(Boolean).join('\n');
   }
   return [
     'HerStep Collection',
@@ -94,15 +94,15 @@ function campaignHtml(campaign, recipient) {
   const unsubscribe = unsubscribeUrl(recipient);
   if (campaign.format === 'html' && isFullHtmlTemplate(campaign.message)) {
     let html = campaign.message
-      .replace(/<\\s*script\\b[^>]*>[\\s\\S]*?<\\s*\\/\\s*script\\s*>/gi, '')
-      .replace(/<\\s*(iframe|object|embed)\\b[^>]*>[\\s\\S]*?<\\s*\\/\\s*\\1\\s*>/gi, '')
-      .replace(/\\s+on[a-z]+\\s*=\\s*("[^"]*"|'[^']*'|[^\\s>]+)/gi, '')
-      .replace(/(href|src)\\s*=\\s*(["'])\\s*javascript:[\\s\\S]*?\\2/gi, '$1="#"')
-      .replace(/{{\\s*unsubscribe\\s*}}/gi, unsubscribe)
-      .replace(/{{\\s*site_url\\s*}}/gi, siteUrl());
+      .replace(/<\s*script\b[^>]*>[\s\S]*?<\s*\/\s*script\s*>/gi, '')
+      .replace(/<\s*(iframe|object|embed)\b[^>]*>[\s\S]*?<\s*\/\s*\1\s*>/gi, '')
+      .replace(/\s+on[a-z]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '')
+      .replace(/(href|src)\s*=\s*(["'])\s*javascript:[\s\S]*?\2/gi, '$1="#"')
+      .replace(/{{\s*unsubscribe\s*}}/gi, unsubscribe)
+      .replace(/{{\s*site_url\s*}}/gi, siteUrl());
     if (!/unsubscribe/i.test(html)) {
       const footer = `<p style="font-family:Arial,sans-serif;font-size:12px;text-align:center;color:#6b7280;padding:16px;"><a href="${escapeHtml(unsubscribe)}">Unsubscribe from marketing emails</a></p>`;
-      html = /<\\/body\\s*>/i.test(html) ? html.replace(/<\\/body\\s*>/i, `${footer}</body>`) : html + footer;
+      html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, `${footer}</body>`) : html + footer;
     }
     return html;
   }
