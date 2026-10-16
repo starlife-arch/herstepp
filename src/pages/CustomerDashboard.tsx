@@ -358,14 +358,14 @@ function OrdersTab({ orders }: any) {
                           <p className="text-xs text-neutral-500">Attach up to 5 photos or one video. Photos up to 5 MB each; videos up to 20 MB.</p>
                           <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-100">
                             <Paperclip className="h-4 w-4" /> Add photos or video
-                            <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-m4v" multiple onChange={event => {
+                            <input type="file" className="hidden" accept="image/*,video/mp4,video/quicktime,video/webm,video/x-m4v" multiple onChange={event => {
                               const next = Array.from(event.target.files || []);
                               const validImage = (file: File) => ['image/jpeg','image/png','image/webp'].includes(file.type) && file.size <= 5 * 1024 * 1024;
                               const validVideo = (file: File) => ['video/mp4','video/quicktime','video/webm','video/x-m4v'].includes(file.type) && file.size <= 20 * 1024 * 1024;
                               const current = refundEvidence[order.id] || [];
                               const combined = [...current, ...next];
                               if (next.some(file => !validImage(file) && !validVideo(file))) {
-                                setRefundMessages(prev => ({ ...prev, [order.id]: 'Use JPEG, PNG or WebP photos up to 5 MB, or MP4, MOV, WebM or M4V video up to 20 MB.' }));
+                                setRefundMessages(prev => ({ ...prev, [order.id]: 'Use a supported photo/screenshot (JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC/HEIF or ICO) up to 5 MB, or MP4, MOV, WebM or M4V video up to 20 MB.' }));
                               } else if (combined.length > 5 || combined.filter(validVideo).length > 1) {
                                 setRefundMessages(prev => ({ ...prev, [order.id]: 'Attach up to five files and no more than one video.' }));
                               } else {
