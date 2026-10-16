@@ -13,9 +13,13 @@ function refundStatus(order) {
 export async function adminRefunds(req, res) {
   const admin = await requireAdmin(req);
   if (req.method === 'GET') {
-    const snap = await adminDb.collection('refundRecords').orderBy('createdAt', 'desc').limit(100).get().catch(async () => ({ docs: [] }));
-    const refunds = snap.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt), updatedAt: iso(doc.data().updatedAt) }));
-    return res.json({ refunds });
+    const [refundSnap, returnSnap, creditSnap] = await Promise.all([
+      adminDb.collection('refundRecords').orderBy('createdAt', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+      adminDb.collection('stockReturns').orderBy('createdAt', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+      adminDb.collection('creditNotes').orderBy('createdAt', 'desc').limit(100).get().catch(() => ({ docs: [] })),
+    ]);
+    const mapRows = snap => snap.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt), updatedAt: iso(doc.data().updatedAt) }));
+    return res.json({ refunds: mapRows(refundSnap), stockReturns: mapRows(returnSnap), creditNotes: mapRows(creditSnap) });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
 
@@ -44,6 +48,9 @@ export async function adminRefunds(req, res) {
       await adminDb.runTransaction(async tx => {
         const fresh = await tx.get(orderRef);
         if (!fresh.exists || fresh.data().paymentStatus !== 'PAID') throw clientError('Order is no longer eligible for a refund.', 409);
+        const priorRefunds = await tx.get(adminDb.collection('refundRecords').where('orderDocumentId', '==', orderDocumentId));
+        const alreadyRefunded = priorRefunds.docs.filter(doc => doc.data().status === 'CONFIRMED').reduce((sum, doc) => sum + (Number(doc.data().amount) || 0), 0);
+        if (amount > Number(fresh.data().total || 0) - alreadyRefunded) throw clientError('Refund amount exceeds the remaining refundable balance.', 409);
         tx.set(ref, { type: 'REFUND', orderDocumentId, orderId: order.orderId || orderDocumentId, customerId: order.customerId || null, amount, currency: order.currency || 'KES', reason, status: 'REQUESTED', requestedBy: admin.uid, createdAt: now, updatedAt: now });
         tx.update(orderRef, { refundStatus: 'REQUESTED', refundRequestedAmount: amount, refundReason: reason, updatedAt: now });
         tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_REQUESTED', entityType: 'ORDER', entityId: orderDocumentId, amount, reason, createdAt: now });
@@ -57,16 +64,21 @@ export async function adminRefunds(req, res) {
     if (!refundRecordId || !providerReference) throw clientError('Refund record ID and external refund reference are required to confirm a completed refund.');
     const refundRef = adminDb.collection('refundRecords').doc(refundRecordId);
     await adminDb.runTransaction(async tx => {
-      const [freshOrder, freshRefund] = await Promise.all([tx.get(orderRef), tx.get(refundRef)]);
+      const [freshOrder, freshRefund, priorRefunds] = await Promise.all([
+        tx.get(orderRef), tx.get(refundRef),
+        tx.get(adminDb.collection('refundRecords').where('orderDocumentId', '==', orderDocumentId)),
+      ]);
       if (!freshOrder.exists || !freshRefund.exists) throw clientError('Refund request not found.', 404);
       const r = freshRefund.data();
       if (r.orderDocumentId !== orderDocumentId || r.status !== 'REQUESTED') throw clientError('Refund request is not eligible for confirmation.', 409);
       if (r.amount !== amount) throw clientError('Confirmed amount must match the requested amount.', 409);
+      const alreadyRefunded = priorRefunds.docs.filter(doc => doc.id !== refundRecordId && doc.data().status === 'CONFIRMED').reduce((sum, doc) => sum + (Number(doc.data().amount) || 0), 0);
+      if (amount > Number(freshOrder.data().total || 0) - alreadyRefunded) throw clientError('Confirmed amount exceeds the remaining refundable balance.', 409);
       const paymentId = freshOrder.data().activePaymentId || freshOrder.data().paymentId;
       const paymentRef = typeof paymentId === 'string' && paymentId ? adminDb.collection('payments').doc(paymentId) : null;
       const paymentSnap = paymentRef ? await tx.get(paymentRef) : null;
       tx.update(refundRef, { status: 'CONFIRMED', providerReference, confirmedBy: admin.uid, confirmedAt: now, updatedAt: now });
-      const isFullRefund = amount === Number(freshOrder.data().total || 0);
+      const isFullRefund = alreadyRefunded + amount >= Number(freshOrder.data().total || 0);
       tx.update(orderRef, { ...(isFullRefund ? { paymentStatus: 'REFUNDED' } : {}), refundStatus: isFullRefund ? 'CONFIRMED' : 'PARTIALLY_REFUNDED', refundConfirmedAmount: amount, refundConfirmedAt: now, refundConfirmedBy: admin.uid, updatedAt: now });
       if (isFullRefund && paymentRef && paymentSnap?.exists) tx.update(paymentRef, { status: 'REFUNDED', refundReference: providerReference, refundedAt: now, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_CONFIRMED', entityType: 'ORDER', entityId: orderDocumentId, amount, reason, providerReference, createdAt: now });
@@ -123,9 +135,16 @@ export async function adminRefunds(req, res) {
       if (!returnSnap.exists || returnSnap.data().orderDocumentId !== orderDocumentId) throw clientError('Stock return not found for this order.', 404);
       const record = returnSnap.data();
       if (record.status !== 'PENDING_INSPECTION') throw clientError('This return has already been processed.', 409);
-      const approved = record.items.filter(item => item.condition === 'RESELLABLE');
+      const inspectionResults = Array.isArray(body.inspectionResults) ? body.inspectionResults : [];
+      const resultByKey = new Map(inspectionResults.map(item => [String(item.productId) + ':' + String(item.size), String(item.condition || '').toUpperCase()]));
+      const inspectedItems = record.items.map(item => {
+        const condition = resultByKey.get(String(item.productId) + ':' + String(item.size));
+        if (!condition || !['RESELLABLE', 'DAMAGED'].includes(condition)) throw clientError('Inspect every returned item and mark it Resalable or Damaged before processing.');
+        return { ...item, condition };
+      });
+      const approved = inspectedItems.filter(item => item.condition === 'RESELLABLE');
       const productRefs = [...new Set(approved.map(item => item.productId))].map(id => adminDb.collection('products').doc(id));
-      const products = await tx.getAll(...productRefs);
+      const products = productRefs.length ? await tx.getAll(...productRefs) : [];
       const byId = new Map(products.map((snap, i) => [productRefs[i].id, snap]));
       const updated = new Map();
       for (const item of approved) {
@@ -144,7 +163,7 @@ export async function adminRefunds(req, res) {
         tx.update(adminDb.collection('products').doc(productId), { inventory, ...derived, updatedAt: now });
         tx.set(adminDb.collection('inventoryLogs').doc(), { action: 'RETURN_RESTOCK', orderDocumentId, stockReturnId, productId, changes: inventory, actorUid: admin.uid, reason, createdAt: now });
       }
-      tx.update(returnRef, { status: 'PROCESSED', processedBy: admin.uid, processedAt: now, restockedItemCount: approved.length, updatedAt: now });
+      tx.update(returnRef, { items: inspectedItems, status: 'PROCESSED', processedBy: admin.uid, processedAt: now, restockedItemCount: approved.length, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'STOCK_RETURN_PROCESSED', entityType: 'ORDER', entityId: orderDocumentId, stockReturnId, restockedItemCount: approved.length, reason, createdAt: now });
     });
     return res.json({ ok: true, status: 'PROCESSED', message: 'Return processed. Only items marked resellable were returned to stock.' });
