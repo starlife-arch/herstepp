@@ -12,8 +12,7 @@ const cleanText = (value, max = 500) => typeof value === 'string' ? value.trim()
 const validAmount = value => Number.isSafeInteger(value) && value >= 1 && value <= 10_000_000;
 const iso = value => value?.toDate ? value.toDate().toISOString() : value || null;
 function validateEvidence(value, uid) {
-  if (value == null) return [];
-  if (!Array.isArray(value) || value.length > 5) throw clientError('Attach up to five evidence files.');
+  if (!Array.isArray(value) || value.length < 1 || value.length > 5) throw clientError('Attach at least one and up to five evidence files.');
   const cloud = String(globalThis.process?.env?.CLOUDINARY_CLOUD_NAME || '').trim();
   let videos = 0;
   return value.map(file => {
