@@ -11,6 +11,7 @@ import {
 import { apiFetch } from '../lib/api';
 import { continueWithGoogle, getFirebase, handleGoogleRedirectResult } from '../lib/firebase';
 import { Button, Input, Card } from '../components/ui';
+import { useApp } from '../context/AppContext';
 
 // Google's multi-colour "G" as an inline SVG (no external image assets).
 export function GoogleLogo({ className = 'w-5 h-5' }: { className?: string }) {
@@ -116,12 +117,20 @@ function authErrorMessage(error: unknown) {
 export function Login() {
   usePageMeta('Sign In | HerStep Collection', undefined, true);
   const navigate = useNavigate();
+  const { state } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+
+  // Wait for the shared Firebase listener to finish loading the Firestore profile.
+  // Navigating immediately after Firebase accepts credentials can hit RequireAuth
+  // before state.user is ready, sending the customer straight back to /login.
+  useEffect(() => {
+    if (state.authReady && state.user) navigate('/dashboard', { replace: true });
+  }, [state.authReady, state.user, navigate]);
 
   const handleLogin = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -130,8 +139,7 @@ export function Login() {
     try {
       const { auth } = await getFirebase();
       await signInWithEmailAndPassword(auth, email.trim(), password);
-      // Replace the login history entry so the sign-in screen is not left behind.
-      navigate('/dashboard', { replace: true });
+      // AppContext navigates once its auth listener has loaded the user profile.
     } catch (caughtError) {
       setError(authErrorMessage(caughtError));
     } finally {
