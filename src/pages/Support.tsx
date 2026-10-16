@@ -133,16 +133,25 @@ function NewTicketForm({ onSubmit, onCancel }: { onSubmit: (t: any) => void; onC
   const [message, setMessage] = useState('');
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
   const subjectValid = subject.trim().length >= 3 && subject.trim().length <= 140;
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!subjectValid || !category || (!message && !files.length)) return;
+    if (!subjectValid || !category || (!message.trim() && !files.length) || sending) return;
+    setSending(true);
+    setError('');
     const clientMessageId = crypto.randomUUID().replace(/-/g, '');
-    uploadSupportImages(files).then(attachments => apiFetch('/api/support/create', { method: 'POST', body: JSON.stringify({ subject, category, message, attachments, clientMessageId }) }))
-      .then((result: any) => onSubmit(toUiTicket({ id: result.ticket.id, ticketId: result.ticket.ticketId, subject, category, status: 'OPEN', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, [{ id: clientMessageId, senderRole: 'CUSTOMER', senderName: 'You', body: message, createdAt: new Date().toISOString() }])))
-      .catch((err: any) => setError(err.message || 'Could not create your support request.'));
+    try {
+      const attachments = await uploadSupportImages(files);
+      const result: any = await apiFetch('/api/support/create', { method: 'POST', body: JSON.stringify({ subject, category, message, attachments, clientMessageId }) });
+      onSubmit(toUiTicket({ id: result.ticket.id, ticketId: result.ticket.ticketId, subject, category, status: 'OPEN', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() }, [{ id: clientMessageId, senderRole: 'CUSTOMER', senderName: 'You', body: message, attachments, createdAt: new Date().toISOString() }]));
+    } catch (err: any) {
+      setError(err.message || 'Could not create your support request.');
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -176,15 +185,14 @@ function NewTicketForm({ onSubmit, onCancel }: { onSubmit: (t: any) => void; onC
             onChange={e => setMessage(e.target.value)}
             className="w-full px-3.5 py-2.5 border border-neutral-300 rounded-lg text-sm h-32 resize-none"
             placeholder="Describe your issue in detail..."
-            required
           />
         </div>
-        {files.length > 0 && <div className="flex gap-2">{files.map((file, index) => <div key={`${file.name}-${index}`} className="relative"><img className="w-12 h-12 rounded-lg object-cover" src={URL.createObjectURL(file)} /><button type="button" onClick={() => setFiles(current => current.filter((_, item) => item !== index))} className="absolute -top-2 -right-2 bg-white rounded-full"><X className="w-4 h-4" /></button></div>)}</div>}
+        {files.length > 0 && <div className="flex flex-wrap gap-3">{files.map((file, index) => <div key={`${file.name}-${index}`} className="relative w-24 rounded-lg border border-neutral-200 bg-white p-2"><img className="h-16 w-full rounded object-cover" alt={file.name} src={URL.createObjectURL(file)} /><p className="mt-1 truncate text-[11px] text-neutral-600" title={file.name}>{file.name}</p><button type="button" aria-label={"Remove " + file.name} onClick={() => setFiles(current => current.filter((_, item) => item !== index))} className="absolute -top-2 -right-2 bg-white rounded-full p-1 shadow"><X className="w-4 h-4" /></button></div>)}</div>}
         {error && <p className="text-xs text-red-600">{error}</p>}
-        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={event => { const next = Array.from(event.target.files || []); if (next.some(file => !['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024)) { setError('Images must be JPEG, PNG, or WebP files no larger than 5 MB.'); return; } setFiles(current => [...current, ...next].slice(0, 3)); event.target.value = ''; }} />
+        <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={event => { const next = Array.from(event.target.files || []); const allowed = new Set(["jpg","jpeg","png","webp","gif","bmp","tif","tiff","avif","heic","heif","ico"]); const valid = (file: File) => allowed.has(file.name.split('.').pop()?.toLowerCase() || '') && (file.type.startsWith('image/') || !file.type || file.type === 'application/octet-stream') && file.size <= 5 * 1024 * 1024; if (next.some(file => !valid(file))) { setError('Use a supported photo or screenshot (JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC/HEIF or ICO) up to 5 MB.'); event.target.value = ''; return; } setFiles(current => [...current, ...next].slice(0, 3)); setError(''); event.target.value = ''; }} />
         <button type="button" onClick={() => fileInput.current?.click()} className="p-2.5 rounded-lg border border-neutral-300 hover:bg-neutral-50 text-neutral-500"><Paperclip className="w-5 h-5" /></button>
         <div className="flex gap-3 pt-2">
-          <Button type="submit" disabled={!subjectValid || !category || (!message && !files.length)}>Submit Request</Button>
+          <Button type="submit" loading={sending} disabled={sending || !subjectValid || !category || (!message.trim() && !files.length)}>Submit Request</Button>
           <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
         </div>
       </form>
