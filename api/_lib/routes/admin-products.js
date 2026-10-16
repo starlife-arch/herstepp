@@ -6,6 +6,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { sendEmail } from '../email-service.js';
 
 const statuses = ['DRAFT', 'ACTIVE', 'ARCHIVED'];
 const sizes = new Set(Array.from({ length: 16 }, (_, i) => String(i + 30)));
@@ -84,9 +85,9 @@ export async function productUpdate(req, res) {
   const old = await ref.get();
   if (!old.exists) throw clientError('Product not found.', 404);
   const data = validateProduct(req.body);
+  const previous = Object.fromEntries((Array.isArray(old.data().inventory) ? old.data().inventory : []).map(i => [i.size, i.quantity]));
   await adminDb.runTransaction(async tx => {
     tx.update(ref, { ...data, updatedAt: FieldValue.serverTimestamp() });
-    const previous = Object.fromEntries((Array.isArray(old.data().inventory) ? old.data().inventory : []).map(i => [i.size, i.quantity]));
     for (const item of data.inventory) {
       if ((previous[item.size] ?? 0) !== item.quantity) {
         tx.set(adminDb.collection('inventoryLogs').doc(), {
@@ -102,6 +103,25 @@ export async function productUpdate(req, res) {
       }
     }
   });
+  // Send best-effort email alerts when a subscribed size changes from sold out to available.
+  for (const item of data.inventory.filter(i => (previous[i.size] ?? 0) <= 0 && i.quantity > 0)) {
+    try {
+      const subs = await adminDb.collection('restockSubscriptions')
+        .where('productId', '==', id).where('size', '==', item.size).where('status', '==', 'ACTIVE').limit(100).get();
+      for (const sub of subs.docs) {
+        const subscription = sub.data();
+        try {
+          const safeName = String(data.name).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
+          const url = 'https://www.herstepcollection.shop/product/' + encodeURIComponent(id);
+          await sendEmail({ purpose: 'orders', to: subscription.email,
+            subject: data.name + ' — size ' + item.size + ' is back in stock',
+            htmlContent: '<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>Good news from HerStep Collection</h2><p>' + safeName + ', size ' + item.size + ', is back in stock.</p><p><a href="' + url + '">View product</a></p></div>',
+            textContent: data.name + ', size ' + item.size + ', is back in stock. View: ' + url });
+          await sub.ref.update({ status: 'SENT', notifiedAt: FieldValue.serverTimestamp() });
+        } catch (emailError) { console.error('[restock-alert] email failed:', emailError?.message || emailError); }
+      }
+    } catch (alertError) { console.error('[restock-alert] lookup failed:', alertError?.message || alertError); }
+  }
   return res.status(200).json({ ok: true });
 }
 
