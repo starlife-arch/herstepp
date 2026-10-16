@@ -5,6 +5,19 @@ import { apiFetch } from '../lib/api';
 import { getFirebase } from '../lib/firebase';
 import { Card, Button } from './ui';
 
+const SAMPLE_REVIEW_TEMPLATES = [
+  { title: 'Example: Everyday style', comment: 'Illustrative sample text: I like how a versatile shoe style can work with different everyday outfits.', rating: 5 },
+  { title: 'Example: Occasion wear', comment: 'Illustrative sample text: A dressy pair can be a useful option for celebrations and special occasions.', rating: 4 },
+  { title: 'Example: Fit and comfort', comment: 'Illustrative sample text: Checking the size guide and fit details helps me choose a pair with confidence.', rating: 5 },
+  { title: 'Example: Styling ideas', comment: 'Illustrative sample text: I would style a pair like this with both casual and smarter outfits.', rating: 4 },
+  { title: 'Example: Choosing a pair', comment: 'Illustrative sample text: Clear photos, available sizes and product details make choosing easier.', rating: 5 },
+];
+
+function getSampleReviews(productId: string) {
+  const seed = Array.from(productId).reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  return [0, 1].map(offset => SAMPLE_REVIEW_TEMPLATES[(seed + offset * 2) % SAMPLE_REVIEW_TEMPLATES.length]);
+}
+
 type Review = {
   id: string;
   rating: number;
@@ -133,6 +146,28 @@ export function ProductReviews({ productId }: { productId: string }) {
           ))}
         </div>
       )}
+
+      <div className="space-y-3">
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <p className="text-sm font-semibold text-amber-900">Sample reviews — examples only</p>
+          <p className="mt-1 text-xs leading-relaxed text-amber-800">These illustrative examples are not real customer feedback, are not verified purchases, and are excluded from the product's review count and average rating. Real customer reviews appear separately after moderation.</p>
+        </div>
+        {getSampleReviews(productId).map((sample, index) => (
+          <Card key={`sample-${productId}-${index}`} className="border-dashed p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <span className="inline-flex rounded bg-amber-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-amber-900">Sample only</span>
+                <p className="mt-2 font-semibold text-neutral-900">{sample.title}</p>
+                <p className="mt-1 text-xs text-neutral-500">Illustrative example · Not a customer review</p>
+              </div>
+              <div className="flex items-center gap-1 shrink-0" aria-label={`Example rating: ${sample.rating} out of 5`}>
+                {Array.from({ length: 5 }, (_, index) => <Star key={index} className={`h-4 w-4 ${index < sample.rating ? 'fill-amber-400 text-amber-500' : 'text-neutral-300'}`} />)}
+              </div>
+            </div>
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">{sample.comment}</p>
+          </Card>
+        ))}
+      </div>
     </section>
   );
 }
