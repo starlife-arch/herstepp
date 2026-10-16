@@ -14,6 +14,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'ai-chats': lazyRoute(() => import('./_lib/routes/admin-ai-chats.js')),
   orders: lazyRoute(() => import('./_lib/routes/orders-phase1.js').then(m => ({ default: m.adminOrders }))),
   'promo-codes': lazyRoute(() => import('./_lib/routes/admin-promo-codes.js')),
+  'email-campaigns': lazyRoute(() => import('./_lib/routes/admin-email-campaigns.js').then(m => ({ default: m.adminEmailCampaigns }))),
   support: lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminList }))),
   'support/status': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminStatus }))),
   'support/read': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminRead }))),
