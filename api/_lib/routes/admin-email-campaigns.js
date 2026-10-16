@@ -6,7 +6,7 @@ import { clientError, methodNotAllowed } from '../http.js';
 import { emailConfig, sendEmail, deliverQueuedEmail, emailId } from '../email-service.js';
 import { siteUrl } from '../site-url.js';
 
-const MAX_RECIPIENTS = 500;
+const MAX_RECIPIENTS = 100;
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 function escapeHtml(value) {
@@ -55,6 +55,7 @@ function unsubscribeToken(uid) {
 }
 
 function unsubscribeUrl(recipient) {
+  if (recipient.test === true) return siteUrl();
   return `${siteUrl()}/api/marketing/unsubscribe?uid=${encodeURIComponent(recipient.uid)}&token=${encodeURIComponent(unsubscribeToken(recipient.uid))}`;
 }
 
@@ -135,7 +136,7 @@ export async function adminEmailCampaigns(req, res) {
   if (req.body?.mode === 'test') {
     const to = String(req.body?.testTo || admin.email || '').trim().toLowerCase();
     if (!emailPattern.test(to)) throw clientError('Enter a valid test email address.');
-    const recipient = { uid: admin.uid };
+    const recipient = { uid: admin.uid, test: true };
     const htmlContent = campaignHtml(campaign, recipient);
     const textContent = campaignText(campaign, recipient);
     try {
@@ -220,7 +221,10 @@ export async function adminEmailCampaigns(req, res) {
         updatedAt: FieldValue.serverTimestamp(),
       }).catch(() => {});
     }
-  })().catch(error => console.error('[admin/email-campaigns] delivery worker failed:', error?.message || error)));
+  })().catch(async error => {
+    console.error('[admin/email-campaigns] delivery worker failed:', error?.message || error);
+    await campaignRef.update({ status: 'PARTIAL', updatedAt: FieldValue.serverTimestamp() }).catch(() => {});
+  }));
 
   return res.status(202).json({ queued: true, campaignId, recipients: recipients.length });
 }
