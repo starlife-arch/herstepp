@@ -24,10 +24,10 @@ const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 // BREVO_SENDER_TIPS is empty (optional purpose — never blocks anything).
 // 'invoices' sends the invoice-style payment email. BREVO_SENDER_INVOICES is
 // optional too: it falls back to the payments sender when empty.
-const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify', 'tips', 'invoices'];
+const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify', 'tips', 'invoices', 'refunds'];
 
 // Purposes that fall back to BREVO_SENDER_PAYMENTS when their own sender env is empty.
-const PAYMENTS_FALLBACK_PURPOSES = new Set(['tips', 'invoices']);
+const PAYMENTS_FALLBACK_PURPOSES = new Set(['tips', 'invoices', 'refunds']);
 
 let warnedMissing = false;
 
