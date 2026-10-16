@@ -790,7 +790,6 @@ function AdminRefunds() {
   const returns: any[] = res.data?.stockReturns || [];
   const creditNotes: any[] = res.data?.creditNotes || [];
   const selectedOrder = orders.find(order => order.id === orderDocumentId);
-  const selectedRefund = refunds.find(item => item.id === refundRecordId);
   const selectedReturn = returns.find(item => item.id === stockReturnId);
   const pendingRefunds = refunds.filter(item => item.status === 'REQUESTED');
   const pendingReturns = returns.filter(item => item.status === 'PENDING_INSPECTION');
