@@ -18,6 +18,8 @@ export default async function reviews(req, res) {
       const d = doc.data();
       return {
         id: doc.id,
+        helpfulCount: Number(d.helpfulCount) || 0,
+        notHelpfulCount: Number(d.notHelpfulCount) || 0,
         productId: d.productId,
         rating: d.rating,
         title: d.title ?? '',
@@ -31,6 +33,34 @@ export default async function reviews(req, res) {
       ? Math.round((reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length) * 10) / 10
       : null;
     return res.json({ reviews, count: reviews.length, averageRating });
+  }
+
+  if (req.method === 'POST' && req.body?.action === 'vote') {
+    const user = await requireUser(req);
+    const reviewId = clean(req.body?.reviewId);
+    const vote = clean(req.body?.vote);
+    if (!/^[a-f0-9]{64}$/.test(reviewId)) throw clientError('Invalid review.');
+    if (!['helpful', 'notHelpful'].includes(vote)) throw clientError('Choose Like or Dislike.');
+    const reviewRef = adminDb.collection('reviews').doc(reviewId);
+    const voteRef = reviewRef.collection('votes').doc(user.uid);
+    const counts = await adminDb.runTransaction(async tx => {
+      const reviewSnap = await tx.get(reviewRef);
+      const voteSnap = await tx.get(voteRef);
+      if (!reviewSnap.exists || reviewSnap.data().status !== 'APPROVED') throw clientError('This review is not available for voting.', 404);
+      if (reviewSnap.data().customerId === user.uid) throw clientError('You cannot vote on your own review.');
+      const previous = voteSnap.exists ? voteSnap.data().vote : null;
+      let helpfulCount = Number(reviewSnap.data().helpfulCount) || 0;
+      let notHelpfulCount = Number(reviewSnap.data().notHelpfulCount) || 0;
+      if (previous === vote) return { helpfulCount, notHelpfulCount, currentVote: previous };
+      if (previous === 'helpful') helpfulCount = Math.max(0, helpfulCount - 1);
+      if (previous === 'notHelpful') notHelpfulCount = Math.max(0, notHelpfulCount - 1);
+      if (vote === 'helpful') helpfulCount += 1;
+      else notHelpfulCount += 1;
+      tx.set(voteRef, { userId: user.uid, vote, updatedAt: new Date() });
+      tx.update(reviewRef, { helpfulCount, notHelpfulCount, updatedAt: new Date() });
+      return { helpfulCount, notHelpfulCount, currentVote: vote };
+    });
+    return res.json(counts);
   }
 
   if (req.method === 'POST') {
