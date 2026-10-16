@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 
-const imageFormats = ['jpg', 'jpeg', 'png', 'webp'];
+const imageFormats = ["jpg","jpeg","png","webp","gif","bmp","tif","tiff","avif","heic","heif","ico"];
 const videoFormats = ['mp4', 'mov', 'webm', 'm4v'];
 const formats = [...imageFormats, ...videoFormats];
 const hits = new Map();
@@ -15,11 +15,12 @@ export default async function signRefundEvidenceUpload(req, res) {
   const requests = (hits.get(user.uid) || []).filter(at => now - at < 3600000);
   if (requests.length >= 20) throw clientError('Too many upload requests. Please try again later.', 429);
   const extension = typeof fileName === 'string' ? fileName.split('.').pop().toLowerCase() : '';
-  const isImage = imageFormats.includes(extension) && ['image/jpeg', 'image/png', 'image/webp'].includes(String(mimeType || ''));
+  const normalizedMime = String(mimeType || '').toLowerCase();
+  const isImage = imageFormats.includes(extension) && (normalizedMime.startsWith('image/') || normalizedMime === '' || normalizedMime === 'application/octet-stream');
   const isVideo = videoFormats.includes(extension) && ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'].includes(String(mimeType || ''));
   const maxBytes = isVideo ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
   if ((!isImage && !isVideo) || !Number.isInteger(bytes) || bytes < 1 || bytes > maxBytes) {
-    throw clientError('Attach JPEG, PNG or WebP images up to 5 MB, or MP4, MOV, WebM or M4V video up to 20 MB.');
+    throw clientError('Attach a supported photo or screenshot (JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC/HEIF or ICO) up to 5 MB, or MP4, MOV, WebM or M4V video up to 20 MB.');
   }
   const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || '').trim();
   const apiKey = String(process.env.CLOUDINARY_API_KEY || '').trim();
