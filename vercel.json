@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/admin/refunds",
+      "destination": "/api/admin?route=refunds"
+    },
+    {
       "source": "/api/admin/ai-chats",
       "destination": "/api/admin?route=ai-chats"
     },
