@@ -47,6 +47,11 @@ export async function customerRefunds(req, res) {
     if (amount > Number(order.total || 0)) {
       throw clientError('The requested amount cannot exceed the order total.');
     }
+    const priorRefunds = await tx.get(adminDb.collection('refundRecords').where('orderDocumentId', '==', orderDocumentId));
+    const alreadyRefunded = priorRefunds.docs.filter(doc => doc.data().status === 'CONFIRMED').reduce((sum, doc) => sum + (Number(doc.data().amount) || 0), 0);
+    if (amount > Number(order.total || 0) - alreadyRefunded) {
+      throw clientError('The requested amount exceeds the remaining refundable balance.');
+    }
     const status = String(order.refundStatus || 'NONE').toUpperCase();
     if (['REQUESTED', 'CONFIRMED'].includes(status)) {
       throw clientError('A refund request already exists for this order. Please check its status or contact support.', 409);
