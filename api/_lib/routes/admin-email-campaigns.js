@@ -29,6 +29,7 @@ function safeHttpsUrl(value, label, optional = false) {
 }
 
 function validateCampaign(body = {}) {
+  const format = body.format === 'text' ? 'text' : 'html';
   const subject = String(body.subject ?? '').trim();
   const headline = String(body.headline ?? '').trim();
   const message = String(body.message ?? '').trim();
@@ -44,7 +45,7 @@ function validateCampaign(body = {}) {
   if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw clientError('Image URL must use https://.');
   if (buttonLabel && buttonLabel.length > 60) throw clientError('Button label must be 60 characters or fewer.');
   if (Boolean(buttonLabel) !== Boolean(buttonUrl)) throw clientError('Provide both a button label and a button link, or leave both blank.');
-  return { subject, headline, message, imageUrl, buttonLabel, buttonUrl };
+  return { format, subject, headline, message, imageUrl: format === 'html' ? imageUrl : '', buttonLabel: format === 'html' ? buttonLabel : '', buttonUrl: format === 'html' ? buttonUrl : '' };
 }
 
 function unsubscribeToken(uid) {
@@ -53,8 +54,27 @@ function unsubscribeToken(uid) {
   return crypto.createHmac('sha256', secret).update(String(uid)).digest('hex');
 }
 
+function unsubscribeUrl(recipient) {
+  return `${siteUrl()}/api/marketing/unsubscribe?uid=${encodeURIComponent(recipient.uid)}&token=${encodeURIComponent(unsubscribeToken(recipient.uid))}`;
+}
+
+function campaignText(campaign, recipient) {
+  return [
+    'HerStep Collection',
+    '',
+    campaign.headline,
+    '',
+    campaign.message,
+    campaign.buttonUrl ? `${campaign.buttonLabel}: ${campaign.buttonUrl}` : '',
+    '',
+    'You received this email because you opted in to HerStep Collection updates.',
+    `Visit our store: ${siteUrl()}`,
+    `Unsubscribe: ${unsubscribeUrl(recipient)}`,
+  ].filter((line, index, list) => line !== '' || list[index - 1] !== '').join('\\n');
+}
+
 function campaignHtml(campaign, recipient) {
-  const unsubscribeUrl = `${siteUrl()}/api/marketing/unsubscribe?uid=${encodeURIComponent(recipient.uid)}&token=${encodeURIComponent(unsubscribeToken(recipient.uid))}`;
+  const unsubscribe = unsubscribeUrl(recipient);
   const paragraphs = campaign.message.split(/\r?\n/).map(line => line.trim()
     ? `<p style="margin:0 0 14px;line-height:1.65;color:#404040;">${escapeHtml(line)}</p>`
     : '<div style="height:6px"></div>').join('');
@@ -64,7 +84,10 @@ function campaignHtml(campaign, recipient) {
   const button = campaign.buttonUrl
     ? `<p style="text-align:center;margin:28px 0;"><a href="${escapeHtml(campaign.buttonUrl)}" style="display:inline-block;background:#171717;color:#fff;text-decoration:none;font-weight:700;padding:13px 24px;border-radius:7px;">${escapeHtml(campaign.buttonLabel)}</a></p>`
     : '';
-  return `<!doctype html><html><body style="margin:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#171717;"><div style="max-width:600px;margin:0 auto;padding:24px 14px;"><div style="background:#fff;border:1px solid #e5e5e5;border-radius:14px;overflow:hidden;"><div style="background:#171717;color:#fff;padding:22px 24px;font-size:20px;font-weight:700;text-align:center;">HerStep Collection</div><div style="padding:28px 24px;"><h1 style="font-size:24px;line-height:1.3;margin:0 0 20px;">${escapeHtml(campaign.headline)}</h1>${image}${paragraphs}${button}<p style="margin:26px 0 0;color:#737373;font-size:13px;line-height:1.6;">You're receiving this email because you opted in to HerStep Collection updates.</p></div></div><p style="text-align:center;color:#737373;font-size:12px;line-height:1.6;margin:18px 0;">HerStep Collection · <a href="${siteUrl()}" style="color:#525252;">Visit our store</a><br><a href="${escapeHtml(unsubscribeUrl)}" style="color:#525252;">Unsubscribe from marketing emails</a></p></div></body></html>`;
+  if (campaign.format === 'text') {
+    return `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;color:#171717;line-height:1.65;max-width:600px;margin:0 auto;padding:24px;"><p>HerStep Collection</p><h1>${escapeHtml(campaign.headline)}</h1><p style="white-space:pre-line;">${escapeHtml(campaign.message)}</p>${button}<p style="font-size:12px;color:#737373;">You received this email because you opted in to HerStep Collection updates.</p><p style="font-size:12px;"><a href="${escapeHtml(unsubscribe)}">Unsubscribe from marketing emails</a></p></body></html>`;
+  }
+  return `<!doctype html><html><body style="margin:0;background:#f5f5f5;font-family:Arial,Helvetica,sans-serif;color:#171717;"><div style="max-width:600px;margin:0 auto;padding:24px 14px;"><div style="background:#fff;border:1px solid #e5e5e5;border-radius:14px;overflow:hidden;"><div style="background:#171717;color:#fff;padding:22px 24px;font-size:20px;font-weight:700;text-align:center;">HerStep Collection</div><div style="padding:28px 24px;"><h1 style="font-size:24px;line-height:1.3;margin:0 0 20px;">${escapeHtml(campaign.headline)}</h1>${image}${paragraphs}${button}<p style="margin:26px 0 0;color:#737373;font-size:13px;line-height:1.6;">You're receiving this email because you opted in to HerStep Collection updates.</p></div></div><p style="text-align:center;color:#737373;font-size:12px;line-height:1.6;margin:18px 0;">HerStep Collection · <a href="${siteUrl()}" style="color:#525252;">Visit our store</a><br><a href="${escapeHtml(unsubscribe)}" style="color:#525252;">Unsubscribe from marketing emails</a></p></div></body></html>`;
 }
 
 function plainTextHtml(campaign) {
@@ -112,9 +135,11 @@ export async function adminEmailCampaigns(req, res) {
   if (req.body?.mode === 'test') {
     const to = String(req.body?.testTo || admin.email || '').trim().toLowerCase();
     if (!emailPattern.test(to)) throw clientError('Enter a valid test email address.');
-    const htmlContent = campaignHtml(campaign, { uid: admin.uid });
+    const recipient = { uid: admin.uid };
+    const htmlContent = campaignHtml(campaign, recipient);
+    const textContent = campaignText(campaign, recipient);
     try {
-      await sendEmail({ purpose: 'promotions', to, subject: `[TEST] ${campaign.subject}`, htmlContent }, cfg);
+      await sendEmail({ purpose: 'promotions', to, subject: `[TEST] ${campaign.subject}`, htmlContent, textContent }, cfg);
       return res.status(200).json({ sent: true, to });
     } catch (error) {
       console.error('[admin/email-campaigns] test email failed:', error?.message || error);
@@ -146,6 +171,7 @@ export async function adminEmailCampaigns(req, res) {
         to: recipient.email,
         subject: campaign.subject,
         htmlContent: htmlFor(recipient),
+        textContent: campaignText(campaign, recipient),
         status: 'PENDING',
         attachInvoiceFor: null,
         createdAt: FieldValue.serverTimestamp(),
@@ -161,6 +187,7 @@ export async function adminEmailCampaigns(req, res) {
     subject: campaign.subject,
     headline: campaign.headline,
     message: campaign.message,
+    format: campaign.format,
     imageUrl: campaign.imageUrl || null,
     buttonLabel: campaign.buttonLabel || null,
     buttonUrl: campaign.buttonUrl || null,
