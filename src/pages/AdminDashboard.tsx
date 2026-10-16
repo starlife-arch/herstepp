@@ -664,6 +664,7 @@ export default function AdminDashboard() {
     { id: 'reviews', label: 'Reviews', icon: Star },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'payments', label: 'Payments', icon: CreditCard },
+    { id: 'refunds', label: 'Refunds & Returns', icon: FileText },
     { id: 'tips', label: 'Tips', icon: Heart },
     { id: 'support', label: 'Support', icon: MessageSquare },
     { id: 'messages', label: 'Messages', icon: Mail },
@@ -755,6 +756,7 @@ export default function AdminDashboard() {
           {activeSection === 'reviews' && <AdminReviews />}
           {activeSection === 'customers' && <AdminCustomers />}
           {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
+          {activeSection === 'refunds' && <AdminRefunds />}
           {activeSection === 'tips' && <AdminTips />}
           {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
           {activeSection === 'messages' && <AdminMessages />}
@@ -766,6 +768,53 @@ export default function AdminDashboard() {
       </main>
     </div>
   );
+}
+
+
+function AdminRefunds() {
+  const res = useAdminData<any>('/api/admin/refunds');
+  const [orderDocumentId, setOrderDocumentId] = useState('');
+  const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
+  const [action, setAction] = useState('REQUEST_REFUND');
+  const [refundRecordId, setRefundRecordId] = useState('');
+  const [providerReference, setProviderReference] = useState('');
+  const [stockReturnId, setStockReturnId] = useState('');
+  const [itemsJson, setItemsJson] = useState('[{"productId":"","size":"36","quantity":1,"condition":"INSPECTION"}]');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const submit = async () => {
+    setBusy(true); setMessage('');
+    try {
+      const payload: any = { action, orderDocumentId: orderDocumentId.trim(), reason: reason.trim() };
+      if (['REQUEST_REFUND','CONFIRM_REFUND','CREATE_CREDIT_NOTE'].includes(action)) payload.amount = Number(amount);
+      if (action === 'CONFIRM_REFUND') { payload.refundRecordId = refundRecordId.trim(); payload.providerReference = providerReference.trim(); }
+      if (action === 'RECORD_RETURN') payload.items = JSON.parse(itemsJson);
+      if (action === 'APPROVE_RETURN_STOCK') payload.stockReturnId = stockReturnId.trim();
+      const result: any = await apiFetch('/api/admin/refunds', { method: 'POST', body: JSON.stringify(payload) });
+      setMessage(result.message || result.creditNoteNumber || result.status || 'Saved.');
+      res.reload();
+    } catch (error: any) { setMessage(error?.message || 'Could not complete the action.'); }
+    finally { setBusy(false); }
+  };
+  const refunds: any[] = res.data?.refunds || [];
+  return <div className="space-y-6 animate-fadeIn">
+    <div><h1 className="text-2xl font-bold text-neutral-900">Refunds, Credit Notes & Returns</h1><p className="text-sm text-neutral-500 mt-1">Record admin actions with an audit trail. Refund confirmation does not send money; complete the actual refund externally first.</p></div>
+    <Card className="p-5 space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div><label className="block text-sm font-medium mb-1">Action</label><select value={action} onChange={e => setAction(e.target.value)} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-white">{[['REQUEST_REFUND','Request refund'],['CONFIRM_REFUND','Confirm completed refund'],['CREATE_CREDIT_NOTE','Issue credit note'],['RECORD_RETURN','Record stock return'],['APPROVE_RETURN_STOCK','Process inspected return']].map(([value,label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+        <div><label className="block text-sm font-medium mb-1">Order document ID</label><input value={orderDocumentId} onChange={e => setOrderDocumentId(e.target.value)} placeholder="Internal order document ID" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm" /></div>
+      </div>
+      {['REQUEST_REFUND','CONFIRM_REFUND','CREATE_CREDIT_NOTE'].includes(action) && <div><label className="block text-sm font-medium mb-1">Amount (KES, whole number)</label><input type="number" min="1" step="1" value={amount} onChange={e => setAmount(e.target.value)} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm" /></div>}
+      {action === 'CONFIRM_REFUND' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-4"><div><label className="block text-sm font-medium mb-1">Refund record ID</label><input value={refundRecordId} onChange={e => setRefundRecordId(e.target.value)} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm" /></div><div><label className="block text-sm font-medium mb-1">External refund reference</label><input value={providerReference} onChange={e => setProviderReference(e.target.value)} placeholder="Reference from provider/finance" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm" /></div></div>}
+      {action === 'RECORD_RETURN' && <div><label className="block text-sm font-medium mb-1">Returned items (JSON)</label><textarea rows={4} value={itemsJson} onChange={e => setItemsJson(e.target.value)} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm font-mono" /><p className="text-xs text-neutral-500 mt-1">Each item needs productId, size, quantity and condition: RESELLABLE, DAMAGED or INSPECTION. Returns are not restocked until processed.</p></div>}
+      {action === 'APPROVE_RETURN_STOCK' && <div><label className="block text-sm font-medium mb-1">Stock return ID</label><input value={stockReturnId} onChange={e => setStockReturnId(e.target.value)} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm" /></div>}
+      <div><label className="block text-sm font-medium mb-1">Reason / audit note</label><textarea rows={2} value={reason} onChange={e => setReason(e.target.value)} placeholder="Explain why this action is needed" className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm" /></div>
+      {message && <p role="status" className="text-sm text-neutral-700 bg-neutral-50 rounded-lg p-3">{message}</p>}
+      <Button onClick={submit} disabled={busy || !orderDocumentId.trim() || !reason.trim()}>{busy ? 'Saving…' : 'Submit action'}</Button>
+    </Card>
+    <div><h2 className="text-lg font-semibold mb-3">Recent refund records</h2>{res.loading ? <LoadingCard /> : res.error ? <ErrorCard message={res.error} onRetry={res.reload} /> : <Card className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-neutral-50"><tr><th className="text-left p-3">Order</th><th className="text-left p-3">Amount</th><th className="text-left p-3">Status</th><th className="text-left p-3">Reason</th><th className="text-left p-3">Record ID</th></tr></thead><tbody className="divide-y divide-neutral-100">{refunds.map(r => <tr key={r.id}><td className="p-3">{r.orderId || r.orderDocumentId}</td><td className="p-3">{money(r.amount)}</td><td className="p-3"><Badge variant={r.status === 'CONFIRMED' ? 'success' : 'warning'}>{r.status}</Badge></td><td className="p-3">{r.reason}</td><td className="p-3 font-mono text-xs select-all">{r.id}</td></tr>)}{refunds.length === 0 && <tr><td colSpan={5} className="p-4 text-neutral-500">No refund requests recorded yet.</td></tr>}</tbody></table></Card>}</div>
+  </div>;
 }
 
 // ---------------------------------------------------------------------------
