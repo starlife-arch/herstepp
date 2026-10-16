@@ -1,6 +1,11 @@
 import { FieldValue } from 'firebase-admin/firestore';
+import { waitUntil } from '@vercel/functions';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { queueEmail, deliverQueuedEmailInline } from '../email-service.js';
+import { buildEmail } from '../email-templates.js';
+import { siteUrl } from '../site-url.js';
+import { queueSms, deliverQueuedSms } from '../sms-service.js';
 
 const cleanText = (value, max = 500) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const validAmount = value => Number.isSafeInteger(value) && value >= 1 && value <= 10_000_000;
@@ -35,6 +40,9 @@ export async function customerRefunds(req, res) {
   const orderRef = adminDb.collection('orders').doc(orderDocumentId);
   const refundRef = adminDb.collection('refundRecords').doc();
   const now = FieldValue.serverTimestamp();
+  const queuedEmailKeys = new Set();
+  let smsQueued = false;
+  let customerPhone = '';
   await adminDb.runTransaction(async tx => {
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists || orderSnap.data().customerId !== user.uid) {
@@ -71,7 +79,59 @@ export async function customerRefunds(req, res) {
       actorUid: user.uid, actorType: 'CUSTOMER', action: 'REFUND_REQUESTED',
       entityType: 'ORDER', entityId: orderDocumentId, amount, reason, createdAt: now,
     });
+
+    // Queue best-effort customer and refund-team notifications in the same
+    // transaction as the request. Delivery happens only after commit.
+    const customerEmail = cleanText(user.email || order.customerEmail || order.email, 254).toLowerCase();
+    customerPhone = order.delivery?.phone || order.phone || user.phoneNumber || '';
+    const orderNumber = cleanText(order.orderId || orderDocumentId, 80);
+    const amountText = `KSh ${amount.toLocaleString('en-KE')}`;
+    const customerTemplate = buildEmail(
+      `Refund request received — ${orderNumber}`,
+      `Hi ${user.displayName || order.customerName || order.delivery?.fullName || 'there'},\n\nWe have received your refund request for order ${orderNumber}.\nRequested amount: ${amountText}\nReason: ${reason}\n\nOur team will review your request and update you. This email confirms receipt only; no money has been sent yet.`,
+      { ctaLabel: 'View my account', ctaUrl: `${siteUrl()}/account` },
+    );
+    if (customerEmail) {
+      const key = `${refundRef.id}-REFUND-CUSTOMER-EMAIL`;
+      try {
+        queueEmail(tx, adminDb, { key, purpose: 'refunds', to: customerEmail, subject: customerTemplate.subject, htmlContent: customerTemplate.htmlContent });
+        queuedEmailKeys.add(key);
+      } catch (error) {
+        console.error('[customer-refunds] customer email queue failed:', error?.message || error);
+      }
+    }
+    const env = globalThis.process?.env || {};
+    const refundInbox = cleanText(env.REFUNDS_NOTIFICATION_EMAIL || env.BREVO_SENDER_REFUNDS, 254).toLowerCase();
+    if (refundInbox) {
+      const adminTemplate = buildEmail(
+        `New refund request — ${orderNumber}`,
+        `A customer has submitted a refund request.\n\nOrder: ${orderNumber}\nCustomer: ${cleanText(user.displayName || order.customerName || order.delivery?.fullName || 'Customer', 120)}\nCustomer email: ${customerEmail || 'Not available'}\nRequested amount: ${amountText}\nReason: ${reason}\n\nReview this request in the HerStep Collection admin dashboard. No refund has been paid automatically.`,
+        { ctaLabel: 'Open HerStep Collection', ctaUrl: `${siteUrl()}/admin` },
+      );
+      const key = `${refundRef.id}-REFUND-TEAM-EMAIL`;
+      try {
+        queueEmail(tx, adminDb, { key, purpose: 'refunds', to: refundInbox, subject: adminTemplate.subject, htmlContent: adminTemplate.htmlContent });
+        queuedEmailKeys.add(key);
+      } catch (error) {
+        console.error('[customer-refunds] team email queue failed:', error?.message || error);
+      }
+    }
+    try {
+      smsQueued = queueSms(tx, adminDb, {
+        key: `${refundRef.id}-REFUND-REQUESTED-SMS`,
+        to: customerPhone,
+        message: `HerStep Collection: We received your refund request for order ${orderNumber} (${amountText}). Our team will review it. No money has been sent yet. Visit ${siteUrl()}/account`,
+      });
+    } catch (error) {
+      console.error('[customer-refunds] SMS queue failed:', error?.message || error);
+    }
   });
+  // waitUntil keeps best-effort notifications alive after the response while
+  // preventing provider outages from failing the refund request itself.
+  waitUntil(Promise.all([
+    ...Array.from(queuedEmailKeys, key => deliverQueuedEmailInline(adminDb, key)),
+    ...(smsQueued ? [deliverQueuedSms(adminDb, `${refundRef.id}-REFUND-REQUESTED-SMS`)] : []),
+  ]).catch(error => console.error('[customer-refunds] notification delivery failed:', error?.message || error)));
   return res.status(201).json({
     ok: true, refundRecordId: refundRef.id, status: 'REQUESTED',
     message: 'Your refund request has been sent to HerStep for review. No money has been sent yet.',
