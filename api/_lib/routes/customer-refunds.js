@@ -6,10 +6,29 @@ import { queueEmail, deliverQueuedEmailInline } from '../email-service.js';
 import { buildEmail } from '../email-templates.js';
 import { siteUrl } from '../site-url.js';
 import { queueSms, deliverQueuedSms } from '../sms-service.js';
+import { sendTelegramMessage } from '../telegram.js';
 
 const cleanText = (value, max = 500) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const validAmount = value => Number.isSafeInteger(value) && value >= 1 && value <= 10_000_000;
 const iso = value => value?.toDate ? value.toDate().toISOString() : value || null;
+function validateEvidence(value, uid) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 5) throw clientError('Attach at least one and up to five evidence files.');
+  const cloud = String(globalThis.process?.env?.CLOUDINARY_CLOUD_NAME || '').trim();
+  let videos = 0;
+  return value.map(file => {
+    const type = String(file?.type || '');
+    const url = String(file?.url || '');
+    const publicId = String(file?.publicId || '');
+    const prefix = type === 'image'
+      ? `https://res.cloudinary.com/${cloud}/image/upload/`
+      : type === 'video' ? `https://res.cloudinary.com/${cloud}/video/upload/` : '';
+    if (!prefix || !cloud || !url.startsWith(prefix) || !publicId.startsWith(`herstep/refunds/${uid}/`)) {
+      throw clientError('Evidence must be uploaded through the HerStep refund evidence uploader.');
+    }
+    if (type === 'video' && ++videos > 1) throw clientError('Attach no more than one video.');
+    return { type, url, publicId };
+  });
+}
 
 // Customer-facing refund requests are requests for review only. They never
 // initiate a payment transfer or approve themselves.
@@ -27,12 +46,13 @@ export async function customerRefunds(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
 
   const body = req.body || {};
-  if (Object.keys(body).some(key => !['orderDocumentId', 'amount', 'reason'].includes(key))) {
+  if (Object.keys(body).some(key => !['orderDocumentId', 'amount', 'reason', 'evidence'].includes(key))) {
     throw clientError('Unexpected refund request field.');
   }
   const orderDocumentId = cleanText(body.orderDocumentId, 100);
   const reason = cleanText(body.reason, 500);
   const amount = body.amount;
+  const evidence = validateEvidence(body.evidence, user.uid);
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(orderDocumentId)) throw clientError('Choose a valid order.');
   if (!reason || reason.length < 5) throw clientError('Please explain why you are requesting a refund (at least 5 characters).');
   if (!validAmount(amount)) throw clientError('Enter a valid refund amount in whole KES.');
@@ -43,6 +63,10 @@ export async function customerRefunds(req, res) {
   const queuedEmailKeys = new Set();
   let smsQueued = false;
   let customerPhone = '';
+  let alertOrderNumber = orderDocumentId;
+  let alertCustomerName = user.displayName || user.email || 'Customer';
+  let alertCustomerEmail = user.email || '';
+  let alertAmount = amount;
   await adminDb.runTransaction(async tx => {
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists || orderSnap.data().customerId !== user.uid) {
@@ -61,13 +85,13 @@ export async function customerRefunds(req, res) {
       throw clientError('The requested amount exceeds the remaining refundable balance.');
     }
     const status = String(order.refundStatus || 'NONE').toUpperCase();
-    if (['REQUESTED', 'CONFIRMED'].includes(status)) {
+    if (['REQUESTED', 'APPROVED', 'CONFIRMED'].includes(status)) {
       throw clientError('A refund request already exists for this order. Please check its status or contact support.', 409);
     }
     tx.set(refundRef, {
       type: 'REFUND', orderDocumentId, orderId: order.orderId || orderDocumentId,
       customerId: user.uid, amount, currency: order.currency || 'KES', reason,
-      status: 'REQUESTED', requestedBy: user.uid, requesterRole: 'CUSTOMER',
+      status: 'REQUESTED', requestedBy: user.uid, requesterRole: 'CUSTOMER', evidence,
       createdAt: now, updatedAt: now,
     });
     tx.update(orderRef, {
@@ -85,6 +109,10 @@ export async function customerRefunds(req, res) {
     const customerEmail = cleanText(user.email || order.customerEmail || order.email, 254).toLowerCase();
     customerPhone = order.delivery?.phone || order.phone || user.phoneNumber || '';
     const orderNumber = cleanText(order.orderId || orderDocumentId, 80);
+    alertOrderNumber = orderNumber;
+    alertCustomerName = cleanText(user.displayName || order.customerName || order.delivery?.fullName || 'Customer', 120);
+    alertCustomerEmail = customerEmail;
+    alertAmount = amount;
     const amountText = `KSh ${amount.toLocaleString('en-KE')}`;
     const customerTemplate = buildEmail(
       `Refund request received — ${orderNumber}`,
@@ -131,6 +159,7 @@ export async function customerRefunds(req, res) {
   waitUntil(Promise.all([
     ...Array.from(queuedEmailKeys, key => deliverQueuedEmailInline(adminDb, key)),
     ...(smsQueued ? [deliverQueuedSms(adminDb, `${refundRef.id}-REFUND-REQUESTED-SMS`)] : []),
+    sendTelegramMessage(`🧾 New refund request\nOrder: ${alertOrderNumber}\nCustomer: ${alertCustomerName}\nEmail: ${alertCustomerEmail || 'not available'}\nAmount: KSh ${Number(alertAmount).toLocaleString('en-KE')}\nReason: ${reason}\nEvidence files: ${evidence.length}\nReview in the admin dashboard.`),
   ]).catch(error => console.error('[customer-refunds] notification delivery failed:', error?.message || error)));
   return res.status(201).json({
     ok: true, refundRecordId: refundRef.id, status: 'REQUESTED',

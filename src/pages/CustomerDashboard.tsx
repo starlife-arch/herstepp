@@ -2,11 +2,12 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePageMeta } from '../hooks/usePageMeta';
 
-import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight, Heart } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight, Heart, Paperclip, X } from 'lucide-react';
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { productImageUrl, orderItemImageUrl } from '../lib/productImage';
 import { apiFetch, apiDownload } from '../lib/api';
+import { uploadRefundEvidence } from '../lib/refundUpload';
 
 // Real data only. GET /api/dashboard already returns ONLY the signed-in
 // customer's orders/payments/notifications (server filters by the verified
@@ -227,15 +228,20 @@ function OrdersTab({ orders }: any) {
   const [refundReasons, setRefundReasons] = useState<Record<string, string>>({});
   const [refundAmounts, setRefundAmounts] = useState<Record<string, string>>({});
   const [refundMessages, setRefundMessages] = useState<Record<string, string>>({});
+  const [refundEvidence, setRefundEvidence] = useState<Record<string, File[]>>({});
   const [refundBusyId, setRefundBusyId] = useState<string | null>(null);
   const requestRefund = async (order: any) => {
     const reason = String(refundReasons[order.id] || '').trim();
     const amount = Number(refundAmounts[order.id] ?? order.total);
     if (reason.length < 5) { setRefundMessages(prev => ({ ...prev, [order.id]: 'Please explain the reason (at least 5 characters).' })); return; }
     if (!Number.isSafeInteger(amount) || amount < 1 || amount > num(order.total)) { setRefundMessages(prev => ({ ...prev, [order.id]: 'Enter a whole KES amount no greater than the order total.' })); return; }
+    const files = refundEvidence[order.id] || [];
+    if (!files.length) { setRefundMessages(prev => ({ ...prev, [order.id]: 'Please attach at least one photo or video showing the issue.' })); return; }
     setRefundBusyId(order.id); setRefundMessages(prev => ({ ...prev, [order.id]: '' }));
     try {
-      const result: any = await apiFetch('/api/refunds', { method: 'POST', body: JSON.stringify({ orderDocumentId: order.id, amount, reason }) });
+      const evidence = await uploadRefundEvidence(files);
+      const result: any = await apiFetch('/api/refunds', { method: 'POST', body: JSON.stringify({ orderDocumentId: order.id, amount, reason, evidence }) });
+      setRefundEvidence(prev => ({ ...prev, [order.id]: [] }));
       setRefundMessages(prev => ({ ...prev, [order.id]: result.message || 'Your request was sent to HerStep for review.' }));
       setRefundOpenId(null);
       await reloadDashboard();
@@ -342,12 +348,36 @@ function OrdersTab({ orders }: any) {
                     {up(order.paymentStatus) === 'PAID' && <InvoiceButton order={order} />}
                     {up(order.paymentStatus) === 'PAID' && <div className="pt-3 border-t border-neutral-100 space-y-2">
                       {order.refundStatus && up(order.refundStatus) !== 'NONE' && <p className="text-sm text-neutral-600">Refund status: <span className="font-semibold">{String(order.refundStatus).replace(/_/g, ' ')}</span>{order.refundRequestedAmount ? ' · ' + formatCurrency(num(order.refundRequestedAmount)) : ''}</p>}
-                      {['REQUESTED','CONFIRMED'].includes(up(order.refundStatus)) ? <p className="text-xs text-neutral-500">A refund request has already been recorded for this order. Contact HerStep Support if you need help.</p> : <button type="button" aria-expanded={refundOpenId === order.id} aria-controls={`refund-request-${order.id}`} onClick={() => { setRefundOpenId(refundOpenId === order.id ? null : order.id); setRefundAmounts(prev => ({ ...prev, [order.id]: prev[order.id] || String(num(order.total)) })); setRefundMessages(prev => ({ ...prev, [order.id]: '' })); }} className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:ring-offset-2">{refundOpenId === order.id ? <><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg><span>Cancel request</span></> : <><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4"><path d="M10 3.25v13.5M3.25 10h13.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M4.5 4.5h11v11h-11z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg><span>Request refund</span></>}</button>}
+                      {['REQUESTED','APPROVED','CONFIRMED'].includes(up(order.refundStatus)) ? <p className="text-xs text-neutral-500">A refund request is already being reviewed or processed. Check your refund status or contact HerStep Support if you need help.</p> : <button type="button" aria-expanded={refundOpenId === order.id} aria-controls={`refund-request-${order.id}`} onClick={() => { setRefundOpenId(refundOpenId === order.id ? null : order.id); setRefundAmounts(prev => ({ ...prev, [order.id]: prev[order.id] || String(num(order.total)) })); setRefundMessages(prev => ({ ...prev, [order.id]: '' })); }} className="inline-flex items-center justify-center gap-2 rounded-lg border border-neutral-900 bg-neutral-900 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-500 focus:ring-offset-2">{refundOpenId === order.id ? <><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4"><path d="M5 5l10 10M15 5L5 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg><span>Cancel request</span></> : <><svg aria-hidden="true" viewBox="0 0 20 20" fill="none" className="h-4 w-4"><path d="M10 3.25v13.5M3.25 10h13.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/><path d="M4.5 4.5h11v11h-11z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round"/></svg><span>Request refund</span></>}</button>}
                       {refundOpenId === order.id && <div id={`refund-request-${order.id}`} className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 space-y-3">
                         <p className="text-sm text-neutral-600">Send a request for HerStep to review. This does not send money automatically.</p>
                         <div><label className="block text-xs font-medium text-neutral-700 mb-1">Requested amount (KES)</label><input type="number" min="1" max={num(order.total)} step="1" value={refundAmounts[order.id] ?? String(num(order.total))} onChange={e => setRefundAmounts(prev => ({ ...prev, [order.id]: e.target.value }))} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-white" /></div>
                         <div><label className="block text-xs font-medium text-neutral-700 mb-1">Why are you requesting a refund?</label><textarea rows={3} maxLength={500} value={refundReasons[order.id] || ''} onChange={e => setRefundReasons(prev => ({ ...prev, [order.id]: e.target.value }))} placeholder="For example, I received the wrong shoe size." className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-white" /></div>
-                        <Button size="sm" onClick={() => requestRefund(order)} disabled={refundBusyId === order.id}>{refundBusyId === order.id ? 'Sending request…' : 'Submit refund request'}</Button>
+                        <div className="space-y-2">
+                          <label className="block text-xs font-medium text-neutral-700">Proof of issue (required)</label>
+                          <p className="text-xs text-neutral-500">Attach up to 5 photos or one video. Photos up to 5 MB each; videos up to 20 MB.</p>
+                          <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-100">
+                            <Paperclip className="h-4 w-4" /> Add photos or video
+                            <input type="file" className="hidden" accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,video/webm,video/x-m4v" multiple onChange={event => {
+                              const next = Array.from(event.target.files || []);
+                              const validImage = (file: File) => ['image/jpeg','image/png','image/webp'].includes(file.type) && file.size <= 5 * 1024 * 1024;
+                              const validVideo = (file: File) => ['video/mp4','video/quicktime','video/webm','video/x-m4v'].includes(file.type) && file.size <= 20 * 1024 * 1024;
+                              const current = refundEvidence[order.id] || [];
+                              const combined = [...current, ...next];
+                              if (next.some(file => !validImage(file) && !validVideo(file))) {
+                                setRefundMessages(prev => ({ ...prev, [order.id]: 'Use JPEG, PNG or WebP photos up to 5 MB, or MP4, MOV, WebM or M4V video up to 20 MB.' }));
+                              } else if (combined.length > 5 || combined.filter(validVideo).length > 1) {
+                                setRefundMessages(prev => ({ ...prev, [order.id]: 'Attach up to five files and no more than one video.' }));
+                              } else {
+                                setRefundEvidence(prev => ({ ...prev, [order.id]: combined }));
+                                setRefundMessages(prev => ({ ...prev, [order.id]: '' }));
+                              }
+                              event.target.value = '';
+                            }} />
+                          </label>
+                          {(refundEvidence[order.id] || []).map((file, index) => <div key={file.name + index} className="flex items-center justify-between gap-2 rounded-md bg-white border border-neutral-200 px-3 py-2"><span className="text-xs text-neutral-700 truncate">{file.type.startsWith('video/') ? 'Video: ' : 'Photo: '}{file.name}</span><button type="button" aria-label={'Remove ' + file.name} onClick={() => setRefundEvidence(prev => ({ ...prev, [order.id]: (prev[order.id] || []).filter((_, i) => i !== index) }))} className="rounded p-1 hover:bg-neutral-100"><X className="h-4 w-4" /></button></div>)}
+                        </div>
+                        <Button size="sm" onClick={() => requestRefund(order)} disabled={refundBusyId === order.id}>{refundBusyId === order.id ? 'Uploading evidence and sending…' : 'Submit refund request'}</Button>
                       </div>}
                       {refundMessages[order.id] && <p role="status" className="text-sm text-neutral-600">{refundMessages[order.id]}</p>}
                     </div>}

@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/refunds/sign-upload",
+      "destination": "/api/users?route=refunds/sign-upload"
+    },
+    {
       "source": "/api/refunds",
       "destination": "/api/users?route=refunds"
     },

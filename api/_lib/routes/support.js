@@ -1,6 +1,11 @@
 import { FieldValue } from 'firebase-admin/firestore';
+import { waitUntil } from '@vercel/functions';
 import { adminDb, requireUser, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { queueEmail, deliverQueuedEmailInline } from '../email-service.js';
+import { buildEmail } from '../email-templates.js';
+import { sendTelegramMessage } from '../telegram.js';
+import { siteUrl } from '../site-url.js';
 
 const SUPPORT_DISPLAY_NAME = 'HerStep Support';
 const categories = new Set(['Order Issue', 'Payment Issue', 'Delivery Issue', 'Product Issue', 'Return/Exchange', 'General Enquiry', 'Other']);
@@ -52,9 +57,23 @@ export async function create(req, res) {
     tx.set(counter, { sequence }, { merge: true });
     tx.set(ref, { ticketId: `SUP-${String(sequence).padStart(6, '0')}`, customerId: user.uid, customerName: profileData.displayName || user.displayName || '', customerEmail: profileData.email || user.email || '', subject: body.subject.trim(), category: body.category, orderDocumentId: body.orderDocumentId || null, status: 'OPEN', lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'CUSTOMER', hasUnreadAdminMessages: true, messageCount: 1, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
     tx.set(ref.collection('messages').doc(body.clientMessageId), { senderId: user.uid, senderName: profileData.displayName || user.displayName || '', senderRole: 'CUSTOMER', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
-    return { id: ref.id, ticketId: `SUP-${String(sequence).padStart(6, '0')}` };
+    const ticketId = `SUP-${String(sequence).padStart(6, '0')}`;
+    const customerEmail = String(profileData.email || user.email || '').trim().toLowerCase();
+    const email = buildEmail(
+      `Support ticket created — ${ticketId}`,
+      `Hi ${profileData.displayName || user.displayName || 'there'},\n\nYour support ticket has been created successfully.\n\nTicket ID: ${ticketId}\nSubject: ${body.subject.trim()}\nCategory: ${body.category}\nStatus: OPEN\n\nKeep this ticket ID for reference. Our support team will respond as soon as possible.`,
+      { ctaLabel: 'View support tickets', ctaUrl: `${siteUrl()}/support` },
+    );
+    const emailKey = customerEmail ? `${ref.id}-SUPPORT-CREATED-EMAIL` : null;
+    if (emailKey) queueEmail(tx, adminDb, { key: emailKey, purpose: 'support', to: customerEmail, subject: email.subject, htmlContent: email.htmlContent });
+    return { id: ref.id, ticketId, subject: body.subject.trim(), category: body.category, customerEmail, customerName: profileData.displayName || user.displayName || 'Customer', emailKey };
   });
-  return res.status(201).json({ ticket: result });
+  const telegramText = `🎫 New HerStep support ticket\nTicket: ${result.ticketId}\nCustomer: ${result.customerName}\nEmail: ${result.customerEmail || 'not available'}\nCategory: ${result.category}\nSubject: ${result.subject}\nOpen the admin dashboard to reply.`;
+  waitUntil(Promise.all([
+    result.emailKey ? deliverQueuedEmailInline(adminDb, result.emailKey) : Promise.resolve(null),
+    sendTelegramMessage(telegramText),
+  ]).catch(error => console.error('[support] ticket-created notification failed:', error?.message || error)));
+  return res.status(201).json({ ticket: { id: result.id, ticketId: result.ticketId } });
 }
 
 export async function list(req, res) {
@@ -81,7 +100,37 @@ export async function message(req, res) {
 }
 
 export async function adminList(req, res) { if (req.method !== 'GET') return methodNotAllowed(res, 'GET'); await requireAdmin(req); const snap = await adminDb.collection('supportTickets').limit(200).get(); return res.json({ tickets: snap.docs.map(doc => ({ id: doc.id, ...doc.data(), lastMessageAt: iso(doc.data().lastMessageAt), createdAt: iso(doc.data().createdAt), updatedAt: iso(doc.data().updatedAt) })).sort((a, b) => String(b.lastMessageAt).localeCompare(String(a.lastMessageAt))) }); }
-export async function adminStatus(req, res) { if (req.method !== 'PATCH') return methodNotAllowed(res, 'PATCH'); const admin = await requireAdmin(req); const { ticketDocumentId, status } = req.body || {}; await adminDb.runTransaction(async tx => { const ref = adminDb.collection('supportTickets').doc(ticketDocumentId); const snap = await tx.get(ref); if (!snap.exists) throw clientError('Ticket not found.', 404); const old = snap.data().status; if (!statusMoves[old]?.includes(status)) throw clientError('This support ticket status cannot be changed that way.', 409); tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp() }); tx.set(ref.collection('history').doc(`${old}-${status}`), { previousStatus: old, newStatus: status, adminId: admin.uid, adminName: admin.displayName || admin.email || '', createdAt: FieldValue.serverTimestamp() }); }); return res.json({ ok: true }); }
+export async function adminStatus(req, res) {
+  if (req.method !== 'PATCH') return methodNotAllowed(res, 'PATCH');
+  const admin = await requireAdmin(req);
+  const { ticketDocumentId, status } = req.body || {};
+  const result = await adminDb.runTransaction(async tx => {
+    const ref = adminDb.collection('supportTickets').doc(ticketDocumentId);
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw clientError('Ticket not found.', 404);
+    const ticket = snap.data();
+    const old = ticket.status;
+    if (!statusMoves[old]?.includes(status)) throw clientError('This support ticket status cannot be changed that way.', 409);
+    tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp() });
+    tx.set(ref.collection('history').doc(`${old}-${status}`), { previousStatus: old, newStatus: status, adminId: admin.uid, adminName: admin.displayName || admin.email || '', createdAt: FieldValue.serverTimestamp() });
+    let emailKey = null;
+    if (['RESOLVED', 'CLOSED'].includes(status) && ticket.customerEmail) {
+      const title = status === 'RESOLVED' ? `Support ticket resolved — ${ticket.ticketId}` : `Support ticket closed — ${ticket.ticketId}`;
+      const bodyText = status === 'RESOLVED'
+        ? `Hi ${ticket.customerName || 'there'},\n\nOur support team has marked ticket ${ticket.ticketId} (“${ticket.subject}”) as resolved. If the issue is still happening, please open a new support ticket and mention this ticket ID so we can help further.\n\nThank you,\nHerStep Support`
+        : `Hi ${ticket.customerName || 'there'},\n\nYour support ticket ${ticket.ticketId} (“${ticket.subject}”) has been closed. If the issue is still happening or you need more help, please open a new support ticket and mention this ticket ID.\n\nThank you,\nHerStep Support`;
+      const email = buildEmail(title, bodyText, { ctaLabel: 'Open support', ctaUrl: `${siteUrl()}/support` });
+      emailKey = `${ticketDocumentId}-SUPPORT-STATUS-${status}-${Date.now()}`;
+      queueEmail(tx, adminDb, { key: emailKey, purpose: 'support', to: ticket.customerEmail, subject: email.subject, htmlContent: email.htmlContent });
+    }
+    return { ticketId: ticket.ticketId, subject: ticket.subject, customerEmail: ticket.customerEmail || '', customerName: ticket.customerName || '', emailKey };
+  });
+  waitUntil(Promise.all([
+    result.emailKey ? deliverQueuedEmailInline(adminDb, result.emailKey) : Promise.resolve(null),
+    ['RESOLVED', 'CLOSED'].includes(status) ? sendTelegramMessage(`🎫 Support ticket ${status.toLowerCase()}\nTicket: ${result.ticketId}\nSubject: ${result.subject}\nCustomer: ${result.customerName}\nEmail: ${result.customerEmail || 'not available'}`) : Promise.resolve(null),
+  ]).catch(error => console.error('[support] ticket status notification failed:', error?.message || error)));
+  return res.json({ ok: true });
+}
 export async function adminRead(req, res) { if (req.method !== 'POST') return methodNotAllowed(res, 'POST'); await requireAdmin(req); await adminDb.collection('supportTickets').doc(req.body?.ticketDocumentId).update({ hasUnreadAdminMessages: false, updatedAt: FieldValue.serverTimestamp() }); return res.json({ ok: true }); }
 export async function adminNotes(req, res) { const admin = await requireAdmin(req); if (req.method === 'GET') { const snap = await adminDb.collection('supportTickets').doc(req.query?.ticketDocumentId).collection('internalNotes').limit(100).get(); return res.json({ notes: snap.docs.map(doc => ({ id: doc.id, ...doc.data(), createdAt: iso(doc.data().createdAt) })) }); } if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']); const { ticketDocumentId, body } = req.body || {}; if (typeof body !== 'string' || !body.trim() || body.length > 4000) throw clientError('Provide a valid note.'); await adminDb.collection('supportTickets').doc(ticketDocumentId).collection('internalNotes').add({ body: body.trim(), authorId: admin.uid, authorName: admin.displayName || admin.email || '', createdAt: FieldValue.serverTimestamp() }); return res.status(201).json({ ok: true }); }
 
@@ -90,13 +139,13 @@ export async function adminMessage(req, res) {
   const admin = await requireAdmin(req);
   const body = req.body || {};
   const input = messageInput(body);
-  await adminDb.runTransaction(async tx => {
+  const result = await adminDb.runTransaction(async tx => {
     const ref = adminDb.collection('supportTickets').doc(body.ticketDocumentId);
     const ticket = await tx.get(ref);
     if (!ticket.exists) throw clientError('Ticket not found.', 404);
     if (ticket.data().status === 'CLOSED') throw clientError('This support ticket has been closed.', 409);
     const messageRef = ref.collection('messages').doc(body.clientMessageId);
-    if ((await tx.get(messageRef)).exists) return;
+    if ((await tx.get(messageRef)).exists) return { emailKey: null, ticketId: ticket.data().ticketId, customerEmail: ticket.data().customerEmail || '' };
     const senderName = SUPPORT_DISPLAY_NAME;
     tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
     tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticket.data().messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
@@ -115,6 +164,21 @@ export async function adminMessage(req, res) {
         createdAt: FieldValue.serverTimestamp(),
       });
     }
+    let emailKey = null;
+    const customerEmail = String(ticket.data().customerEmail || '').trim().toLowerCase();
+    if (customerEmail) {
+      const ticketData = ticket.data();
+      const email = buildEmail(
+        `New reply on support ticket ${ticketData.ticketId}`,
+        `Hi ${ticketData.customerName || 'there'},\n\nHerStep Support has replied to your ticket ${ticketData.ticketId} (“${ticketData.subject}”).\n\nReply:\n${input.text || 'The support team sent an attachment.'}\n\nYou can reply from your support page if you need more help.`,
+        { ctaLabel: 'View support ticket', ctaUrl: `${siteUrl()}/support` },
+      );
+      emailKey = `${body.ticketDocumentId}-SUPPORT-REPLY-${body.clientMessageId}`;
+      queueEmail(tx, adminDb, { key: emailKey, purpose: 'support', to: customerEmail, subject: email.subject, htmlContent: email.htmlContent });
+    }
+    return { emailKey, ticketId: ticket.data().ticketId, customerEmail };
   });
+  waitUntil((result.emailKey ? deliverQueuedEmailInline(adminDb, result.emailKey) : Promise.resolve(null))
+    .catch(error => console.error('[support] reply email failed:', error?.message || error)));
   return res.json({ ok: true });
 }
