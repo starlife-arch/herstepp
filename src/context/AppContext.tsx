@@ -434,7 +434,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const timer = setTimeout(() => {
       void apiFetch('/api/cart/snapshot', {
         method: 'POST',
-        body: { items },
+        body: JSON.stringify({ items }),
       }).catch(() => {
         // Cart tracking is optional; never interrupt shopping if unavailable.
       });
