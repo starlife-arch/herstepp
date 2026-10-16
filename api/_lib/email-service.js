@@ -41,8 +41,14 @@ export function emailConfig() {
     let sender = String(env[`BREVO_SENDER_${purpose.toUpperCase()}`] || '').trim();
     // Optional purposes (e.g. 'tips') fall back to the payments sender when their
     // own BREVO_SENDER_* env is empty. 'verify' deliberately never falls back.
+    if (!sender && purpose === 'payments') {
+      // Payment receipts may use the already-verified orders or hello sender.
+      sender = String(env.BREVO_SENDER_ORDERS || env.BREVO_SENDER_HELLO || '').trim();
+    }
     if (!sender && PAYMENTS_FALLBACK_PURPOSES.has(purpose)) {
-      sender = String(env.BREVO_SENDER_PAYMENTS || '').trim();
+      // Order updates, invoices, refunds and optional receipts share the
+      // configured payments sender; the verified hello sender is a safe fallback.
+      sender = String(env.BREVO_SENDER_PAYMENTS || env.BREVO_SENDER_HELLO || '').trim();
     }
     senders[purpose] = sender;
   }
