@@ -299,6 +299,14 @@
     {
       "source": "/api/marketing/unsubscribe",
       "destination": "/api/users?route=marketing/unsubscribe"
+    },
+    {
+      "source": "/api/admin/sms-campaigns",
+      "destination": "/api/admin?route=sms-campaigns"
+    },
+    {
+      "source": "/api/marketing/sms-unsubscribe",
+      "destination": "/api/users?route=marketing/sms-unsubscribe"
     }
   ],
   "headers": [
