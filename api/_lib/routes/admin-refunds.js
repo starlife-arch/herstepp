@@ -62,8 +62,12 @@ export async function adminRefunds(req, res) {
       const r = freshRefund.data();
       if (r.orderDocumentId !== orderDocumentId || r.status !== 'REQUESTED') throw clientError('Refund request is not eligible for confirmation.', 409);
       if (r.amount !== amount) throw clientError('Confirmed amount must match the requested amount.', 409);
+      const paymentId = freshOrder.data().activePaymentId || freshOrder.data().paymentId;
+      const paymentRef = typeof paymentId === 'string' && paymentId ? adminDb.collection('payments').doc(paymentId) : null;
+      const paymentSnap = paymentRef ? await tx.get(paymentRef) : null;
       tx.update(refundRef, { status: 'CONFIRMED', providerReference, confirmedBy: admin.uid, confirmedAt: now, updatedAt: now });
       tx.update(orderRef, { paymentStatus: 'REFUNDED', refundStatus: 'CONFIRMED', refundConfirmedAt: now, refundConfirmedBy: admin.uid, updatedAt: now });
+      if (paymentRef && paymentSnap?.exists) tx.update(paymentRef, { status: 'REFUNDED', refundReference: providerReference, refundedAt: now, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_CONFIRMED', entityType: 'ORDER', entityId: orderDocumentId, amount, reason, providerReference, createdAt: now });
       tx.set(adminDb.collection('orderStatusHistory').doc(), { orderId: freshOrder.data().orderId || orderDocumentId, orderDocumentId, customerId: freshOrder.data().customerId || null, eventType: 'REFUND_CONFIRMED', previousStatus: freshOrder.data().paymentStatus, newStatus: 'REFUNDED', paymentStatus: 'REFUNDED', note: reason, source: 'ADMIN', createdAt: now });
     });
@@ -92,7 +96,7 @@ export async function adminRefunds(req, res) {
       const size = String(item?.size ?? '');
       const quantity = item?.quantity;
       const condition = String(item?.condition || '').toUpperCase();
-      if (!productId || !/^3[0-9]|4[0-5]$/.test(size) || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || !['RESELLABLE', 'DAMAGED', 'INSPECTION'].includes(condition)) {
+      if (!productId || !/^(?:3[0-9]|4[0-5])$/.test(size) || !Number.isInteger(quantity) || quantity < 1 || quantity > 10 || !['RESELLABLE', 'DAMAGED', 'INSPECTION'].includes(condition)) {
         throw clientError('Each returned item needs a valid product, shoe size, quantity and condition.');
       }
       const purchased = (Array.isArray(order.items) ? order.items : []).find(line => line.productId === productId && String(line.size) === size);
