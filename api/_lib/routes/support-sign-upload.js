@@ -2,18 +2,22 @@ import crypto from 'node:crypto';
 import { requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 
-const formats = ['jpg', 'jpeg', 'png', 'webp'];
+const formats = ["jpg","jpeg","png","webp","gif","bmp","tif","tiff","avif","heic","heif","ico"];
 const hits = new Map();
 
 export default async function signSupportUpload(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
   const user = await requireUser(req);
-  const { fileName, bytes } = req.body || {};
+  const { fileName, bytes, mimeType } = req.body || {};
   const now = Date.now();
   const requests = (hits.get(user.uid) || []).filter(at => now - at < 3600000);
   if (requests.length >= 20) throw clientError('Too many upload requests. Please try again later.', 429);
   const extension = typeof fileName === 'string' ? fileName.split('.').pop().toLowerCase() : '';
-  if (!formats.includes(extension) || !Number.isInteger(bytes) || bytes < 1 || bytes > 5 * 1024 * 1024) throw clientError('The selected file type or size is not allowed.');
+  const normalizedMime = String(mimeType || '').toLowerCase();
+  const imageMime = normalizedMime.startsWith('image/') || normalizedMime === '' || normalizedMime === 'application/octet-stream';
+  if (!formats.includes(extension) || !imageMime || !Number.isInteger(bytes) || bytes < 1 || bytes > 5 * 1024 * 1024) {
+    throw clientError('Attach a supported photo or screenshot (JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC/HEIF or ICO) up to 5 MB.');
+  }
   const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || '').trim();
   const apiKey = String(process.env.CLOUDINARY_API_KEY || '').trim();
   const secret = String(process.env.CLOUDINARY_API_SECRET || '').trim();
