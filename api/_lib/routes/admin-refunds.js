@@ -1,6 +1,12 @@
 import { FieldValue } from 'firebase-admin/firestore';
+import { waitUntil } from '@vercel/functions';
 import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { queueEmail, deliverQueuedEmailInline } from '../email-service.js';
+import { buildEmail } from '../email-templates.js';
+import { queueSms, deliverQueuedSms } from '../sms-service.js';
+import { sendTelegramMessage } from '../telegram.js';
+import { siteUrl } from '../site-url.js';
 
 const iso = value => value?.toDate ? value.toDate().toISOString() : value || null;
 const cleanText = (value, max = 500) => typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -63,7 +69,7 @@ export async function adminRefunds(req, res) {
     const providerReference = cleanText(body.providerReference, 160);
     if (!refundRecordId || !providerReference) throw clientError('Refund record ID and external refund reference are required to confirm a completed refund.');
     const refundRef = adminDb.collection('refundRecords').doc(refundRecordId);
-    await adminDb.runTransaction(async tx => {
+    const notification = await adminDb.runTransaction(async tx => {
       const [freshOrder, freshRefund, priorRefunds] = await Promise.all([
         tx.get(orderRef), tx.get(refundRef),
         tx.get(adminDb.collection('refundRecords').where('orderDocumentId', '==', orderDocumentId)),
@@ -83,8 +89,75 @@ export async function adminRefunds(req, res) {
       if (isFullRefund && paymentRef && paymentSnap?.exists) tx.update(paymentRef, { status: 'REFUNDED', refundReference: providerReference, refundedAt: now, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_CONFIRMED', entityType: 'ORDER', entityId: orderDocumentId, amount, reason, providerReference, createdAt: now });
       tx.set(adminDb.collection('orderStatusHistory').doc(), { orderId: freshOrder.data().orderId || orderDocumentId, orderDocumentId, customerId: freshOrder.data().customerId || null, eventType: 'REFUND_CONFIRMED', previousStatus: freshOrder.data().paymentStatus, newStatus: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED', paymentStatus: isFullRefund ? 'REFUNDED' : freshOrder.data().paymentStatus, note: reason, source: 'ADMIN', createdAt: now });
+      const freshData = freshOrder.data();
+      const customerEmail = cleanText(freshData.customerEmail || freshData.email || freshData.delivery?.email, 254).toLowerCase();
+      const customerPhone = freshData.delivery?.phone || freshData.phone || '';
+      const orderNumber = cleanText(freshData.orderId || orderDocumentId, 80);
+      const amountText = `KSh ${amount.toLocaleString('en-KE')}`;
+      let emailKey = null;
+      if (customerEmail) {
+        const email = buildEmail(
+          `Refund approved — ${orderNumber}`,
+          `Hi ${freshData.customerName || freshData.delivery?.fullName || 'there'},\n\nYour refund request for order ${orderNumber} has been approved and marked as completed by HerStep Collection.\nAmount: ${amountText}\nRefund reference: ${providerReference}\n\nIf you do not see the funds yet, please allow your payment provider time to process them. Contact HerStep Support if you need help.`,
+          { ctaLabel: 'View my orders', ctaUrl: `${siteUrl()}/account` },
+        );
+        emailKey = `${refundRecordId}-REFUND-CONFIRMED-EMAIL`;
+        queueEmail(tx, adminDb, { key: emailKey, purpose: 'refunds', to: customerEmail, subject: email.subject, htmlContent: email.htmlContent });
+      }
+      const smsQueued = queueSms(tx, adminDb, {
+        key: `${refundRecordId}-REFUND-CONFIRMED-SMS`,
+        to: customerPhone,
+        message: `HerStep Collection: Refund approved/completed for order ${orderNumber}, ${amountText}. Reference: ${providerReference}. If funds are delayed, contact support: ${siteUrl()}/support`,
+      });
+      return { emailKey, smsQueued, customerEmail, customerName: freshData.customerName || freshData.delivery?.fullName || 'Customer', orderNumber, amount, providerReference, isFullRefund };
     });
-    return res.json({ ok: true, status: 'CONFIRMED', message: 'Refund confirmation recorded.' });
+    waitUntil(Promise.all([
+      notification.emailKey ? deliverQueuedEmailInline(adminDb, notification.emailKey) : Promise.resolve(null),
+      notification.smsQueued ? deliverQueuedSms(adminDb, `${refundRecordId}-REFUND-CONFIRMED-SMS`) : Promise.resolve(null),
+      sendTelegramMessage(`✅ Refund confirmed\nOrder: ${notification.orderNumber}\nCustomer: ${notification.customerName}\nAmount: KSh ${notification.amount.toLocaleString('en-KE')}\nReference: ${notification.providerReference}\nStatus: ${notification.isFullRefund ? 'Fully refunded' : 'Partial refund'}`),
+    ]).catch(error => console.error('[admin-refunds] confirmation notification failed:', error?.message || error)));
+    return res.json({ ok: true, status: 'CONFIRMED', message: 'Refund confirmation recorded and notifications queued.' });
+  }
+
+  if (action === 'REJECT_REFUND') {
+    const refundRecordId = cleanText(body.refundRecordId, 100);
+    if (!refundRecordId) throw clientError('Choose a pending refund request to reject.');
+    const refundRef = adminDb.collection('refundRecords').doc(refundRecordId);
+    const notification = await adminDb.runTransaction(async tx => {
+      const [freshOrder, freshRefund] = await Promise.all([tx.get(orderRef), tx.get(refundRef)]);
+      if (!freshOrder.exists || !freshRefund.exists || freshRefund.data().orderDocumentId !== orderDocumentId) throw clientError('Refund request not found for this order.', 404);
+      const refund = freshRefund.data();
+      if (refund.status !== 'REQUESTED') throw clientError('Only a pending refund request can be rejected.', 409);
+      const freshData = freshOrder.data();
+      tx.update(refundRef, { status: 'REJECTED', rejectionReason: reason, rejectedBy: admin.uid, rejectedAt: now, updatedAt: now });
+      tx.update(orderRef, { refundStatus: 'REJECTED', refundRejectedReason: reason, refundRejectedAt: now, updatedAt: now });
+      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_REJECTED', entityType: 'ORDER', entityId: orderDocumentId, refundRecordId, amount: refund.amount, reason, createdAt: now });
+      const customerEmail = cleanText(freshData.customerEmail || freshData.email || freshData.delivery?.email, 254).toLowerCase();
+      const customerPhone = freshData.delivery?.phone || freshData.phone || '';
+      const orderNumber = cleanText(freshData.orderId || orderDocumentId, 80);
+      let emailKey = null;
+      if (customerEmail) {
+        const email = buildEmail(
+          `Refund request update — ${orderNumber}`,
+          `Hi ${freshData.customerName || freshData.delivery?.fullName || 'there'},\n\nWe have reviewed your refund request for order ${orderNumber}, and unfortunately it has not been approved.\nRequested amount: KSh ${Number(refund.amount || 0).toLocaleString('en-KE')}\nReason: ${reason}\n\nIf you believe this decision needs another review or have additional evidence, please contact HerStep Support and reference your order number.`,
+          { ctaLabel: 'Contact support', ctaUrl: `${siteUrl()}/support` },
+        );
+        emailKey = `${refundRecordId}-REFUND-REJECTED-EMAIL`;
+        queueEmail(tx, adminDb, { key: emailKey, purpose: 'refunds', to: customerEmail, subject: email.subject, htmlContent: email.htmlContent });
+      }
+      const smsQueued = queueSms(tx, adminDb, {
+        key: `${refundRecordId}-REFUND-REJECTED-SMS`,
+        to: customerPhone,
+        message: `HerStep Collection: Your refund request for order ${orderNumber} was not approved. Reason: ${reason.slice(0, 160)}. Contact support: ${siteUrl()}/support`,
+      });
+      return { emailKey, smsQueued, customerEmail, customerName: freshData.customerName || freshData.delivery?.fullName || 'Customer', orderNumber, amount: refund.amount };
+    });
+    waitUntil(Promise.all([
+      notification.emailKey ? deliverQueuedEmailInline(adminDb, notification.emailKey) : Promise.resolve(null),
+      notification.smsQueued ? deliverQueuedSms(adminDb, `${refundRecordId}-REFUND-REJECTED-SMS`) : Promise.resolve(null),
+      sendTelegramMessage(`❌ Refund request rejected\nOrder: ${notification.orderNumber}\nCustomer: ${notification.customerName}\nAmount: KSh ${Number(notification.amount || 0).toLocaleString('en-KE')}\nReason: ${reason}`),
+    ]).catch(error => console.error('[admin-refunds] rejection notification failed:', error?.message || error)));
+    return res.json({ ok: true, status: 'REJECTED', message: 'Refund request rejected and customer notifications queued.' });
   }
 
   if (action === 'CREATE_CREDIT_NOTE') {
