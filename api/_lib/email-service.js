@@ -26,8 +26,8 @@ const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
 // optional too: it falls back to the payments sender when empty.
 const PURPOSES = ['hello', 'support', 'orders', 'payments', 'promotions', 'verify', 'tips', 'invoices', 'refunds'];
 
-// Purposes that fall back to BREVO_SENDER_PAYMENTS when their own sender env is empty.
-const PAYMENTS_FALLBACK_PURPOSES = new Set(['tips', 'invoices', 'refunds']);
+// Purposes that fall back to BREVO_SENDER_PAYMENTS when their own sender env is empty, including order-status emails.
+const PAYMENTS_FALLBACK_PURPOSES = new Set(['tips', 'invoices', 'refunds', 'orders']);
 
 let warnedMissing = false;
 
