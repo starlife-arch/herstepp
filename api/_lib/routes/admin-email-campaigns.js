@@ -28,11 +28,16 @@ function safeHttpsUrl(value, label, optional = false) {
   return url.toString();
 }
 
+function isFullHtmlTemplate(value) {
+  return /<(?:!doctype\s+html|html|body|table|div|section|p|img)\b/i.test(String(value ?? ''));
+}
+
 function validateCampaign(body = {}) {
   const format = body.format === 'text' ? 'text' : 'html';
   const subject = String(body.subject ?? '').trim();
-  const headline = String(body.headline ?? '').trim();
   const message = String(body.message ?? '').trim();
+  const fullHtml = format === 'html' && isFullHtmlTemplate(message);
+  const headline = String(body.headline ?? '').trim() || (fullHtml ? subject : '');
   const imageUrl = safeHttpsUrl(body.imageUrl, 'Image URL', true);
   const buttonLabel = String(body.buttonLabel ?? '').trim();
   const rawButtonUrl = String(body.buttonUrl ?? '').trim();
@@ -40,8 +45,8 @@ function validateCampaign(body = {}) {
     ? (rawButtonUrl.startsWith('/') ? `${siteUrl()}${rawButtonUrl}` : safeHttpsUrl(rawButtonUrl, 'Button link'))
     : '';
   if (subject.length < 3 || subject.length > 140) throw clientError('Subject must be 3–140 characters.');
-  if (headline.length < 2 || headline.length > 160) throw clientError('Headline must be 2–160 characters.');
-  if (message.length < 5 || message.length > 4000) throw clientError('Message must be 5–4,000 characters.');
+  if (!fullHtml && (headline.length < 2 || headline.length > 160)) throw clientError('Headline must be 2–160 characters unless you provide a complete HTML template.');
+  if (message.length < 5 || message.length > 50000) throw clientError('Message or HTML template must be 5–50,000 characters.');
   if (imageUrl && !/^https:\/\//i.test(imageUrl)) throw clientError('Image URL must use https://.');
   if (buttonLabel && buttonLabel.length > 60) throw clientError('Button label must be 60 characters or fewer.');
   if (Boolean(buttonLabel) !== Boolean(buttonUrl)) throw clientError('Provide both a button label and a button link, or leave both blank.');
@@ -60,6 +65,18 @@ function unsubscribeUrl(recipient) {
 }
 
 function campaignText(campaign, recipient) {
+  if (campaign.format === 'html' && isFullHtmlTemplate(campaign.message)) {
+    const plain = campaign.message
+      .replace(/<\\s*(script|style|head|title)[^>]*>[\\s\\S]*?<\\s*\\/\\s*\\1\\s*>/gi, ' ')
+      .replace(/<\\s*br\\s*\\/?\\s*>/gi, '\\n')
+      .replace(/<\\s*\\/\\s*(p|div|tr|h[1-6]|li)\\s*>/gi, '\\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+      .replace(/&#39;|&apos;/gi, "'").replace(/&quot;/gi, '"')
+      .replace(/[ \\t]+/g, ' ').replace(/\\n[ \\t]+/g, '\\n').trim();
+    return [plain, '', `Unsubscribe: ${unsubscribeUrl(recipient)}`].filter(Boolean).join('\\n');
+  }
   return [
     'HerStep Collection',
     '',
@@ -73,9 +90,22 @@ function campaignText(campaign, recipient) {
     `Unsubscribe: ${unsubscribeUrl(recipient)}`,
   ].filter((line, index, list) => line !== '' || list[index - 1] !== '').join(String.fromCharCode(10));
 }
-
 function campaignHtml(campaign, recipient) {
   const unsubscribe = unsubscribeUrl(recipient);
+  if (campaign.format === 'html' && isFullHtmlTemplate(campaign.message)) {
+    let html = campaign.message
+      .replace(/<\\s*script\\b[^>]*>[\\s\\S]*?<\\s*\\/\\s*script\\s*>/gi, '')
+      .replace(/<\\s*(iframe|object|embed)\\b[^>]*>[\\s\\S]*?<\\s*\\/\\s*\\1\\s*>/gi, '')
+      .replace(/\\s+on[a-z]+\\s*=\\s*("[^"]*"|'[^']*'|[^\\s>]+)/gi, '')
+      .replace(/(href|src)\\s*=\\s*(["'])\\s*javascript:[\\s\\S]*?\\2/gi, '$1="#"')
+      .replace(/{{\\s*unsubscribe\\s*}}/gi, unsubscribe)
+      .replace(/{{\\s*site_url\\s*}}/gi, siteUrl());
+    if (!/unsubscribe/i.test(html)) {
+      const footer = `<p style="font-family:Arial,sans-serif;font-size:12px;text-align:center;color:#6b7280;padding:16px;"><a href="${escapeHtml(unsubscribe)}">Unsubscribe from marketing emails</a></p>`;
+      html = /<\\/body\\s*>/i.test(html) ? html.replace(/<\\/body\\s*>/i, `${footer}</body>`) : html + footer;
+    }
+    return html;
+  }
   const paragraphs = campaign.message.split(/\r?\n/).map(line => line.trim()
     ? `<p style="margin:0 0 14px;line-height:1.65;color:#404040;">${escapeHtml(line)}</p>`
     : '<div style="height:6px"></div>').join('');
