@@ -57,8 +57,8 @@ async function queueAndDeliver({ key, to, message, campaignId = null }) {
 }
 
 export async function adminSmsCampaigns(req, res) {
-  await requireAdmin(req);
   if (req.method === 'GET') {
+    await requireAdmin(req);
     const [campaignSnap, userSnap] = await Promise.all([
       adminDb.collection('smsCampaigns').orderBy('createdAt', 'desc').limit(20).get(),
       adminDb.collection('users').where('smsMarketingConsent', '==', true).get(),
