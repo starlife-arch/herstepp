@@ -291,6 +291,14 @@
     {
       "source": "/((?!api(?:/|$)).*)",
       "destination": "/index.html"
+    },
+    {
+      "source": "/api/admin/email-campaigns",
+      "destination": "/api/admin?route=email-campaigns"
+    },
+    {
+      "source": "/api/marketing/unsubscribe",
+      "destination": "/api/users?route=marketing/unsubscribe"
     }
   ],
   "headers": [
