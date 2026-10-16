@@ -2,6 +2,7 @@ import { dispatchRoute, lazyRoute } from './_lib/route-dispatch.js';
 
 export default (req, res) => dispatchRoute(req, res, {
   'auth/sync-profile': lazyRoute(() => import('./_lib/routes/sync-profile.js')),
+  'marketing/unsubscribe': lazyRoute(() => import('./_lib/routes/admin-email-campaigns.js').then(m => ({ default: m.marketingUnsubscribe }))),
   'auth/verify/send': lazyRoute(() => import('./_lib/routes/email-verify.js').then(m => ({ default: m.verifySend }))),
   'auth/verify/confirm': lazyRoute(() => import('./_lib/routes/email-verify.js').then(m => ({ default: m.verifyConfirm }))),
   refunds: lazyRoute(() => import('./_lib/routes/customer-refunds.js').then(m => ({ default: m.customerRefunds }))),
