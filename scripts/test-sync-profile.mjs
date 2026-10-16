@@ -83,6 +83,23 @@ await test('google displayName from body wins over token displayName', async () 
   assert.equal(data.displayName, 'Jane Google');
 });
 
+await test('new account stores explicit email and SMS marketing choices separately', async () => {
+  const { db, deps } = makeDeps();
+  await syncProfileCore(deps, { ...PASSWORD_USER, uid: 'consent-user', signInProvider: 'password' }, {
+    phoneNumber: '0712345678',
+    marketingConsent: true,
+    smsMarketingConsent: false,
+  });
+  const ref = db.collection('users').doc('consent-user');
+  let data = (await ref.get()).data();
+  assert.equal(data.marketingConsent, true);
+  assert.equal(data.smsMarketingConsent, false);
+  await syncProfileCore(deps, { ...PASSWORD_USER, uid: 'consent-user' }, { smsMarketingConsent: true });
+  data = (await ref.get()).data();
+  assert.equal(data.marketingConsent, true, 'changing SMS consent must not change email consent');
+  assert.equal(data.smsMarketingConsent, true);
+});
+
 await test('password account WITHOUT phone is REJECTED for a new profile', async () => {
   const { deps } = makeDeps();
   await assert.rejects(
