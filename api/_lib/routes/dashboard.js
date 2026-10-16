@@ -125,6 +125,7 @@ export async function dashboard(req, res) {
       displayName: p.displayName ?? '',
       email: p.email ?? u.email ?? '',
       marketingConsent: p.marketingConsent === true,
+      smsMarketingConsent: p.smsMarketingConsent === true,
       phoneNumber: p.phoneNumber ?? '',
       deliveryDetails: p.deliveryDetails ?? null,
       // Mirror of the Auth claim maintained by /api/auth/verify/* and
