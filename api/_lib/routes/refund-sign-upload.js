@@ -33,5 +33,5 @@ export default async function signRefundEvidenceUpload(req, res) {
   const signature = crypto.createHash('sha1')
     .update(`allowed_formats=${allowedFormats}&folder=${folder}&public_id=${publicId}&timestamp=${timestamp}${secret}`)
     .digest('hex');
-  return res.json({ cloudName, apiKey, timestamp, signature, folder, publicId, resourceType: 'auto', allowedFormats: formats, maxBytes });
+  return res.json({ cloudName, apiKey, timestamp, signature, folder, publicId, resourceType: 'auto', type: isVideo ? 'video' : 'image', allowedFormats: formats, maxBytes });
 }
