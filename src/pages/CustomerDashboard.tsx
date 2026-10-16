@@ -220,8 +220,29 @@ function OverviewTab({ orders, pendingOrders, completedOrders }: any) {
 // note, receipt and status history is visible without a separate page.
 // ---------------------------------------------------------------------------
 function OrdersTab({ orders }: any) {
+  const { reloadDashboard } = useApp();
   const [openId, setOpenId] = useState<string | null>(null);
   const [filter, setFilter] = useState('all');
+  const [refundOpenId, setRefundOpenId] = useState<string | null>(null);
+  const [refundReasons, setRefundReasons] = useState<Record<string, string>>({});
+  const [refundAmounts, setRefundAmounts] = useState<Record<string, string>>({});
+  const [refundMessages, setRefundMessages] = useState<Record<string, string>>({});
+  const [refundBusyId, setRefundBusyId] = useState<string | null>(null);
+  const requestRefund = async (order: any) => {
+    const reason = String(refundReasons[order.id] || '').trim();
+    const amount = Number(refundAmounts[order.id] ?? order.total);
+    if (reason.length < 5) { setRefundMessages(prev => ({ ...prev, [order.id]: 'Please explain the reason (at least 5 characters).' })); return; }
+    if (!Number.isSafeInteger(amount) || amount < 1 || amount > num(order.total)) { setRefundMessages(prev => ({ ...prev, [order.id]: 'Enter a whole KES amount no greater than the order total.' })); return; }
+    setRefundBusyId(order.id); setRefundMessages(prev => ({ ...prev, [order.id]: '' }));
+    try {
+      const result: any = await apiFetch('/api/refunds', { method: 'POST', body: JSON.stringify({ orderDocumentId: order.id, amount, reason }) });
+      setRefundMessages(prev => ({ ...prev, [order.id]: result.message || 'Your request was sent to HerStep for review.' }));
+      setRefundOpenId(null);
+      await reloadDashboard();
+    } catch (error: any) {
+      setRefundMessages(prev => ({ ...prev, [order.id]: error?.message || 'Could not submit the refund request. Please try again.' }));
+    } finally { setRefundBusyId(null); }
+  };
   const shownOrders = orders.filter((order: any) => filter === 'all' || (filter === 'unpaid' && up(order.paymentStatus) !== 'PAID') || (filter === 'paid' && up(order.paymentStatus) === 'PAID') || (filter === 'cancelled' && (up(order.paymentStatus) === 'CANCELLED' || up(order.orderStatus) === 'CANCELLED')));
   return (
     <div className="space-y-6">
@@ -319,6 +340,17 @@ function OrdersTab({ orders }: any) {
                       <div className="flex gap-3"><Link to={`/track?order=${encodeURIComponent(order.orderId)}`} className="text-sm font-medium text-neutral-700 hover:text-neutral-900">Track Order</Link>{up(order.paymentStatus) !== 'PAID' && up(order.paymentStatus) !== 'CANCELLED' && up(order.orderStatus) !== 'CANCELLED' && <Link to={`/checkout?order=${encodeURIComponent(order.id)}`}><Button size="sm">Pay now</Button></Link>}</div>
                     </div>
                     {up(order.paymentStatus) === 'PAID' && <InvoiceButton order={order} />}
+                    {up(order.paymentStatus) === 'PAID' && <div className="pt-3 border-t border-neutral-100 space-y-2">
+                      {order.refundStatus && up(order.refundStatus) !== 'NONE' && <p className="text-sm text-neutral-600">Refund status: <span className="font-semibold">{String(order.refundStatus).replace(/_/g, ' ')}</span>{order.refundRequestedAmount ? ' · ' + formatCurrency(num(order.refundRequestedAmount)) : ''}</p>}
+                      {['REQUESTED','CONFIRMED'].includes(up(order.refundStatus)) ? <p className="text-xs text-neutral-500">A refund request has already been recorded for this order. Contact HerStep Support if you need help.</p> : <button type="button" onClick={() => { setRefundOpenId(refundOpenId === order.id ? null : order.id); setRefundAmounts(prev => ({ ...prev, [order.id]: prev[order.id] || String(num(order.total)) })); setRefundMessages(prev => ({ ...prev, [order.id]: '' })); }} className="text-sm font-semibold text-neutral-900 underline underline-offset-4">{refundOpenId === order.id ? 'Cancel refund request' : 'Request a refund'}</button>}
+                      {refundOpenId === order.id && <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 space-y-3">
+                        <p className="text-sm text-neutral-600">Send a request for HerStep to review. This does not send money automatically.</p>
+                        <div><label className="block text-xs font-medium text-neutral-700 mb-1">Requested amount (KES)</label><input type="number" min="1" max={num(order.total)} step="1" value={refundAmounts[order.id] ?? String(num(order.total))} onChange={e => setRefundAmounts(prev => ({ ...prev, [order.id]: e.target.value }))} className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-white" /></div>
+                        <div><label className="block text-xs font-medium text-neutral-700 mb-1">Why are you requesting a refund?</label><textarea rows={3} maxLength={500} value={refundReasons[order.id] || ''} onChange={e => setRefundReasons(prev => ({ ...prev, [order.id]: e.target.value }))} placeholder="For example, I received the wrong shoe size." className="w-full border border-neutral-300 rounded-lg px-3 py-2 text-sm bg-white" /></div>
+                        <Button size="sm" onClick={() => requestRefund(order)} disabled={refundBusyId === order.id}>{refundBusyId === order.id ? 'Sending request…' : 'Submit refund request'}</Button>
+                      </div>}
+                      {refundMessages[order.id] && <p role="status" className="text-sm text-neutral-600">{refundMessages[order.id]}</p>}
+                    </div>}
                   </div>
                 )}
               </Card>
