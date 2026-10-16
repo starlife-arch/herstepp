@@ -422,6 +422,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [state.cart, state.catalogLoading, state.catalogError]);
 
+  // Best-effort server mirror for abandoned-cart reminders. Guests and API
+  // failures never affect local cart behaviour or checkout.
+  useEffect(() => {
+    if (!state.authReady || !state.user?.id || state.catalogLoading || state.catalogError) return;
+    const items = state.cart.map(item => ({
+      productId: item.product.id,
+      size: String(item.size),
+      quantity: item.quantity,
+    }));
+    const timer = setTimeout(() => {
+      void apiFetch('/api/cart/snapshot', {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }).catch(() => {
+        // Cart tracking is optional; never interrupt shopping if unavailable.
+      });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [state.authReady, state.user?.id, state.cart, state.catalogLoading, state.catalogError]);
+
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
     let active = true;

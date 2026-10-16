@@ -34,4 +34,5 @@ export default (req, res) => dispatchRoute(req, res, {
   delivery: lazyRoute(() => import('./_lib/routes/admin-delivery.js')),
   tips: lazyRoute(() => import('./_lib/routes/tips-admin.js')),
   'invoices/resend': lazyRoute(() => import('./_lib/routes/invoice-resend.js')),
+  'cron/abandoned-carts': lazyRoute(() => import('./_lib/routes/abandoned-cart.js').then(m => ({ default: m.processAbandonedCarts }))),
 });

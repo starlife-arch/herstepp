@@ -53,6 +53,14 @@
       "destination": "/api/users?route=wishlist"
     },
     {
+      "source": "/api/cart/snapshot",
+      "destination": "/api/users?route=abandoned-cart/snapshot"
+    },
+    {
+      "source": "/api/cron/abandoned-carts",
+      "destination": "/api/admin?route=cron/abandoned-carts"
+    },
+    {
       "source": "/api/reviews",
       "destination": "/api/users?route=reviews"
     },
@@ -294,6 +302,12 @@
           "value": "strict-origin-when-cross-origin"
         }
       ]
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/abandoned-carts",
+      "schedule": "0 9 * * *"
     }
   ]
 }
