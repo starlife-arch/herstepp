@@ -154,14 +154,17 @@ export async function customerRefunds(req, res) {
       console.error('[customer-refunds] SMS queue failed:', error?.message || error);
     }
   });
-  // waitUntil keeps best-effort notifications alive after the response while
-  // preventing provider outages from failing the refund request itself.
+  // Run Telegram independently so slow email/SMS delivery cannot mask its result.
+  const telegramAlert = sendTelegramMessage(`🧾 New refund request\nOrder: ${alertOrderNumber}\nCustomer: ${alertCustomerName}\nEmail: ${alertCustomerEmail || 'not available'}\nAmount: KSh ${Number(alertAmount).toLocaleString('en-KE')}\nReason: ${reason}\nEvidence files: ${evidence.length}\nReview in the admin dashboard.`).then(sent => {
+    if (!sent) console.error('[customer-refunds] Telegram refund alert was not delivered; verify TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.');
+    return sent;
+  }).catch(error => { console.error('[customer-refunds] Telegram refund alert failed:', error?.message || error); return false; });
+  waitUntil(telegramAlert);
   waitUntil(Promise.all([
     ...Array.from(queuedEmailKeys, key => deliverQueuedEmailInline(adminDb, key)),
     ...(smsQueued ? [deliverQueuedSms(adminDb, `${refundRef.id}-REFUND-REQUESTED-SMS`)] : []),
-    sendTelegramMessage(`🧾 New refund request\nOrder: ${alertOrderNumber}\nCustomer: ${alertCustomerName}\nEmail: ${alertCustomerEmail || 'not available'}\nAmount: KSh ${Number(alertAmount).toLocaleString('en-KE')}\nReason: ${reason}\nEvidence files: ${evidence.length}\nReview in the admin dashboard.`),
-  ]).catch(error => console.error('[customer-refunds] notification delivery failed:', error?.message || error)));
-  return res.status(201).json({
+  ]).catch(error => console.error('[customer-refunds] email/SMS delivery failed:', error?.message || error)));
+    return res.status(201).json({
     ok: true, refundRecordId: refundRef.id, status: 'REQUESTED',
     message: 'Your refund request has been sent to HerStep for review. No money has been sent yet.',
   });
