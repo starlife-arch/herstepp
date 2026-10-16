@@ -100,8 +100,8 @@ function iso(value) {
 }
 
 export async function adminEmailCampaigns(req, res) {
-  await requireAdmin(req);
   if (req.method === 'GET') {
+    await requireAdmin(req);
     const snap = await adminDb.collection('emailCampaigns').orderBy('createdAt', 'desc').limit(20).get();
     const campaigns = snap.docs.map(doc => {
       const row = doc.data();
