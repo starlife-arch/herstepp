@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { ShoppingBag, Menu, X, User, Search, Heart, ChevronDown, Facebook, Instagram, Phone, Mail, MessageCircle, Users, MessageSquare, Ticket, Headphones, ArrowUpRight } from 'lucide-react';
+import { ShoppingBag, Menu, X, User, Search, Heart, Bookmark, ChevronDown, Facebook, Instagram, Phone, Mail, MessageCircle, Users, MessageSquare, Ticket, Headphones, ArrowUpRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { loadAnnouncement, type AnnouncementData } from '../lib/storefront';
 import { HerStepAIChat } from './HerStepAIChat';
@@ -60,6 +60,14 @@ export function Header() {
               className="p-2 rounded-lg hover:bg-neutral-100 transition-colors"
             >
               <Heart className="w-5 h-5 text-neutral-600" />
+            </Link>
+            <Link
+              to={state.user ? '/wishlist' : '/login'}
+              aria-label="Wishlist"
+              title="Wishlist"
+              className="p-2 rounded-lg hover:bg-neutral-100 transition-colors"
+            >
+              <Bookmark className="w-5 h-5 text-neutral-600" aria-hidden="true" />
             </Link>
             <Link to={state.user ? '/dashboard' : '/login'} className="p-2 rounded-lg hover:bg-neutral-100 transition-colors">
               <User className="w-5 h-5 text-neutral-600" />
