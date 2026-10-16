@@ -145,7 +145,7 @@ export async function adminMessage(req, res) {
     if (!ticket.exists) throw clientError('Ticket not found.', 404);
     if (ticket.data().status === 'CLOSED') throw clientError('This support ticket has been closed.', 409);
     const messageRef = ref.collection('messages').doc(body.clientMessageId);
-    if ((await tx.get(messageRef)).exists) return;
+    if ((await tx.get(messageRef)).exists) return { emailKey: null, ticketId: ticket.data().ticketId, customerEmail: ticket.data().customerEmail || '' };
     const senderName = SUPPORT_DISPLAY_NAME;
     tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
     tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticket.data().messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
