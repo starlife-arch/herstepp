@@ -85,7 +85,7 @@ export async function customerRefunds(req, res) {
       throw clientError('The requested amount exceeds the remaining refundable balance.');
     }
     const status = String(order.refundStatus || 'NONE').toUpperCase();
-    if (['REQUESTED', 'CONFIRMED'].includes(status)) {
+    if (['REQUESTED', 'APPROVED', 'CONFIRMED'].includes(status)) {
       throw clientError('A refund request already exists for this order. Please check its status or contact support.', 409);
     }
     tx.set(refundRef, {
