@@ -787,6 +787,8 @@ function AdminRefunds() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const orders: any[] = Array.isArray(ordersRes.data?.orders) ? ordersRes.data.orders : Array.isArray(ordersRes.data) ? ordersRes.data : [];
+  const searchTerm = orderSearch.trim().toLowerCase();
+  const visibleOrders = orders.filter(order => !searchTerm || [order.orderId, order.customerName, order.email, order.customerEmail, order.delivery?.fullName, order.delivery?.email].some(value => String(value || '').toLowerCase().includes(searchTerm)));
   const refunds: any[] = res.data?.refunds || [];
   const returns: any[] = res.data?.stockReturns || [];
   const creditNotes: any[] = res.data?.creditNotes || [];
