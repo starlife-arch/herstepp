@@ -71,7 +71,7 @@ function campaignText(campaign, recipient) {
     'You received this email because you opted in to HerStep Collection updates.',
     `Visit our store: ${siteUrl()}`,
     `Unsubscribe: ${unsubscribeUrl(recipient)}`,
-  ].filter((line, index, list) => line !== '' || list[index - 1] !== '').join('\\n');
+  ].filter((line, index, list) => line !== '' || list[index - 1] !== '').join(String.fromCharCode(10));
 }
 
 function campaignHtml(campaign, recipient) {
