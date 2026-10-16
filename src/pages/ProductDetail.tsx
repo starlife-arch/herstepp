@@ -4,6 +4,7 @@ import { productPath, slugifyProductName } from '../lib/product-slug';
 import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
 import { WishlistButton } from '../components/WishlistButton';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
+import { apiFetch } from '../lib/api';
 import { Button, Card, Badge, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 import { usePageMeta } from '../hooks/usePageMeta';
 import { ProductReviews } from '../components/ProductReviews';
@@ -29,6 +30,8 @@ export default function ProductDetail() {
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [restockBusy, setRestockBusy] = useState(false);
+  const [restockMessage, setRestockMessage] = useState('');
 
   if (catalogError) {
     return (
@@ -71,6 +74,15 @@ export default function ProductDetail() {
   const selectedSizeData = selectedSize ? product.inventory.find(s => s.size === selectedSize) : undefined;
   const maxQuantity = selectedSizeData?.quantity ?? 0;
   const canAddToCart = Boolean(selectedSize && selectedSizeData && selectedSizeData.quantity >= quantity && quantity >= 1);
+
+  const subscribeRestock = async (size: string) => {
+    setRestockBusy(true); setRestockMessage('');
+    try {
+      const result: any = await apiFetch('/api/restock-alerts', { method: 'POST', body: JSON.stringify({ productId: product.id, size }) });
+      setRestockMessage(result.message || 'You are subscribed to the restock alert.');
+    } catch (error: any) { setRestockMessage(error?.message || 'Could not set up the restock alert. Sign in and try again.'); }
+    finally { setRestockBusy(false); }
+  };
 
   const handleSelectSize = (size: string) => {
     setSelectedSize(size);
@@ -183,6 +195,19 @@ export default function ProductDetail() {
               <p className="text-xs text-neutral-500 mt-2">
                 {selectedSizeData.quantity > 0 ? `${selectedSizeData.quantity} in stock` : 'Out of stock'}
               </p>
+            )}
+            {product.inventory.some(s => s.quantity === 0) && (
+              <div className="mt-3 space-y-2">
+                <p className="text-sm text-neutral-600">Want a size that's sold out?</p>
+                <div className="flex flex-wrap gap-2">
+                  {product.inventory.filter(s => s.quantity === 0).map(s => (
+                    <button key={s.size} type="button" disabled={restockBusy} onClick={() => void subscribeRestock(s.size)} className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50">
+                      Notify me · Size {s.size}
+                    </button>
+                  ))}
+                </div>
+                {restockMessage && <p role="status" className="text-sm text-neutral-600">{restockMessage}</p>}
+              </div>
             )}
           </div>
 
