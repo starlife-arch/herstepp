@@ -77,6 +77,10 @@
       "destination": "/api/users?route=reviews"
     },
     {
+      "source": "/api/restock-alerts",
+      "destination": "/api/users?route=restock-alerts"
+    },
+    {
       "source": "/api/admin/products",
       "destination": "/api/admin?route=products"
     },
