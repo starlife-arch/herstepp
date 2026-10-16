@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/refunds",
+      "destination": "/api/users?route=refunds"
+    },
+    {
       "source": "/api/admin/refunds",
       "destination": "/api/admin?route=refunds"
     },
