@@ -129,6 +129,7 @@ export async function dashboard(req, res) {
       // Mirror of the Auth claim maintained by /api/auth/verify/* and
       // sync-profile. Drives the "Verify your email to place orders" banner.
       emailVerified: p.emailVerified === true || u.email_verified === true,
+      marketingConsent: p.marketingConsent === true,
     },
     orders: ordersAll.map(o => ({ ...o, statusHistory: undefined })),
     payments,
