@@ -17,7 +17,7 @@ export default async function signRefundEvidenceUpload(req, res) {
   const extension = typeof fileName === 'string' ? fileName.split('.').pop().toLowerCase() : '';
   const normalizedMime = String(mimeType || '').toLowerCase();
   const isImage = imageFormats.includes(extension) && (normalizedMime.startsWith('image/') || normalizedMime === '' || normalizedMime === 'application/octet-stream');
-  const isVideo = videoFormats.includes(extension) && ['video/mp4', 'video/quicktime', 'video/webm', 'video/x-m4v'].includes(String(mimeType || ''));
+  const isVideo = videoFormats.includes(extension) && (normalizedMime.startsWith('video/') || normalizedMime === '' || normalizedMime === 'application/octet-stream');
   const maxBytes = isVideo ? 20 * 1024 * 1024 : 5 * 1024 * 1024;
   if ((!isImage && !isVideo) || !Number.isInteger(bytes) || bytes < 1 || bytes > maxBytes) {
     throw clientError('Attach a supported photo or screenshot (JPEG, PNG, WebP, GIF, BMP, TIFF, AVIF, HEIC/HEIF or ICO) up to 5 MB, or MP4, MOV, WebM or M4V video up to 20 MB.');
