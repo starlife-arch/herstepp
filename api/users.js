@@ -5,6 +5,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'auth/verify/send': lazyRoute(() => import('./_lib/routes/email-verify.js').then(m => ({ default: m.verifySend }))),
   'auth/verify/confirm': lazyRoute(() => import('./_lib/routes/email-verify.js').then(m => ({ default: m.verifyConfirm }))),
   refunds: lazyRoute(() => import('./_lib/routes/customer-refunds.js').then(m => ({ default: m.customerRefunds }))),
+  'refunds/sign-upload': lazyRoute(() => import('./_lib/routes/refund-sign-upload.js')),
   dashboard: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.dashboard }))),
   notifications: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.notifications }))),
   reviews: lazyRoute(() => import('./_lib/routes/reviews.js')),
