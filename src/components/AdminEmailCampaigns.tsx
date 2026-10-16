@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
 import { Card, Button, Input, Badge, EmptyState } from './ui';
 
@@ -48,6 +48,8 @@ export default function AdminEmailCampaigns() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState<'upload' | 'test' | 'send' | null>(null);
   const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const messageRef = useRef<HTMLTextAreaElement | null>(null);
+  const isFullHtml = form.format === 'html' && /<(?:!doctype\s+html|html|body|table|div|section|p|img)\b/i.test(form.message);
 
   const load = async () => {
     setLoading(true);
@@ -94,8 +96,17 @@ export default function AdminEmailCampaigns() {
       let uploaded: any = {};
       try { uploaded = JSON.parse(raw); } catch { /* provider may return a non-JSON error */ }
       if (!response.ok) throw new Error(uploaded?.error?.message || 'Image upload failed.');
-      patch('imageUrl', String(uploaded.secure_url || ''));
-      setNotice({ type: 'success', text: 'Image uploaded and added to the email preview.' });
+      const imageUrl = String(uploaded.secure_url || '');
+      if (isFullHtml) {
+        const tag = `<img src="${imageUrl}" alt="HerStep Collection" style="display:block;width:100%;max-width:500px;height:auto;margin:16px auto;border:0;border-radius:10px;">`;
+        const editor = messageRef.current;
+        const start = editor?.selectionStart ?? form.message.length;
+        const end = editor?.selectionEnd ?? start;
+        patch('message', form.message.slice(0, start) + tag + form.message.slice(end));
+      } else {
+        patch('imageUrl', imageUrl);
+      }
+      setNotice({ type: 'success', text: isFullHtml ? 'Image uploaded and inserted at the HTML editor cursor.' : 'Image uploaded and added to the email preview.' });
     } catch (error: any) {
       setNotice({ type: 'error', text: error?.message || 'Could not upload that image.' });
     } finally {
@@ -156,8 +167,9 @@ export default function AdminEmailCampaigns() {
   };
 
   const ready = form.subject.trim().length >= 3
-    && form.headline.trim().length >= 2
+    && (isFullHtml || form.headline.trim().length >= 2)
     && form.message.trim().length >= 5
+    && form.message.length <= 50000
     && (form.format === 'text' || !form.imageUrl || /^https:\/\//i.test(form.imageUrl))
     && (!form.buttonLabel.trim() && !form.buttonUrl.trim()
       || Boolean(form.buttonLabel.trim() && form.buttonUrl.trim()));
@@ -208,9 +220,9 @@ export default function AdminEmailCampaigns() {
         <Input label="Headline" maxLength={160} value={form.headline} onChange={event => patch('headline', event.target.value)} placeholder="Meet your new favourite shoes" />
 
         <div className="space-y-1.5">
-          <label htmlFor="campaign-message" className="block text-sm font-medium text-neutral-700">Message</label>
-          <textarea id="campaign-message" rows={6} maxLength={4000} value={form.message} onChange={event => patch('message', event.target.value)} placeholder="Write your announcement here. New stock, a sale, a promo code or a feature update…" className="w-full rounded-lg border border-neutral-300 bg-white px-3.5 py-2.5 text-sm focus:border-neutral-900" />
-          <p className="text-xs text-neutral-500">{form.message.length}/4000 characters</p>
+          <label htmlFor="campaign-message" className="block text-sm font-medium text-neutral-700">{isFullHtml ? 'Complete HTML email template' : 'Message or HTML template'}</label>
+          <textarea ref={messageRef} id="campaign-message" rows={12} maxLength={50000} value={form.message} onChange={event => patch('message', event.target.value)} placeholder="Write a message, or paste your complete HTML email (including image URLs, layout and footer)…" className="w-full rounded-lg border border-neutral-300 bg-white px-3.5 py-2.5 font-mono text-sm focus:border-neutral-900" />
+          <p className="text-xs text-neutral-500">{form.message.length.toLocaleString()}/50,000 characters. {isFullHtml ? 'Full HTML detected: your layout and existing image URLs will be preserved.' : 'Paste a complete HTML document to use your own layout, or write a regular message to use the branded builder.'}</p>
         </div>
 
         {form.format === 'html' && (
@@ -242,16 +254,20 @@ export default function AdminEmailCampaigns() {
             <h3 className="font-semibold text-neutral-900">Preview</h3>
             <Badge variant="info">{form.format === 'html' ? 'HTML email' : 'Simple text email'}</Badge>
           </div>
-          <div className="mx-auto max-w-xl overflow-hidden rounded-xl border border-neutral-200 bg-white">
-            <div className={`px-5 py-4 text-center font-bold ${form.format === 'html' ? 'bg-neutral-900 text-white' : 'border-b border-neutral-200 text-neutral-900'}`}>HerStep Collection</div>
-            <div className="p-5">
-              <p className="text-xl font-bold text-neutral-900">{form.headline || 'Your headline appears here'}</p>
-              {form.format === 'html' && form.imageUrl && <img src={form.imageUrl} alt="" className="mt-4 max-h-64 w-full rounded-lg object-contain" />}
-              <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-neutral-700">{form.message || 'Your message appears here.'}</p>
-              {form.format === 'html' && form.buttonLabel.trim() && form.buttonUrl.trim() && <div className="mt-5"><span className="inline-block rounded-lg bg-neutral-900 px-5 py-3 text-sm font-semibold text-white">{form.buttonLabel}</span></div>}
-              <p className="mt-6 border-t border-neutral-100 pt-4 text-xs text-neutral-500">You received this because you opted in to HerStep Collection updates. An unsubscribe link will be included automatically.</p>
+          {isFullHtml ? (
+            <iframe title="HTML email preview" sandbox="" srcDoc={form.message.replace(/{{\s*unsubscribe\s*}}/gi, 'https://www.herstepcollection.shop/unsubscribe-preview').replace(/{{\s*site_url\s*}}/gi, 'https://www.herstepcollection.shop')} className="block h-[650px] w-full border-0 bg-white" />
+          ) : (
+            <div className="mx-auto max-w-xl overflow-hidden rounded-xl border border-neutral-200 bg-white">
+              <div className={`px-5 py-4 text-center font-bold ${form.format === 'html' ? 'bg-neutral-900 text-white' : 'border-b border-neutral-200 text-neutral-900'}`}>HerStep Collection</div>
+              <div className="p-5">
+                <p className="text-xl font-bold text-neutral-900">{form.headline || 'Your headline appears here'}</p>
+                {form.format === 'html' && form.imageUrl && <img src={form.imageUrl} alt="" className="mt-4 max-h-64 w-full rounded-lg object-contain" />}
+                <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-neutral-700">{form.message || 'Your message appears here.'}</p>
+                {form.format === 'html' && form.buttonLabel.trim() && form.buttonUrl.trim() && <div className="mt-5"><span className="inline-block rounded-lg bg-neutral-900 px-5 py-3 text-sm font-semibold text-white">{form.buttonLabel}</span></div>}
+                <p className="mt-6 border-t border-neutral-100 pt-4 text-xs text-neutral-500">You received this because you opted in to HerStep Collection updates. An unsubscribe link will be included automatically.</p>
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">

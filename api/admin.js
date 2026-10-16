@@ -13,6 +13,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'bulk-shoes/analyze': lazyRoute(() => import('./_lib/routes/admin-bulk-shoe-ai.js')),
   'ai-chats': lazyRoute(() => import('./_lib/routes/admin-ai-chats.js')),
   'email-campaigns': lazyRoute(() => import('./_lib/routes/admin-email-campaigns.js').then(m => ({ default: m.adminEmailCampaigns }))),
+  'sms-campaigns': lazyRoute(() => import('./_lib/routes/admin-sms-campaigns.js').then(m => ({ default: m.adminSmsCampaigns }))),
   ai: lazyRoute(() => import('./_lib/routes/admin-ai.js')),
   expenses: lazyRoute(() => import('./_lib/routes/admin-expenses.js').then(m => ({ default: m.expenses }))),
   'order-costs': lazyRoute(() => import('./_lib/routes/admin-order-costs.js').then(m => ({ default: m.orderCosts }))),

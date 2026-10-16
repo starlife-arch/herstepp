@@ -495,11 +495,17 @@ function ProfileTab() {
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [marketingSaving, setMarketingSaving] = useState(false);
   const [marketingMessage, setMarketingMessage] = useState('');
+  const [smsMarketingConsent, setSmsMarketingConsent] = useState(false);
+  const [smsMarketingSaving, setSmsMarketingSaving] = useState(false);
+  const [smsMarketingMessage, setSmsMarketingMessage] = useState('');
 
   useEffect(() => {
     let cancelled = false;
     apiFetch('/api/dashboard').then((data: any) => {
-      if (!cancelled) setMarketingConsent(data?.profile?.marketingConsent === true);
+      if (!cancelled) {
+        setMarketingConsent(data?.profile?.marketingConsent === true);
+        setSmsMarketingConsent(data?.profile?.smsMarketingConsent === true);
+      }
     }).catch(() => undefined);
     return () => { cancelled = true; };
   }, []);
@@ -515,6 +521,20 @@ function ProfileTab() {
       setMarketingMessage(error?.message || 'Could not update your email preference.');
     } finally {
       setMarketingSaving(false);
+    }
+  };
+
+  const updateSmsMarketingConsent = async (checked: boolean) => {
+    setSmsMarketingSaving(true);
+    setSmsMarketingMessage('');
+    try {
+      await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ smsMarketingConsent: checked }) });
+      setSmsMarketingConsent(checked);
+      setSmsMarketingMessage(checked ? 'You are subscribed to promotional SMS messages.' : 'You have opted out of promotional SMS messages.');
+    } catch (error: any) {
+      setSmsMarketingMessage(error?.message || 'Could not update your SMS preference.');
+    } finally {
+      setSmsMarketingSaving(false);
     }
   };
 
@@ -595,6 +615,18 @@ function ProfileTab() {
         </label>
         {marketingSaving && <p className="text-xs text-neutral-500">Saving preference…</p>}
         {marketingMessage && <p role="status" className="text-sm text-neutral-600">{marketingMessage}</p>}
+      </Card>
+      <Card className="p-5 space-y-3">
+        <div>
+          <h3 className="font-semibold text-neutral-900">Marketing SMS</h3>
+          <p className="mt-1 text-sm text-neutral-500">Choose whether HerStep Collection may text you about promotions and new arrivals. Standard SMS charges may apply. Order and payment messages are unaffected.</p>
+        </div>
+        <label className="flex items-start gap-3 text-sm text-neutral-800">
+          <input type="checkbox" checked={smsMarketingConsent} disabled={smsMarketingSaving} onChange={event => void updateSmsMarketingConsent(event.target.checked)} className="mt-1 h-4 w-4" />
+          <span>Yes, send me promotional SMS messages from HerStep Collection.</span>
+        </label>
+        {smsMarketingSaving && <p className="text-xs text-neutral-500">Saving preference…</p>}
+        {smsMarketingMessage && <p role="status" className="text-sm text-neutral-600">{smsMarketingMessage}</p>}
       </Card>
     </div>
   );

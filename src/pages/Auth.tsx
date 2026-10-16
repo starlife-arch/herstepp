@@ -38,7 +38,7 @@ function googleErrorMessage(error: unknown) {
 // On success we sync the profile server-side and honour the F2 return-to-page
 // behaviour: go back where the user came from (location.state.from), else the
 // dashboard — exactly like a successful email sign-in.
-function GoogleSignInButton() {
+function GoogleSignInButton({ marketingConsent, smsMarketingConsent }: { marketingConsent?: boolean; smsMarketingConsent?: boolean } = {}) {
   const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
@@ -52,7 +52,7 @@ function GoogleSignInButton() {
     void handleGoogleRedirectResult()
       .then(async (user) => {
         if (!active || !user) return;
-        await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({}) });
+        await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ ...(marketingConsent === undefined ? {} : { marketingConsent }), ...(smsMarketingConsent === undefined ? {} : { smsMarketingConsent }) }) });
         if (active) navigate(from, { replace: true });
       })
       .catch(() => { /* sync retried on next sign-in */ });
@@ -67,7 +67,7 @@ function GoogleSignInButton() {
       const outcome = await continueWithGoogle();
       if (outcome === 'signed-in') {
         try {
-          await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({}) });
+          await apiFetch('/api/auth/sync-profile', { method: 'POST', body: JSON.stringify({ ...(marketingConsent === undefined ? {} : { marketingConsent }), ...(smsMarketingConsent === undefined ? {} : { smsMarketingConsent }) }) });
         } catch { /* profile sync retries on the next sign-in */ }
         navigate(from, { replace: true });
       }
@@ -200,6 +200,8 @@ export function Register() {
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [marketingConsent, setMarketingConsent] = useState(false);
+  const [smsMarketingConsent, setSmsMarketingConsent] = useState(false);
 
   const handleRegister = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -216,7 +218,7 @@ export function Register() {
       await createUserWithEmailAndPassword(auth, form.email.trim(), form.password);
       await apiFetch('/api/auth/sync-profile', {
         method: 'POST',
-        body: JSON.stringify({ displayName: form.name, phoneNumber }),
+        body: JSON.stringify({ displayName: form.name, phoneNumber, marketingConsent, smsMarketingConsent }),
       });
       // Firebase's verification LINK is gone for good — the server now emails
       // a 6-digit code instead. Ask for it right away and land on /verify-email.
@@ -242,13 +244,19 @@ export function Register() {
           <p className="text-sm text-neutral-500 mt-1">Join HerStep Collection today</p>
         </div>
         <Card className="p-6">
-          <div className="space-y-4 mb-4"><GoogleSignInButton /></div>
+          <div className="space-y-4 mb-4"><GoogleSignInButton marketingConsent={marketingConsent} smsMarketingConsent={smsMarketingConsent} /></div>
           <form onSubmit={handleRegister} className="space-y-4">
             {error && <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>}
             <Input label="Full Name" value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Your full name" required />
             <Input label="Email" type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} placeholder="your@email.com" required />
             <Input label="Phone" value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} placeholder="07…, 01…, 2547…, or +2547…" required />
             <Input label="Password" type="password" value={form.password} onChange={event => setForm({ ...form, password: event.target.value })} placeholder="Create a password" required />
+            <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4 space-y-3">
+              <p className="text-sm font-semibold text-neutral-900">Optional marketing updates</p>
+              <label className="flex items-start gap-3 text-sm text-neutral-700"><input type="checkbox" checked={marketingConsent} onChange={event => setMarketingConsent(event.target.checked)} className="mt-1 h-4 w-4" /><span><strong>Email offers:</strong> Send me sales, promotions and new-arrival emails from HerStep Collection. I can unsubscribe at any time.</span></label>
+              <label className="flex items-start gap-3 text-sm text-neutral-700"><input type="checkbox" checked={smsMarketingConsent} onChange={event => setSmsMarketingConsent(event.target.checked)} className="mt-1 h-4 w-4" /><span><strong>SMS offers:</strong> Send me promotional SMS messages from HerStep Collection. Standard SMS charges may apply; I can opt out at any time.</span></label>
+              <p className="text-xs text-neutral-500">Both boxes are optional and unchecked by default. Order, payment, security and account messages are separate.</p>
+            </div>
             <Button type="submit" size="lg" className="w-full" loading={loading}>Create Account</Button>
           </form>
           <div className="mt-4 text-center"><p className="text-sm text-neutral-500">Already have an account? <Link to="/login" className="text-neutral-900 font-medium hover:underline">Sign in</Link></p></div>

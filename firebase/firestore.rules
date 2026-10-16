@@ -15,7 +15,7 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin();
       allow create: if isOwner(userId) && request.resource.data.role == 'CUSTOMER' && request.resource.data.uid == request.auth.uid;
-      allow update: if isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.uid == resource.data.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'phoneNumber', 'deliveryDetails', 'marketingConsent', 'updatedAt']);
+      allow update: if isOwner(userId) && request.resource.data.role == resource.data.role && request.resource.data.uid == resource.data.uid && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['displayName', 'phoneNumber', 'deliveryDetails', 'marketingConsent', 'smsMarketingConsent', 'updatedAt']);
       allow update: if isSuperAdmin();
       allow delete: if false;
     }

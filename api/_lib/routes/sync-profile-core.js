@@ -53,7 +53,8 @@ export async function syncProfileCore(deps, user, body) {
         displayName: stringValue(body.displayName) || user.displayName || '',
         phoneNumber: phoneNumber || '',
         deliveryDetails: body.deliveryDetails ?? null,
-        marketingConsent: false,
+        marketingConsent: body.marketingConsent === true,
+        smsMarketingConsent: body.smsMarketingConsent === true,
         // Server-written mirror of the Auth token's email_verified claim — the
         // dashboard banner and Checkout read it from GET /api/dashboard.
         // Google accounts arrive verified; password sign-ups must confirm the
@@ -92,6 +93,7 @@ export async function syncProfileCore(deps, user, body) {
     if (phoneNumber !== undefined) update.phoneNumber = phoneNumber;
     if (body.deliveryDetails !== undefined) update.deliveryDetails = body.deliveryDetails;
     if (typeof body.marketingConsent === 'boolean') update.marketingConsent = body.marketingConsent;
+    if (typeof body.smsMarketingConsent === 'boolean') update.smsMarketingConsent = body.smsMarketingConsent;
 
     await userRef.update(update);
   }
