@@ -100,7 +100,7 @@ function millis(value) {
 export async function processAbandonedCarts(req, res) {
   if (req.method !== 'GET' && req.method !== 'POST') return methodNotAllowed(res, 'GET, POST');
   const expected = String(process.env.CRON_SECRET || '').trim();
-  const supplied = String(req.headers?.authorization || '').replace(/^Bearer\\s+/i, '').trim();
+  const supplied = String(req.headers?.authorization || '').replace(/^Bearer\s+/i, '').trim();
   if (!expected || supplied.length !== expected.length || supplied !== expected) {
     return res.status(401).json({ error: 'Unauthorized.' });
   }
@@ -115,7 +115,7 @@ export async function processAbandonedCarts(req, res) {
     const cart = cartDoc.data() || {};
     const uid = cartDoc.id;
     if (millis(cart.lastActivityAt) > cutoff || cart.reminderSentAt || !cart.marketingOptIn
-      || !cart.emailVerified || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]{2,}$/.test(String(cart.email || ''))
+      || !cart.emailVerified || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(cart.email || ''))
       || !Array.isArray(cart.items) || !cart.items.length) {
       skipped += 1;
       continue;
@@ -149,11 +149,11 @@ export async function processAbandonedCarts(req, res) {
     const key = 'ABANDONED-CART-' + uid + '-' + String(lastActivity);
     const itemSummary = cart.items.slice(0, MAX_LINES)
       .map(item => item.name + ' — size ' + item.size + ' × ' + item.quantity)
-      .join('\\n');
+      .join('\n');
     const { subject, htmlContent } = buildEmail(
       'Still thinking it over?',
-      'You left these items in your HerStep Collection cart:\\n\\n' + itemSummary
-        + '\\n\\nIf you still want them, you can return to your cart. Availability and prices may change.',
+      'You left these items in your HerStep Collection cart:\n\n' + itemSummary
+        + '\n\nIf you still want them, you can return to your cart. Availability and prices may change.',
       { ctaLabel: 'Return to your cart', ctaUrl: siteUrl() + '/cart' },
     );
 
