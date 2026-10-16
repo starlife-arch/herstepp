@@ -48,6 +48,9 @@ export async function adminRefunds(req, res) {
       await adminDb.runTransaction(async tx => {
         const fresh = await tx.get(orderRef);
         if (!fresh.exists || fresh.data().paymentStatus !== 'PAID') throw clientError('Order is no longer eligible for a refund.', 409);
+        const priorRefunds = await tx.get(adminDb.collection('refundRecords').where('orderDocumentId', '==', orderDocumentId));
+        const alreadyRefunded = priorRefunds.docs.filter(doc => doc.data().status === 'CONFIRMED').reduce((sum, doc) => sum + (Number(doc.data().amount) || 0), 0);
+        if (amount > Number(fresh.data().total || 0) - alreadyRefunded) throw clientError('Refund amount exceeds the remaining refundable balance.', 409);
         tx.set(ref, { type: 'REFUND', orderDocumentId, orderId: order.orderId || orderDocumentId, customerId: order.customerId || null, amount, currency: order.currency || 'KES', reason, status: 'REQUESTED', requestedBy: admin.uid, createdAt: now, updatedAt: now });
         tx.update(orderRef, { refundStatus: 'REQUESTED', refundRequestedAmount: amount, refundReason: reason, updatedAt: now });
         tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_REQUESTED', entityType: 'ORDER', entityId: orderDocumentId, amount, reason, createdAt: now });
@@ -61,11 +64,16 @@ export async function adminRefunds(req, res) {
     if (!refundRecordId || !providerReference) throw clientError('Refund record ID and external refund reference are required to confirm a completed refund.');
     const refundRef = adminDb.collection('refundRecords').doc(refundRecordId);
     await adminDb.runTransaction(async tx => {
-      const [freshOrder, freshRefund] = await Promise.all([tx.get(orderRef), tx.get(refundRef)]);
+      const [freshOrder, freshRefund, priorRefunds] = await Promise.all([
+        tx.get(orderRef), tx.get(refundRef),
+        tx.get(adminDb.collection('refundRecords').where('orderDocumentId', '==', orderDocumentId)),
+      ]);
       if (!freshOrder.exists || !freshRefund.exists) throw clientError('Refund request not found.', 404);
       const r = freshRefund.data();
       if (r.orderDocumentId !== orderDocumentId || r.status !== 'REQUESTED') throw clientError('Refund request is not eligible for confirmation.', 409);
       if (r.amount !== amount) throw clientError('Confirmed amount must match the requested amount.', 409);
+      const alreadyRefunded = priorRefunds.docs.filter(doc => doc.id !== refundRecordId && doc.data().status === 'CONFIRMED').reduce((sum, doc) => sum + (Number(doc.data().amount) || 0), 0);
+      if (amount > Number(freshOrder.data().total || 0) - alreadyRefunded) throw clientError('Confirmed amount exceeds the remaining refundable balance.', 409);
       const paymentId = freshOrder.data().activePaymentId || freshOrder.data().paymentId;
       const paymentRef = typeof paymentId === 'string' && paymentId ? adminDb.collection('payments').doc(paymentId) : null;
       const paymentSnap = paymentRef ? await tx.get(paymentRef) : null;
