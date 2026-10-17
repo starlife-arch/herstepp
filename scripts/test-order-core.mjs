@@ -13,6 +13,7 @@ import {
   adminOrderTransitionCore,
   unitPrice,
   PAYMENT_STATUS,
+  validateCart,
 } from '../api/_lib/order-core.js';
 import { deliveryFee, validateDelivery } from '../api/_lib/delivery.js';
 
@@ -28,6 +29,30 @@ async function test(name, fn) {
     console.log(`  ✗ ${name}\n      ${err.message}`);
   }
 }
+
+await test('cart validation accepts clothing and accessory size labels', async () => {
+  assert.deepEqual(validateCart([
+    { productId: 'dress-1', size: 'S', quantity: 1 },
+    { productId: 'dress-2', size: 'XL', quantity: 2 },
+    { productId: 'watch-1', size: 'One Size', quantity: 1 },
+    { productId: 'bag-1', size: 'Free Size', quantity: 1 },
+  ]), [
+    { productId: 'dress-1', size: 'S', quantity: 1 },
+    { productId: 'dress-2', size: 'XL', quantity: 2 },
+    { productId: 'watch-1', size: 'One Size', quantity: 1 },
+    { productId: 'bag-1', size: 'Free Size', quantity: 1 },
+  ]);
+});
+
+await test('cart validation normalizes footwear and clothing size labels', async () => {
+  assert.equal(validateCart([{ productId: 'shoe-1', size: ' 35 ', quantity: 1 }])[0].size, '35');
+  assert.equal(validateCart([{ productId: 'dress-1', size: ' one   size ', quantity: 1 }])[0].size, 'One Size');
+  assert.equal(validateCart([{ productId: 'dress-1', size: 's', quantity: 1 }])[0].size, 'S');
+});
+
+await test('cart validation rejects unsupported size labels', async () => {
+  assert.throws(() => validateCart([{ productId: 'item-1', size: 'XXXL', quantity: 1 }]), /Choose a valid size/);
+});
 
 // ---------------------------------------------------------------------------
 // Fixtures
