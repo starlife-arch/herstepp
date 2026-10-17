@@ -74,14 +74,22 @@ export function validateCart(cart) {
     if (!raw || typeof raw !== 'object') throw clientError('Each cart line must be an object with productId, size and quantity.');
     const { productId, size, quantity } = raw;
     if (typeof productId !== 'string' || !productId.trim()) throw clientError('Each cart line needs a valid productId.');
-    if (typeof size !== 'string' || !/^\d{2}$/.test(size.trim())) throw clientError('Size must be a string like "35".');
-    const numericSize = Number(size);
-    if (!Number.isInteger(numericSize) || numericSize < 30 || numericSize > 45) throw clientError('Size must be between "30" and "45".');
+    if (typeof size !== 'string' || !size.trim()) throw clientError('Choose a valid product size.');
+    const normalizedSize = size.trim().replace(/\s+/g, ' ');
+    const footwearSize = /^\d{2}$/.test(normalizedSize) && Number(normalizedSize) >= 30 && Number(normalizedSize) <= 45;
+    const apparelOrAccessorySize = /^(XS|S|M|L|XL|XXL|One Size|Free Size)$/i.test(normalizedSize);
+    if (!footwearSize && !apparelOrAccessorySize) {
+      throw clientError('Choose a valid size: footwear sizes 30–45, clothing sizes XS–XXL, or One Size/Free Size.');
+    }
+    const canonicalSize = footwearSize ? String(Number(normalizedSize)) : ({
+      xs: 'XS', s: 'S', m: 'M', l: 'L', xl: 'XL', xxl: 'XXL',
+      'one size': 'One Size', 'free size': 'Free Size',
+    }[normalizedSize.toLowerCase()] || normalizedSize);
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > 10) throw clientError('Quantity must be a whole number from 1 to 10.');
-    const key = `${productId}|${size}`;
+    const key = `${productId}|${canonicalSize}`;
     if (seen.has(key)) throw clientError(`Duplicate cart line for product ${productId} size ${size}.`);
     seen.add(key);
-    lines.push({ productId: productId.trim(), size: String(numericSize), quantity });
+    lines.push({ productId: productId.trim(), size: canonicalSize, quantity });
   }
   return lines;
 }
