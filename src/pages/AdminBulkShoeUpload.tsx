@@ -13,7 +13,7 @@ const imageFile=(f:File)=>/^image\/(jpeg|png|webp)$/.test(f.type)||/\.(jpe?g|png
 const wait=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 
 export default function AdminBulkShoeUpload(){
- const [rows,setRows]=useState<Row[]>([]),[cats,setCats]=useState<any[]>([]),[busy,setBusy]=useState(false),[publishing,setPublishing]=useState(false),[msg,setMsg]=useState('');
+ const [rows,setRows]=useState<Row[]>([]),[cats,setCats]=useState<any[]>([]),[busy,setBusy]=useState(false),[publishing,setPublishing]=useState(false),[msg,setMsg]=useState(''),[newCategory,setNewCategory]=useState(''),[addingCategory,setAddingCategory]=useState(false);
  useEffect(()=>{apiFetch('/api/categories').then((v:any)=>setCats(Array.isArray(v)?v:v?.categories||[])).catch(()=>setCats([]))},[]);
  useEffect(()=>{try{const raw=localStorage.getItem(STORAGE_KEY);if(raw){const saved:SavedRow[]=JSON.parse(raw);setRows(saved.filter(s=>s.image?.url).map(s=>({...s,file:new File([],s.fileName||'shoe-image.jpg',{type:'image/jpeg'}),preview:s.image.url,state:(s.state==='ready'?'ready':'error') as Row['state'],error:s.state==='ready'?undefined:(s.error||'Restored from this device. Retry analysis if needed.')} as Row)))}}catch{setMsg('Could not restore the previous upload list on this device.')}},[]);
  useEffect(()=>{try{localStorage.setItem(STORAGE_KEY,JSON.stringify(rows.filter(r=>r.image?.url).map(({file,preview,...r})=>({...r,fileName:r.fileName,preview:undefined}))))}catch{setMsg('Your browser storage is full. Publish or remove items to continue.')}},[rows]);
