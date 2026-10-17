@@ -1538,6 +1538,9 @@ function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
         fd.append('signature', sign.signature);
         fd.append('folder', sign.folder);
         fd.append('public_id', sign.publicId);
+        // allowed_formats is included in the server signature and must also be
+        // sent with the upload, otherwise Cloudinary rejects the signature.
+        fd.append('allowed_formats', sign.allowedFormats.join(','));
         const endpoint = `https://api.cloudinary.com/v1_1/${sign.cloudName}/${kind}/upload`;
         const uploaded = await fetch(endpoint, { method: 'POST', body: fd }).then(async r => {
           const text = await r.text();
@@ -1546,7 +1549,8 @@ function ProductFormModal({ editId, product, categories, onClose, onSaved }: {
           if (!r.ok) throw new Error(json?.error?.message || 'The upload failed.');
           return json;
         });
-        const asset = { url: String(uploaded.secure_url), publicId: String(uploaded.public_id), resourceType: kind };
+        if (typeof uploaded?.secure_url !== 'string' || typeof uploaded?.public_id !== 'string') throw new Error('Cloudinary did not return a valid uploaded file. Please retry.');
+        const asset = { url: uploaded.secure_url, publicId: uploaded.public_id, resourceType: kind };
         if (kind === 'image') setForm(f => ({ ...f, images: [...f.images, { ...asset, resourceType: 'image' as const }].slice(0, 8) }));
         else setForm(f => ({ ...f, video: asset as any }));
       }
