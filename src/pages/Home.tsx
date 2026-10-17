@@ -87,6 +87,7 @@ function StaticHero() {
 }
 
 const AUTOPLAY_MS = 6000;
+const categorySlug = (name: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 function HeroCarousel({ hero }: { hero: HeroData }) {
   const slides = hero.slides;
@@ -225,7 +226,7 @@ export default function Home() {
                 <Card key={i} className="p-5 text-center"><Skeleton className="h-4 w-3/4 mx-auto" /></Card>
               ))
             : categories.slice(0, 8).map(cat => (
-                <Link key={cat.id} to={`/shop?category=${cat.id}`} className="group">
+                <Link key={cat.id} to={`/shop?category=${categorySlug(cat.name)}`} className="group">
                   <Card hover className="p-5 text-center">
                     <p className="font-medium text-neutral-900 group-hover:text-neutral-700 text-sm">{cat.name}</p>
                     <p className="text-xs text-neutral-500 mt-1">{products.filter(p => p.categoryId === cat.id).length} products</p>
