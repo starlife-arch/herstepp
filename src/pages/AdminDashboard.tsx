@@ -709,6 +709,7 @@ export default function AdminDashboard() {
           <Link to="/admin/ai" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Sparkles className="w-4 h-4" /> Admin AI</Link>
           <Link to="/admin/costs" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><CreditCard className="w-4 h-4" /> Cost &amp; Profit</Link>
           <Link to="/admin/ai-chats" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><MessageSquare className="w-4 h-4" /> Aria Chats</Link>
+          <Link to="/admin/categories" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Tag className="w-4 h-4" /> Product Categories</Link>
           <Link to="/admin/bulk-upload" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50">
             <Upload className="w-4 h-4" /> AI Bulk Shoe Upload
           </Link>
