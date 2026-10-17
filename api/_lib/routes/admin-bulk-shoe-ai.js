@@ -57,7 +57,7 @@ export default async function analyzeBulkShoe(req, res) {
 
   const originalPrice = Number.isInteger(item.price) && item.price >= 0 && item.price <= 10000000 ? item.price : null;
   const price = originalPrice === null ? null : originalPrice + 100;
-  const rawSizes = Array.isArray(item.sizes) ? item.sizes : (item.size == null ? [] : String(item.size).split(/[\\/,&+]/));
+  const rawSizes = Array.isArray(item.sizes) ? item.sizes : (item.size == null ? [] : String(item.size).replace(/[,;&+]/g, '/').split('/'));
   const sizes = [...new Set(rawSizes.map(value => String(value).trim()).filter(value => ALLOWED_SIZES.has(value)))];
   const size = sizes[0] || null;
   const category = categories.includes(item.category) ? item.category : (DEFAULT_CATEGORIES.includes(item.category) ? item.category : 'Shoes');
