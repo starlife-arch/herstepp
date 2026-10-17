@@ -1,8 +1,9 @@
-import { requireAdmin } from '../firebase-admin.js';
+import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 
-const CATEGORIES = ['Block Heels', 'Flats', 'Heels', 'Loafers', 'Platforms', 'Sandals', 'Slides'];
-const SIZES = Array.from({ length: 16 }, (_, i) => String(30 + i));
+const DEFAULT_CATEGORIES = ['Block Heels', 'Flats', 'Heels', 'Loafers', 'Platforms', 'Sandals', 'Slides', 'Dresses', 'Clothing', 'Watches', 'Necklaces', 'Bags'];
+const SHOE_SIZES = Array.from({ length: 16 }, (_, i) => String(30 + i));
+const ALLOWED_SIZES = new Set([...SHOE_SIZES, 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size', 'Free Size']);
 
 export default async function analyzeBulkShoe(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, 'POST');
@@ -20,7 +21,9 @@ export default async function analyzeBulkShoe(req, res) {
   if (!apiKey) throw clientError('AI analysis is not configured yet. Add GROQ_API_KEY in Vercel project environment variables.', 503);
   const model = String(process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b').trim();
 
-  const prompt = `You are preparing a product listing for HerStep Collection, a Kenyan ladies' footwear shop. Inspect ONLY the shoe itself, not the photograph background. Return JSON only with keys: name, description, price, size, category, currency, priceConfidence, sizeConfidence. name: concise appealing product name based only on the shoe's visible type, colour and design. description: write a polished, persuasive sales description in natural customer-facing language (3-5 sentences): identify the shoe type and colour, describe visible design details, suggest suitable occasions/outfits, and explain the style appeal so a customer understands why they may want to buy it. Never mention grass, table, studio, background, photo, or surroundings. Never invent materials, comfort claims, heel height, durability, or other unverified features. price: whole-number price only if a clearly printed price is visible, otherwise null. size: one EU size as a string only if clearly printed, otherwise null. category must be exactly one of: ${CATEGORIES.join(', ')}; choose best fit. currency should be "KES" only if the image indicates Kenyan shillings/KSh, otherwise null. confidence values must be "high", "medium", or "low". Do not infer a size range from one visible size. Do not guess unclear numbers. If text is absent or ambiguous, use null for price/size and low confidence.`;
+  const categorySnapshot = await adminDb.collection('categories').orderBy('name').limit(100).get();
+  const categories = [...new Set([...categorySnapshot.docs.map(doc => String(doc.data().name || '').trim()).filter(Boolean), ...DEFAULT_CATEGORIES])];
+  const prompt = `You are preparing product listings for HerStep Collection, a Kenyan online shop selling shoes, dresses and other clothing, watches, necklaces, handbags and bags. Inspect the product and visible text, not the background. Return JSON only with keys: name, description, price, sizes, category, currency, priceConfidence, sizeConfidence. Name: concise appealing name based on visible type, colour and design. Description: polished customer-facing 3-5 sentences about visible details and suitable occasions/outfits. Never invent materials, brand, comfort, durability or other unverified features. Price: whole number only if clearly printed, otherwise null. sizes: array of every clearly printed size; for a paired shoe size like 35/36 return [\"35\",\"36\"]; clothing sizes may be XS, S, M, L, XL, XXL; accessories without a printed size may use [\"One Size\"] when appropriate, otherwise []. category must exactly match one of: ${categories.join(', ')}. Choose the closest matching category. currency is KES only if image indicates Kenyan shillings/KSh, otherwise null. confidence values are high, medium, or low. Never guess unclear text.`;
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -52,15 +55,20 @@ export default async function analyzeBulkShoe(req, res) {
   let item;
   try { item = JSON.parse(jsonText); } catch { throw clientError('The AI response could not be read. Please retry or enter details manually.', 502); }
 
-  const price = Number.isInteger(item.price) && item.price >= 0 && item.price <= 10000000 ? item.price : null;
-  const size = SIZES.includes(String(item.size)) ? String(item.size) : null;
-  const category = CATEGORIES.includes(item.category) ? item.category : 'Sandals';
+  const originalPrice = Number.isInteger(item.price) && item.price >= 0 && item.price <= 10000000 ? item.price : null;
+  const price = originalPrice === null ? null : originalPrice + 100;
+  const rawSizes = Array.isArray(item.sizes) ? item.sizes : (item.size == null ? [] : String(item.size).replace(/[,;&+]/g, '/').split('/'));
+  const sizes = [...new Set(rawSizes.map(value => String(value).trim()).filter(value => ALLOWED_SIZES.has(value)))];
+  const size = sizes[0] || null;
+  const category = categories.includes(item.category) ? item.category : (DEFAULT_CATEGORIES.includes(item.category) ? item.category : 'Shoes');
   const confidence = v => ['high', 'medium', 'low'].includes(v) ? v : 'low';
   return res.status(200).json({
     name: typeof item.name === 'string' ? item.name.slice(0, 160) : '',
     description: typeof item.description === 'string' ? item.description.slice(0, 4000) : '',
     price,
+    originalPrice,
     size,
+    sizes,
     category,
     currency: item.currency === 'KES' ? 'KES' : null,
     priceConfidence: price === null ? 'low' : confidence(item.priceConfidence),
