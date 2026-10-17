@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, SlidersHorizontal } from 'lucide-react';
 import { useApp, effectivePrice } from '../context/AppContext';
@@ -7,9 +7,11 @@ import { ProductCard } from './Home';
 import { usePageMeta } from '../hooks/usePageMeta';
 
 
+const categorySlug = (name: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
 export default function Shop() {
   usePageMeta('Shop | HerStep Collection', "Browse the full HerStep Collection of ladies' shoes in Juja Town — sandals, heels, platforms and sneakers.");
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { state, reloadCatalog } = useApp();
   const { products, categories, catalogLoading, catalogError } = state;
   const [search, setSearch] = useState('');
@@ -19,6 +21,16 @@ export default function Shop() {
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'newest');
   const [showFilters, setShowFilters] = useState(false);
   const [availability, setAvailability] = useState('');
+
+  // Keep older bookmarked category-ID links working, but replace opaque IDs in the address bar with readable slugs.
+  useEffect(() => {
+    if (!selectedCategory || !categories.length) return;
+    const legacyCategory = categories.find(category => category.id === selectedCategory);
+    if (!legacyCategory) return;
+    const next = new URLSearchParams(searchParams);
+    next.set('category', categorySlug(legacyCategory.name));
+    setSearchParams(next, { replace: true });
+  }, [selectedCategory, categories, searchParams, setSearchParams]);
 
   // Every EU size the catalogue actually carries, derived from products.inventory (strings "30".."45").
   const allSizes = useMemo(() => {
@@ -39,7 +51,10 @@ export default function Shop() {
       );
     }
     if (selectedCategory) {
-      result = result.filter(p => p.categoryId === selectedCategory);
+      result = result.filter(p => {
+        const category = categories.find(c => c.id === p.categoryId);
+        return p.categoryId === selectedCategory || Boolean(category && categorySlug(category.name) === selectedCategory);
+      });
     }
     if (selectedSize) {
       result = result.filter(p => p.inventory.some(s => s.size === selectedSize && s.quantity > 0));

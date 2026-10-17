@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { productPath, slugifyProductName } from '../lib/product-slug';
-import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck } from 'lucide-react';
+import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck, X, ZoomIn } from 'lucide-react';
 import { WishlistButton } from '../components/WishlistButton';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { apiFetch } from '../lib/api';
@@ -30,6 +30,7 @@ export default function ProductDetail() {
   const [selectedSize, setSelectedSize] = useState<string | null>(null);
   const [quantity, setQuantity] = useState(1);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [imageZoomOpen, setImageZoomOpen] = useState(false);
   const [restockBusy, setRestockBusy] = useState(false);
   const [restockMessage, setRestockMessage] = useState('');
 
@@ -113,15 +114,51 @@ export default function ProductDetail() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12">
         {/* Gallery */}
         <div>
-          <div className="aspect-square bg-neutral-100 rounded-2xl overflow-hidden mb-4">
+          <button
+            type="button"
+            onClick={() => setImageZoomOpen(true)}
+            aria-label={`Zoom in on ${product.name} image`}
+            className="relative block w-full aspect-square bg-neutral-100 rounded-2xl overflow-hidden mb-4 cursor-zoom-in group"
+          >
             <img
               src={product.images[selectedImage]?.url}
               alt={product.name}
               width={600}
               height={600}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-contain transition-transform group-hover:scale-[1.02]"
             />
-          </div>
+            <span className="absolute bottom-3 right-3 inline-flex items-center gap-1 rounded-full bg-black/70 text-white text-xs px-3 py-2">
+              <ZoomIn className="w-4 h-4" /> Tap to zoom
+            </span>
+          </button>
+          {imageZoomOpen && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label={`Zoomed image of ${product.name}`}
+              className="fixed inset-0 z-[100] bg-black/90 flex items-center justify-center p-3 sm:p-8"
+              onClick={() => setImageZoomOpen(false)}
+            >
+              <button type="button" onClick={() => setImageZoomOpen(false)} aria-label="Close zoomed image" className="absolute top-4 right-4 z-10 rounded-full bg-white/15 hover:bg-white/25 text-white p-3">
+                <X className="w-6 h-6" />
+              </button>
+              <img
+                src={product.images[selectedImage]?.url}
+                alt={product.name}
+                onClick={event => event.stopPropagation()}
+                className="max-h-[92vh] max-w-full object-contain rounded-lg"
+              />
+              {product.images.length > 1 && (
+                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2">
+                  {product.images.map((image, index) => (
+                    <button key={image.publicId || index} type="button" onClick={event => { event.stopPropagation(); setSelectedImage(index); }} aria-label={`View image ${index + 1}`} className={`w-12 h-12 rounded border-2 overflow-hidden ${selectedImage === index ? 'border-white' : 'border-white/40'}`}>
+                      <img src={image.url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {product.images.length > 1 && (
             <div className="grid grid-cols-4 gap-3">
               {product.images.map((img, i) => (
