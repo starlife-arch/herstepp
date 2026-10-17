@@ -47,7 +47,7 @@ export default async function analyzeBulkShoe(req, res) {
   if (!response.ok) {
     const detail = payload?.error?.message;
     console.error('Groq shoe analysis failed:', response.status, detail || 'unknown error');
-    throw clientError(response.status === 401 ? 'The Groq API key is invalid.' : 'AI analysis failed. Check your Groq model/key configuration and retry.', response.status === 429 ? 429 : 502);
+    throw clientError(response.status === 401 ? 'The Groq API key is invalid.' : response.status === 429 ? 'Groq rate limit reached: the configured model has exhausted its available token allowance. Stop this batch and retry after the limit resets, or configure an available vision model with remaining quota.' : 'AI analysis failed. Check your Groq model/key configuration and retry.', response.status === 429 ? 429 : 502);
   }
   const raw = payload?.choices?.[0]?.message?.content;
   if (typeof raw !== 'string') throw clientError('The AI returned no product details. Please enter them manually.', 502);
