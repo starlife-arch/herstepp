@@ -19,6 +19,7 @@ import Contact from './pages/Contact';
 import { PrivacyPolicy, TermsOfService } from './pages/StaticPages';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminBulkShoeUpload from './pages/AdminBulkShoeUpload';
+import AdminCategories from './pages/AdminCategories';
 import AdminAIChats from './pages/AdminAIChats';
 import AdminAriaFeedback from './pages/AdminAriaFeedback';
 import AdminAI from './pages/AdminAI';
@@ -33,6 +34,7 @@ function RequireAdmin({ children }: { children: React.ReactElement }) { const { 
 function AppRoutes() {
  const location = useLocation();
  if (location.pathname.startsWith('/admin')) return <Routes>
+  <Route path="/admin/categories" element={<Wrap><RequireAdmin><AdminCategories /></RequireAdmin></Wrap>} />
   <Route path="/admin/bulk-upload" element={<Wrap><RequireAdmin><AdminBulkShoeUpload /></RequireAdmin></Wrap>} />
   <Route path="/admin/ai-chats" element={<Wrap><RequireAdmin><AdminAIChats /></RequireAdmin></Wrap>} />
   <Route path="/admin/aria-feedback" element={<Wrap><RequireAdmin><AdminAriaFeedback /></RequireAdmin></Wrap>} />
