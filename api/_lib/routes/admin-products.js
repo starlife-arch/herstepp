@@ -9,7 +9,7 @@ import { clientError, methodNotAllowed } from '../http.js';
 import { sendEmail } from '../email-service.js';
 
 const statuses = ['DRAFT', 'ACTIVE', 'ARCHIVED'];
-const sizes = new Set(Array.from({ length: 16 }, (_, i) => String(i + 30)));
+const sizes = new Set([...Array.from({ length: 16 }, (_, i) => String(i + 30)), 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size', 'Free Size']);
 
 function assert(condition, message) {
   if (!condition) throw clientError(message);
