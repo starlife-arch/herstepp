@@ -1,7 +1,6 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { waitUntil } from '@vercel/functions';
 import { buildEmail } from '../email-templates.js';
 import { queueEmail, deliverQueuedEmailInline } from '../email-service.js';
 import { siteUrl } from '../site-url.js';
@@ -171,12 +170,30 @@ export async function processAbandonedCarts(req, res) {
         });
       });
       const queuedDoc = await adminDb.collection('emailOutbox').doc(key.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 180)).get();
-      if (queuedDoc.exists) {
-        waitUntil(deliverQueuedEmailInline(adminDb, key).catch(error => {
-          console.error('[abandoned-cart] email delivery failed:', error?.message || error);
-        }));
+      if (!queuedDoc.exists) {
+        skipped += 1;
+        continue;
+      }
+
+      // Do not treat "queued" as "sent". The previous fire-and-forget path left
+      // failed carts in REMINDER_QUEUED forever, while the cron only scans ACTIVE
+      // carts. Await the existing outbox delivery helper and make failures retryable.
+      const delivery = await deliverQueuedEmailInline(adminDb, key);
+      if (delivery?.sent === true) {
+        await cartDoc.ref.set({
+          status: 'REMINDER_SENT',
+          reminderSentAt: FieldValue.serverTimestamp(),
+          lastReminderError: null,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
         queued += 1;
       } else {
+        await cartDoc.ref.set({
+          status: 'ACTIVE',
+          reminderSentAt: null,
+          lastReminderError: String(delivery?.error || delivery?.reason || 'Email delivery did not complete.').slice(0, 300),
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
         skipped += 1;
       }
     } catch (error) {
