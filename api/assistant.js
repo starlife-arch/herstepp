@@ -68,8 +68,9 @@ export default async function assistant(req,res) {
  if(currentStatus==='IN_PROGRESS'||currentStatus==='NEEDS_SUPPORT') {
   await ref.set({lastMessage:message,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
   const ticketId=previous.exists?String(previous.data().ticketId||''):'';
-  await ref.collection('messages').add({role:'admin',content:'Message received. A HerStep support agent will reply here.',createdAt:FieldValue.serverTimestamp()});
+
   await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`,customerId:user?.uid||null,customerName:user?.name||user?.displayName||'Website visitor',customerEmail:user?.email||'',subject:'Aria chat needs human support',category:/payment|pay|mpesa|stk/i.test(message)?'Payment Issue':/delivery|shipping/i.test(message)?'Delivery Issue':/order|refund|cancel/i.test(message)?'Order Issue':'General Enquiry',conversationId,status:currentStatus==='IN_PROGRESS'?'IN_PROGRESS':'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(1),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).collection('messages').doc('aria-customer-'+Date.now()).set({senderId:user?.uid||'guest',senderName:user?.name||user?.displayName||'Website visitor',senderRole:'CUSTOMER',body:message,attachments:[],createdAt:FieldValue.serverTimestamp(),source:'ARIA_CHAT'});
   return res.status(200).json({conversationId,reply:'Your message has been sent to HerStep Support. A team member will reply in this chat. Please keep this window open.',products:[],agentJoined:true,needsHuman:true,ticketId:ticketId||`AI-${conversationId.slice(0,8).toUpperCase()}`});
  }
  // Verification codes are accepted only after Aria requested one in this same signed-in chat.
@@ -95,6 +96,16 @@ export default async function assistant(req,res) {
   await ref.set({conversationId,status:'NEEDS_SUPPORT',ticketId,agentJoined:false,lastMessage:message,lastReply:reply,messageCount:FieldValue.increment(2),updatedAt:FieldValue.serverTimestamp(),...(previous.exists?{}:{createdAt:FieldValue.serverTimestamp()})},{merge:true});
   await ref.collection('messages').add({role:'assistant',content:reply,productIds:[],needsHuman:true,createdAt:FieldValue.serverTimestamp()});
   await adminDb.collection('supportTickets').doc(`ai_${conversationId}`).set({ticketId,customerId:user?.uid||null,customerName:user?.name||user?.displayName||'Website visitor',customerEmail:user?.email||'',subject:'Customer requested a human support agent',category:/payment|pay|mpesa|stk/i.test(message)?'Payment Issue':/delivery|shipping/i.test(message)?'Delivery Issue':/order|refund|cancel/i.test(message)?'Order Issue':'General Enquiry',handoffReason:'Customer explicitly requested a human agent',conversationId,status:'OPEN',lastMessage:message,lastMessageAt:FieldValue.serverTimestamp(),lastMessageSenderRole:'CUSTOMER',hasUnreadAdminMessages:true,messageCount:FieldValue.increment(2),...(previous.exists?{}:{createdAt:FieldValue.serverTimestamp()}),updatedAt:FieldValue.serverTimestamp()},{merge:true});
+  const aiHistory = await ref.collection('messages').orderBy('createdAt', 'asc').limit(100).get();
+  const supportMessages = adminDb.collection('supportTickets').doc(`ai_${conversationId}`).collection('messages');
+  const batch = adminDb.batch();
+  aiHistory.docs.forEach((entry, index) => {
+   const item = entry.data();
+   const role = item.role === 'user' ? 'CUSTOMER' : item.role === 'admin' ? 'ADMIN' : 'SYSTEM';
+   const eventType = item.eventType || (item.role === 'assistant' ? 'ARIA_MESSAGE' : '');
+   batch.set(supportMessages.doc('aria-' + entry.id), { senderId: item.senderId || (item.role === 'user' ? (user?.uid || 'guest') : 'aria'), senderName: item.senderName || (item.role === 'user' ? (user?.name || user?.displayName || 'Website visitor') : item.role === 'admin' ? 'HerStep Support' : 'Aria'), senderPhotoURL: item.senderPhotoURL || '', senderRole: role, eventType: eventType === 'ARIA_MESSAGE' ? '' : eventType, body: item.content || '', attachments: [], createdAt: item.createdAt || FieldValue.serverTimestamp(), source: 'ARIA_CHAT', sourceOrder: index }, { merge: true });
+  });
+  await batch.commit();
   return res.status(200).json({conversationId,reply,products:[],needsHuman:true,ticketId,supportContacts:{whatsapp:'https://wa.me/254106624924',email:'herstepcollection@gmail.com',phone:'+254799021089'}});
  }
  const accountIntent=detectAriaAccountIntent(message);

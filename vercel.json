@@ -241,6 +241,14 @@
       "destination": "/api/admin?route=support/agent-profile"
     },
     {
+      "source": "/api/admin/support/agents",
+      "destination": "/api/admin?route=support/agents"
+    },
+    {
+      "source": "/api/admin/support/assign",
+      "destination": "/api/admin?route=support/assign"
+    },
+    {
       "source": "/api/admin/support/notes",
       "destination": "/api/admin?route=support/notes"
     },
