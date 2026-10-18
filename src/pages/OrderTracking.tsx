@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Search, Package, Check, Truck, Clock, MapPin, Heart, FileText } from 'lucide-react';
+import { Search, Package, Check, Truck, Clock, MapPin, Heart, FileText, RefreshCw } from 'lucide-react';
 import { Card, Button, Badge, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { apiFetch, apiDownload } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -25,6 +25,7 @@ type TrackOrder = {
   delivery: { fullName: string; phone: string; deliveryMethod: string; location: string; instructions: string };
   items: { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number; imageUrl: string | null }[];
   history: { newStatus?: string; previousStatus?: string | null; note?: string; createdAt: string | null }[];
+  updatedAt?: string | null;
 };
 
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
@@ -84,6 +85,7 @@ export default function OrderTracking() {
   const [searched, setSearched] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
 
   async function fetchOrder(id: string) {
     if (!id.trim()) return;
@@ -94,6 +96,7 @@ export default function OrderTracking() {
     try {
       const data = await apiFetch(`/api/orders/track?order=${encodeURIComponent(id.trim())}`);
       setOrder(data?.order ?? null);
+      setLastRefreshedAt(new Date().toISOString());
     } catch (err: any) {
       setOrder(null);
       const msg = String(err?.message || '');
@@ -235,7 +238,10 @@ export default function OrderTracking() {
 
           {/* Timeline */}
           <Card className="p-6">
-            <h3 className="font-semibold text-neutral-900 mb-6">Order Timeline</h3>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+              <div><h3 className="font-semibold text-neutral-900">Order Timeline</h3>{lastRefreshedAt && <p className="text-xs text-neutral-500 mt-1">Last checked {formatDateTime(lastRefreshedAt)}</p>}</div>
+              <Button variant="outline" size="sm" onClick={() => void fetchOrder(order.orderId)} disabled={loading}><RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />{loading ? 'Refreshing…' : 'Refresh status'}</Button>
+            </div>
             {order.orderStatus === 'CANCELLED' ? (
               <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
                 <XCircleIcon /> This order was cancelled.
@@ -246,7 +252,8 @@ export default function OrderTracking() {
                   const currentIdx = getStepIndex(order.orderStatus);
                   const isCompleted = i <= currentIdx;
                   const isCurrent = i === currentIdx;
-                  const historyEntry = (Array.isArray(order.history) ? order.history : []).find(h => h.newStatus === step.status);
+                  const historyEntries = (Array.isArray(order.history) ? order.history : []).filter(h => h.newStatus === step.status).sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+                  const historyEntry = historyEntries[historyEntries.length - 1];
 
                   return (
                     <div key={step.status} className="flex gap-4 mb-6 last:mb-0">
@@ -272,6 +279,15 @@ export default function OrderTracking() {
                 })}
               </div>
             )}
+            {Array.isArray(order.history) && order.history.length > 0 && <div className="mt-6 pt-5 border-t border-neutral-200">
+              <h4 className="font-medium text-sm text-neutral-900 mb-3">Status update history</h4>
+              <ol className="space-y-3">
+                {[...order.history].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).map((entry, index) => <li key={`${entry.createdAt || 'event'}-${entry.newStatus || 'status'}-${index}`} className="flex gap-3 text-sm">
+                  <span className="mt-1.5 w-2 h-2 rounded-full bg-neutral-400 shrink-0" />
+                  <div className="min-w-0"><p className="font-medium text-neutral-800">{entry.newStatus ? entry.newStatus.replace(/_/g, ' ') : 'Order updated'}{entry.previousStatus ? <span className="font-normal text-neutral-500"> · from {entry.previousStatus.replace(/_/g, ' ')}</span> : null}</p>{entry.note && <p className="text-neutral-600 mt-0.5">{entry.note}</p>}{entry.createdAt && <p className="text-xs text-neutral-500 mt-0.5">{formatDateTime(entry.createdAt)}</p>}</div>
+                </li>)}
+              </ol>
+            </div>}
           </Card>
 
           {/* Order Items */}
