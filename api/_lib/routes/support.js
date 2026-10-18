@@ -115,6 +115,65 @@ export async function agentProfile(req, res) {
   await ref.set({ supportDisplayName: name, supportPhotoURL: photoURL, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
   return res.json({ profile: { agentId: admin.uid, name, photoURL } });
 }
+
+export async function agentProfiles(req, res) {
+  const admin = await requireAdmin(req);
+  const users = await adminDb.collection('users').limit(300).get();
+  const profiles = users.docs.filter(doc => ['ADMIN', 'SUPER_ADMIN'].includes(doc.data()?.role)).map(doc => {
+    const data = doc.data();
+    return { agentId: doc.id, name: String(data.supportDisplayName || data.displayName || data.email || 'HerStep Support').trim().slice(0, 60), photoURL: typeof data.supportPhotoURL === 'string' && /^https:\/\//i.test(data.supportPhotoURL) ? data.supportPhotoURL : '', email: String(data.email || ''), active: data.supportAgentActive !== false };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  if (req.method === 'GET') return res.json({ agents: profiles });
+  if (req.method !== 'PUT' && req.method !== 'POST') return methodNotAllowed(res, ['GET', 'PUT']);
+  const body = req.body || {};
+  const targetId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+  const target = users.docs.find(doc => doc.id === targetId);
+  if (!target || !['ADMIN', 'SUPER_ADMIN'].includes(target.data()?.role)) throw clientError('Choose an authorized admin account as the support agent.', 400);
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const photoURL = typeof body.photoURL === 'string' ? body.photoURL.trim() : '';
+  if (name.length < 2 || name.length > 60) throw clientError('Agent name must be 2–60 characters.');
+  if (photoURL && (!/^https:\/\//i.test(photoURL) || photoURL.length > 1000)) throw clientError('Profile picture must be a valid HTTPS image URL.');
+  if (typeof body.active !== 'boolean') throw clientError('Choose whether this agent is active.');
+  await target.ref.set({ supportDisplayName: name, supportPhotoURL: photoURL, supportAgentActive: body.active, supportProfileUpdatedBy: admin.uid, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return res.json({ profile: { agentId: targetId, name, photoURL, active: body.active } });
+}
+
+export async function assignAgent(req, res) {
+  if (req.method !== 'PATCH' && req.method !== 'POST') return methodNotAllowed(res, ['PATCH', 'POST']);
+  const admin = await requireAdmin(req);
+  const body = req.body || {};
+  const ticketDocumentId = typeof body.ticketDocumentId === 'string' ? body.ticketDocumentId.trim() : '';
+  const agentId = typeof body.agentId === 'string' ? body.agentId.trim() : '';
+  if (!ticketDocumentId || !agentId) throw clientError('Choose a ticket and support agent.');
+  const [ticketSnap, agentSnap] = await Promise.all([
+    adminDb.collection('supportTickets').doc(ticketDocumentId).get(),
+    adminDb.collection('users').doc(agentId).get(),
+  ]);
+  if (!ticketSnap.exists) throw clientError('Support ticket not found.', 404);
+  if (!agentSnap.exists || !['ADMIN', 'SUPER_ADMIN'].includes(agentSnap.data()?.role) || agentSnap.data()?.supportAgentActive === false) throw clientError('That support agent is not active or authorized.', 400);
+  const ticket = ticketSnap.data();
+  const agent = safeAgentProfile(agentSnap.data(), { uid: agentId, displayName: agentSnap.data()?.displayName, email: agentSnap.data()?.email });
+  const previousAgentId = String(ticket.assignedAgentId || '');
+  const previousName = String(ticket.assignedAgentName || '');
+  const changed = previousAgentId !== agentId;
+  if (!changed) return res.json({ ok: true, assignedAgentId: agentId, assignedAgentName: agent.name, assignedAgentPhotoURL: agent.photoURL });
+  const ticketRef = ticketSnap.ref;
+  const eventId = 'agent-assigned-' + Date.now() + '-' + agentId;
+  await adminDb.runTransaction(async tx => {
+    const fresh = await tx.get(ticketRef);
+    if (!fresh.exists) throw clientError('Support ticket not found.', 404);
+    tx.update(ticketRef, { assignedAgentId: agentId, assignedAgentName: agent.name, assignedAgentPhotoURL: agent.photoURL, updatedAt: FieldValue.serverTimestamp() });
+    tx.set(ticketRef.collection('messages').doc(eventId), { senderId: agentId, senderName: agent.name, senderPhotoURL: agent.photoURL, senderRole: 'SYSTEM', eventType: previousAgentId ? 'AGENT_HANDOVER' : 'AGENT_ASSIGNED', body: previousAgentId ? 'Ticket handed over from ' + (previousName || 'another agent') + ' to ' + agent.name : agent.name + ' was assigned to this ticket', attachments: [], createdAt: FieldValue.serverTimestamp(), actorId: admin.uid });
+    tx.set(ticketRef.collection('history').doc(), { type: previousAgentId ? 'AGENT_HANDOVER' : 'AGENT_ASSIGNED', previousAgentId: previousAgentId || null, previousAgentName: previousName || null, agentId, agentName: agent.name, actorId: admin.uid, actorName: admin.displayName || admin.email || 'Administrator', createdAt: FieldValue.serverTimestamp() });
+  });
+  if (ticket.conversationId) {
+    const conversation = adminDb.collection('aiConversations').doc(ticket.conversationId);
+    await conversation.set({ status: 'IN_PROGRESS', agentJoined: true, assignedAgentId: agentId, assignedAgentName: agent.name, assignedAgentPhotoURL: agent.photoURL, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    await conversation.collection('messages').add({ role: 'admin', content: previousAgentId ? 'Ticket handed over from ' + (previousName || 'another agent') + ' to ' + agent.name : agent.name + ' joined the chat', senderId: agentId, senderName: agent.name, senderPhotoURL: agent.photoURL, eventType: previousAgentId ? 'AGENT_HANDOVER' : 'AGENT_JOINED', createdAt: FieldValue.serverTimestamp() });
+  }
+  return res.json({ ok: true, assignedAgentId: agentId, assignedAgentName: agent.name, assignedAgentPhotoURL: agent.photoURL });
+}
+
 export async function adminStatus(req, res) {
   if (req.method !== 'PATCH') return methodNotAllowed(res, 'PATCH');
   const admin = await requireAdmin(req);
@@ -127,7 +186,8 @@ export async function adminStatus(req, res) {
     const old = ticket.status;
     if (!statusMoves[old]?.includes(status)) throw clientError('This support ticket status cannot be changed that way.', 409);
     tx.update(ref, { status, updatedAt: FieldValue.serverTimestamp() });
-    tx.set(ref.collection('history').doc(`${old}-${status}`), { previousStatus: old, newStatus: status, adminId: admin.uid, adminName: admin.displayName || admin.email || '', createdAt: FieldValue.serverTimestamp() });
+    tx.set(ref.collection('history').doc(), { type: 'STATUS_CHANGED', previousStatus: old, newStatus: status, adminId: admin.uid, adminName: admin.displayName || admin.email || '', createdAt: FieldValue.serverTimestamp() });
+    tx.set(ref.collection('messages').doc(`status-${Date.now()}-${status.toLowerCase()}`), { senderId: admin.uid, senderName: admin.displayName || admin.email || 'HerStep Support', senderRole: 'SYSTEM', eventType: 'STATUS_CHANGED', body: `Ticket status changed from ${old.replace(/_/g, ' ')} to ${status.replace(/_/g, ' ')}`, attachments: [], createdAt: FieldValue.serverTimestamp() });
     let emailKey = null;
     if (['RESOLVED', 'CLOSED'].includes(status) && ticket.customerEmail) {
       const title = status === 'RESOLVED' ? `Support ticket resolved — ${ticket.ticketId}` : `Support ticket closed — ${ticket.ticketId}`;
@@ -171,6 +231,13 @@ export async function adminMessage(req, res) {
     }
     tx.set(messageRef, { senderId: admin.uid, senderName: agent.name, senderPhotoURL: agent.photoURL, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
     tx.update(ref, { assignedAgentId: admin.uid, assignedAgentName: agent.name, assignedAgentPhotoURL: agent.photoURL, lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticketData.messageCount || 1) + 1 + (joining ? 1 : 0), updatedAt: FieldValue.serverTimestamp() });
+    tx.set(ref.collection('history').doc(), { type: joining ? (ticketData.assignedAgentId ? 'AGENT_HANDOVER' : 'AGENT_JOINED') : 'AGENT_REPLY', agentId: admin.uid, agentName: agent.name, previousAgentId: ticketData.assignedAgentId || null, previousAgentName: ticketData.assignedAgentName || null, createdAt: FieldValue.serverTimestamp() });
+    if (ticketData.conversationId) {
+      const conversationRef = adminDb.collection('aiConversations').doc(ticketData.conversationId);
+      tx.set(conversationRef, { status: 'IN_PROGRESS', agentJoined: true, assignedAgentId: admin.uid, assignedAgentName: agent.name, assignedAgentPhotoURL: agent.photoURL, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+      if (joining) tx.set(conversationRef.collection('messages').doc('agent-event-' + body.clientMessageId), { role: 'admin', content: ticketData.assignedAgentId ? 'Ticket handed over from ' + (ticketData.assignedAgentName || 'another agent') + ' to ' + agent.name : agent.name + ' joined the chat', senderId: admin.uid, senderName: agent.name, senderPhotoURL: agent.photoURL, eventType: ticketData.assignedAgentId ? 'AGENT_HANDOVER' : 'AGENT_JOINED', createdAt: FieldValue.serverTimestamp() });
+      tx.set(conversationRef.collection('messages').doc('agent-reply-' + body.clientMessageId), { role: 'admin', content: input.text, senderId: admin.uid, senderName: agent.name, senderPhotoURL: agent.photoURL, createdAt: FieldValue.serverTimestamp() });
+    }
     // In-app notification so the reply shows in the bell and the Notifications
     // tab. Deterministic doc id (ticket-SUPPORT_REPLY): a replayed request for
     // the same ticket overwrites one doc — never two notifications per reply.
