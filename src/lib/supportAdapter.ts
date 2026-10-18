@@ -34,5 +34,8 @@ export function toUiTicket(serverTicket: any, messages: any[] = []): SupportTick
     updatedAt: toIso(serverTicket.updatedAt),
     ...(serverTicket.hasUnreadAdminMessages === undefined ? {} : { hasUnreadAdminMessages: Boolean(serverTicket.hasUnreadAdminMessages) }),
     ...(serverTicket.orderDocumentId ? { orderDocumentId: serverTicket.orderDocumentId } : {}),
+    ...(serverTicket.assignedAgentId ? { assignedAgentId: serverTicket.assignedAgentId } : {}),
+    ...(serverTicket.assignedAgentName ? { assignedAgentName: serverTicket.assignedAgentName } : {}),
+    ...(serverTicket.assignedAgentPhotoURL ? { assignedAgentPhotoURL: serverTicket.assignedAgentPhotoURL } : {}),
   } as SupportTicket;
 }
