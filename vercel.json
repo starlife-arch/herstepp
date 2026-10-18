@@ -237,6 +237,10 @@
       "destination": "/api/admin?route=support/messages"
     },
     {
+      "source": "/api/admin/support/agent-profile",
+      "destination": "/api/admin?route=support/agent-profile"
+    },
+    {
       "source": "/api/admin/support/notes",
       "destination": "/api/admin?route=support/notes"
     },
