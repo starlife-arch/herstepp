@@ -22,8 +22,10 @@ export function toUiTicket(serverTicket: any, messages: any[] = []): SupportTick
     messages: messages.map((message): SupportMessage => ({
       id: message.id,
       senderId: message.senderId,
-      senderName: message.senderRole === 'ADMIN' ? 'HerStep Support' : (message.senderName || ''),
-      senderRole: message.senderRole === 'ADMIN' ? 'admin' : 'customer',
+      senderName: message.senderName || (message.senderRole === 'ADMIN' ? 'HerStep Support' : ''),
+      senderRole: message.senderRole === 'CUSTOMER' ? 'customer' : 'admin',
+      senderPhotoURL: message.senderPhotoURL || '',
+      eventType: message.eventType || '',
       content: message.body || '',
       attachments: message.attachments || [],
       timestamp: toIso(message.createdAt),
