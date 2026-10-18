@@ -25,6 +25,8 @@ export default (req, res) => dispatchRoute(req, res, {
   'support/status': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminStatus }))),
   'support/read': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminRead }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminMessage }))),
+  'support/agent-profile': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.agentProfile }))),
+  'support/agent-profile': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.agentProfile }))),
   'support/notes': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.adminNotes }))),
   hero: lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminHero }))),
   announcement: lazyRoute(() => import('./_lib/routes/admin-storefront.js').then(m => ({ default: m.adminAnnouncement }))),

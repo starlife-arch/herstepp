@@ -8,6 +8,7 @@ import { sendTelegramMessage } from '../telegram.js';
 import { siteUrl } from '../site-url.js';
 
 const SUPPORT_DISPLAY_NAME = 'HerStep Support';
+const safeAgentProfile = (data, admin) => ({ agentId: admin.uid, name: String(data?.supportDisplayName || admin.displayName || admin.email || 'HerStep Support').trim().slice(0, 60), photoURL: typeof data?.supportPhotoURL === 'string' && /^https:\/\//i.test(data.supportPhotoURL) ? data.supportPhotoURL : '' });
 const categories = new Set(['Order Issue', 'Payment Issue', 'Delivery Issue', 'Product Issue', 'Return/Exchange', 'General Enquiry', 'Other']);
 const msgRe = /^[A-Za-z0-9_-]{8,80}$/;
 const createHits = new Map();
@@ -100,6 +101,20 @@ export async function message(req, res) {
 }
 
 export async function adminList(req, res) { if (req.method !== 'GET') return methodNotAllowed(res, 'GET'); await requireAdmin(req); const snap = await adminDb.collection('supportTickets').limit(200).get(); return res.json({ tickets: snap.docs.map(doc => ({ id: doc.id, ...doc.data(), lastMessageAt: iso(doc.data().lastMessageAt), createdAt: iso(doc.data().createdAt), updatedAt: iso(doc.data().updatedAt) })).sort((a, b) => String(b.lastMessageAt).localeCompare(String(a.lastMessageAt))) }); }
+
+export async function agentProfile(req, res) {
+  const admin = await requireAdmin(req);
+  const ref = adminDb.collection('users').doc(admin.uid);
+  if (req.method === 'GET') { const snap = await ref.get(); return res.json({ profile: safeAgentProfile(snap.exists ? snap.data() : {}, admin) }); }
+  if (req.method !== 'PUT' && req.method !== 'POST') return methodNotAllowed(res, ['GET', 'PUT']);
+  const body = req.body || {};
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const photoURL = typeof body.photoURL === 'string' ? body.photoURL.trim() : '';
+  if (name.length < 2 || name.length > 60) throw clientError('Agent name must be 2–60 characters.');
+  if (photoURL && (!/^https:\/\//i.test(photoURL) || photoURL.length > 1000)) throw clientError('Profile picture must be a valid HTTPS image URL.');
+  await ref.set({ supportDisplayName: name, supportPhotoURL: photoURL, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+  return res.json({ profile: { agentId: admin.uid, name, photoURL } });
+}
 export async function adminStatus(req, res) {
   if (req.method !== 'PATCH') return methodNotAllowed(res, 'PATCH');
   const admin = await requireAdmin(req);
@@ -146,9 +161,16 @@ export async function adminMessage(req, res) {
     if (ticket.data().status === 'CLOSED') throw clientError('This support ticket has been closed.', 409);
     const messageRef = ref.collection('messages').doc(body.clientMessageId);
     if ((await tx.get(messageRef)).exists) return { emailKey: null, ticketId: ticket.data().ticketId, customerEmail: ticket.data().customerEmail || '' };
-    const senderName = SUPPORT_DISPLAY_NAME;
-    tx.set(messageRef, { senderId: admin.uid, senderName, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
-    tx.update(ref, { lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticket.data().messageCount || 1) + 1, updatedAt: FieldValue.serverTimestamp() });
+    const agentSnap = await tx.get(adminDb.collection('users').doc(admin.uid));
+    const agent = safeAgentProfile(agentSnap.exists ? agentSnap.data() : {}, admin);
+    const ticketData = ticket.data();
+    const joining = ticketData.assignedAgentId !== admin.uid;
+    if (joining) {
+      const eventRef = ref.collection('messages').doc(`agent-joined-${admin.uid}-${body.clientMessageId}`);
+      tx.set(eventRef, { senderId: admin.uid, senderName: agent.name, senderPhotoURL: agent.photoURL, senderRole: 'SYSTEM', eventType: 'AGENT_JOINED', body: `${agent.name} joined the chat`, attachments: [], createdAt: FieldValue.serverTimestamp() });
+    }
+    tx.set(messageRef, { senderId: admin.uid, senderName: agent.name, senderPhotoURL: agent.photoURL, senderRole: 'ADMIN', body: input.text, attachments: input.files, createdAt: FieldValue.serverTimestamp() });
+    tx.update(ref, { assignedAgentId: admin.uid, assignedAgentName: agent.name, assignedAgentPhotoURL: agent.photoURL, lastMessage: input.text, lastMessageAt: FieldValue.serverTimestamp(), lastMessageSenderRole: 'ADMIN', messageCount: Number(ticketData.messageCount || 1) + 1 + (joining ? 1 : 0), updatedAt: FieldValue.serverTimestamp() });
     // In-app notification so the reply shows in the bell and the Notifications
     // tab. Deterministic doc id (ticket-SUPPORT_REPLY): a replayed request for
     // the same ticket overwrites one doc — never two notifications per reply.

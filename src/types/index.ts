@@ -133,6 +133,10 @@ export interface SupportMessage {
   senderId: string;
   senderName: string;
   senderRole: 'customer' | 'admin';
+  /** Public-facing support agent avatar URL, when the sender is an agent. */
+  senderPhotoURL?: string;
+  /** Optional system event discriminator, e.g. AGENT_JOINED. */
+  eventType?: string;
   content: string;
   attachments?: { url: string; type: string }[];
   timestamp: string;
