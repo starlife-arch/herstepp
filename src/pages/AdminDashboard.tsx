@@ -124,29 +124,108 @@ function relativeTime(iso: string): string {
   return `${days} day${days === 1 ? '' : 's'} ago`;
 }
 
-function AdminSupport({ tickets }: { tickets: any[] }) {
+function AdminSupport({ tickets, onRefresh }: { tickets: any[]; onRefresh?: () => void }) {
   const [selected, setSelected] = useState<any>(null);
   const [notesOpen, setNotesOpen] = useState(false);
   const [notes, setNotes] = useState<any[]>([]);
   const [note, setNote] = useState('');
+  const [agents, setAgents] = useState<any[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [profileAgentId, setProfileAgentId] = useState('');
   const [agentName, setAgentName] = useState('');
   const [agentPhotoURL, setAgentPhotoURL] = useState('');
+  const [agentActive, setAgentActive] = useState(true);
   const [agentSaving, setAgentSaving] = useState(false);
+  const [assigning, setAssigning] = useState<string | null>(null);
   const [agentNotice, setAgentNotice] = useState('');
-  useEffect(() => { apiFetch('/api/admin/support/agent-profile').then((result: any) => { setAgentName(result.profile?.name || ''); setAgentPhotoURL(result.profile?.photoURL || ''); }).catch(() => setAgentNotice('Could not load agent profile.')); }, []);
-  const saveAgentProfile = async () => { setAgentSaving(true); setAgentNotice(''); try { const result: any = await apiFetch('/api/admin/support/agent-profile', { method: 'PUT', body: JSON.stringify({ name: agentName, photoURL: agentPhotoURL }) }); setAgentName(result.profile.name); setAgentPhotoURL(result.profile.photoURL); setAgentNotice('Support agent profile saved.'); } catch (err: any) { setAgentNotice(err.message || 'Could not save agent profile.'); } finally { setAgentSaving(false); } };
+  const loadAgents = async () => {
+    setAgentsLoading(true);
+    try {
+      const result: any = await apiFetch('/api/admin/support/agents');
+      const rows = Array.isArray(result.agents) ? result.agents : [];
+      setAgents(rows);
+      setProfileAgentId(current => rows.some((a: any) => a.agentId === current) ? current : (rows[0]?.agentId || ''));
+      const chosen = rows.find((a: any) => a.agentId === profileAgentId) || rows[0];
+      if (chosen) { setAgentName(chosen.name || ''); setAgentPhotoURL(chosen.photoURL || ''); setAgentActive(chosen.active !== false); }
+    } catch (error: any) { setAgentNotice(error?.message || 'Could not load support agents.'); }
+    finally { setAgentsLoading(false); }
+  };
+  useEffect(() => { void loadAgents(); }, []);
+  useEffect(() => {
+    const chosen = agents.find((a: any) => a.agentId === profileAgentId);
+    if (chosen) { setAgentName(chosen.name || ''); setAgentPhotoURL(chosen.photoURL || ''); setAgentActive(chosen.active !== false); }
+  }, [profileAgentId, agents]);
+  const saveAgentProfile = async () => {
+    if (!profileAgentId) return;
+    setAgentSaving(true); setAgentNotice('');
+    try {
+      const result: any = await apiFetch('/api/admin/support/agents', { method: 'PUT', body: JSON.stringify({ agentId: profileAgentId, name: agentName, photoURL: agentPhotoURL, active: agentActive }) });
+      setAgents(rows => rows.map((a: any) => a.agentId === profileAgentId ? { ...a, ...result.profile } : a));
+      setAgentNotice('Support agent profile saved.');
+    } catch (err: any) { setAgentNotice(err.message || 'Could not save agent profile.'); }
+    finally { setAgentSaving(false); }
+  };
+  const assign = async (ticket: any, agentId: string) => {
+    if (!agentId) return;
+    setAssigning(ticket.id); setAgentNotice('');
+    try {
+      await apiFetch('/api/admin/support/assign', { method: 'PATCH', body: JSON.stringify({ ticketDocumentId: ticket.id, agentId }) });
+      const agent = agents.find((a: any) => a.agentId === agentId);
+      if (selected?.id === ticket.id) setSelected((old: any) => ({ ...old, assignedAgentId: agentId, assignedAgentName: agent?.name || '', assignedAgentPhotoURL: agent?.photoURL || '' }));
+      setAgentNotice('Ticket assignment saved; the handover is recorded in the conversation history.');
+      onRefresh?.();
+    } catch (error: any) { setAgentNotice(error?.message || 'Could not assign this ticket.'); }
+    finally { setAssigning(null); }
+  };
   const open = async (ticket: any) => {
     setSelected(ticket);
     await apiFetch('/api/admin/support/read', { method: 'POST', body: JSON.stringify({ ticketDocumentId: ticket.id }) }).catch(() => undefined);
-    const result: any = await apiFetch(`/api/admin/support/notes?ticketDocumentId=${encodeURIComponent(ticket.id)}`).catch(() => ({ notes: [] }));
+    const result: any = await apiFetch('/api/admin/support/notes?ticketDocumentId=' + encodeURIComponent(ticket.id)).catch(() => ({ notes: [] }));
     setNotes(result.notes || []);
   };
   const changeStatus = async (status: string) => {
-    await apiFetch('/api/admin/support/status', { method: 'PATCH', body: JSON.stringify({ ticketDocumentId: selected.id, status }) });
-    setSelected({ ...selected, status: toUiTicket({ ...selected, status }, []).status });
+    if (!selected) return;
+    try {
+      await apiFetch('/api/admin/support/status', { method: 'PATCH', body: JSON.stringify({ ticketDocumentId: selected.id, status }) });
+      setSelected({ ...selected, status: toUiTicket({ ...selected, status }, []).status });
+      onRefresh?.();
+    } catch (error: any) { setAgentNotice(error?.message || 'Could not change ticket status.'); }
   };
-  if (selected) return <div className="space-y-4"><Card className="p-4"><div className="flex items-center gap-3"><a className="text-sm font-mono text-neutral-600" href={selected.orderDocumentId ? `/orders/${selected.orderDocumentId}` : undefined}>{selected.orderId || 'No linked order'}</a><select value="" onChange={event => event.target.value && changeStatus(event.target.value)} className="px-3 py-2 border border-neutral-300 rounded-lg text-sm"><option value="">Change status</option>{({ open: ['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'], in_progress: ['WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'], waiting_customer: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'], resolved: ['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'CLOSED'], closed: [] } as any)[selected.status].map((status: string) => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}</select><Button variant="outline" size="sm" onClick={() => setNotesOpen(value => !value)}>Internal notes</Button></div>{notesOpen && <div className="mt-4 space-y-2"><div className="space-y-1">{notes.map(item => <p key={item.id} className="text-sm text-neutral-600">{item.authorName}: {item.body}</p>)}</div><div className="flex gap-2"><input value={note} onChange={event => setNote(event.target.value)} className="flex-1 px-3 py-2 border border-neutral-300 rounded-lg text-sm" placeholder="Add internal note" /><Button size="sm" onClick={async () => { if (!note.trim()) return; await apiFetch('/api/admin/support/notes', { method: 'POST', body: JSON.stringify({ ticketDocumentId: selected.id, body: note }) }); setNote(''); }}>Add</Button></div></div>}</Card><SupportChat ticket={selected} admin onBack={() => setSelected(null)} /></div>;
-  return <div className="space-y-6 animate-fadeIn"><h1 className="text-2xl font-bold text-neutral-900">Support Tickets</h1><Card className="p-4"><h2 className="font-semibold text-neutral-900">Your support agent profile</h2><p className="text-sm text-neutral-500 mt-1">This name and picture appear to customers when you reply to a ticket.</p><div className="mt-3 flex items-center gap-3">{agentPhotoURL ? <img src={agentPhotoURL} alt="Agent profile" className="h-14 w-14 rounded-full object-cover bg-neutral-100" /> : <div className="h-14 w-14 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-400"><MessageSquare className="h-6 w-6" /></div>}<div className="grid flex-1 gap-2 sm:grid-cols-2"><input value={agentName} onChange={e => setAgentName(e.target.value)} maxLength={60} placeholder="Display name" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" /><input value={agentPhotoURL} onChange={e => setAgentPhotoURL(e.target.value)} placeholder="HTTPS profile picture URL" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" /></div><Button onClick={saveAgentProfile} loading={agentSaving} disabled={agentSaving}>Save</Button></div>{agentNotice && <p className="mt-2 text-sm text-neutral-600">{agentNotice}</p>}</Card><div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6"><StatCard title="Open" value={tickets.filter(ticket => ticket.status === 'open').length.toString()} /><StatCard title="In Progress" value={tickets.filter(ticket => ticket.status === 'in_progress').length.toString()} /><StatCard title="Resolved" value={tickets.filter(ticket => ticket.status === 'resolved').length.toString()} /><StatCard title="Closed" value={tickets.filter(ticket => ticket.status === 'closed').length.toString()} /></div><div className="space-y-3">{tickets.map(ticket => <Card key={ticket.id} className="p-4"><div onClick={() => open(ticket)} className="flex items-start justify-between cursor-pointer"><div><div className="flex items-center gap-2 mb-1"><span className="text-xs font-mono text-neutral-500">{ticket.ticketId}</span><Badge variant={getStatusBadge(ticket.status).variant}>{getStatusBadge(ticket.status).label}</Badge></div><p className="font-medium text-sm text-neutral-900">{ticket.subject}</p><p className="text-xs text-neutral-500 mt-1">{ticket.customerName} | {ticket.category}</p></div><Button variant="ghost" size="sm">Open</Button></div></Card>)}</div></div>;
+  if (selected) return <div className="space-y-4">
+    <Card className="p-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-3">
+        <Button variant="outline" size="sm" onClick={() => { setSelected(null); onRefresh?.(); }}>Back to tickets</Button>
+        <span className="text-xs font-mono text-neutral-500">{selected.ticketId}</span>
+        <Badge variant={getStatusBadge(selected.status).variant}>{getStatusBadge(selected.status).label}</Badge>
+        <select aria-label="Change support ticket status" value="" onChange={event => event.target.value && changeStatus(event.target.value)} className="px-3 py-2 border border-neutral-300 rounded-lg text-sm"><option value="">Change status</option>{({ open: ['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'], in_progress: ['WAITING_FOR_CUSTOMER', 'RESOLVED', 'CLOSED'], waiting_customer: ['IN_PROGRESS', 'RESOLVED', 'CLOSED'], resolved: ['IN_PROGRESS', 'WAITING_FOR_CUSTOMER', 'CLOSED'], closed: [] } as any)[selected.status].map((status: string) => <option key={status} value={status}>{status.replace(/_/g, ' ')}</option>)}</select>
+        <Button variant="outline" size="sm" onClick={() => setNotesOpen(value => !value)}>Internal notes</Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 items-end">
+        <div><label className="block text-xs font-medium text-neutral-500 mb-1">Assigned support agent</label><select aria-label="Assign support agent" value={selected.assignedAgentId || ''} disabled={agentsLoading || assigning === selected.id} onChange={event => void assign(selected, event.target.value)} className="w-full px-3 py-2 border border-neutral-300 rounded-lg text-sm"><option value="">Unassigned</option>{agents.filter((a: any) => a.active !== false).map((a: any) => <option key={a.agentId} value={a.agentId}>{a.name}</option>)}</select></div>
+        {selected.assignedAgentName && <div className="flex items-center gap-2 text-sm text-neutral-700">{selected.assignedAgentPhotoURL && <img src={selected.assignedAgentPhotoURL} alt="" className="w-8 h-8 rounded-full object-cover" />}<span>Assigned to <strong>{selected.assignedAgentName}</strong></span></div>}
+      </div>
+      {notesOpen && <div className="space-y-2"><div className="space-y-1">{notes.map(item => <p key={item.id} className="text-sm text-neutral-600">{item.authorName}: {item.body}</p>)}</div><div className="flex gap-2"><input value={note} onChange={event => setNote(event.target.value)} className="flex-1 px-3 py-2 border border-neutral-300 rounded-lg text-sm" placeholder="Add internal note" /><Button size="sm" onClick={async () => { if (!note.trim()) return; await apiFetch('/api/admin/support/notes', { method: 'POST', body: JSON.stringify({ ticketDocumentId: selected.id, body: note }) }); setNote(''); const result: any = await apiFetch('/api/admin/support/notes?ticketDocumentId=' + encodeURIComponent(selected.id)); setNotes(result.notes || []); }}>Add</Button></div></div>}
+    </Card>
+    <SupportChat ticket={selected} admin onBack={() => { setSelected(null); onRefresh?.(); }} />
+  </div>;
+  return <div className="space-y-6 animate-fadeIn">
+    <div><h1 className="text-2xl font-bold text-neutral-900">Support Tickets</h1><p className="text-sm text-neutral-500">Manage agents, assign conversations, and keep a customer-visible record of replies and handovers.</p></div>
+    {agentNotice && <p role="status" className="text-sm text-neutral-600">{agentNotice}</p>}
+    <Card className="p-5 space-y-4">
+      <div><h2 className="font-semibold text-neutral-900">Support agent profiles</h2><p className="text-sm text-neutral-500 mt-1">Select an authorized admin account, set the customer-facing name and HTTPS profile photo, and enable or disable it for assignment.</p></div>
+      {agentsLoading ? <p className="text-sm text-neutral-500">Loading authorized admin accounts…</p> : agents.length === 0 ? <p className="text-sm text-neutral-500">No admin accounts were found.</p> : <>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div><label className="block text-sm font-medium text-neutral-700 mb-1">Admin account</label><select value={profileAgentId} onChange={e => setProfileAgentId(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm">{agents.map((a: any) => <option key={a.agentId} value={a.agentId}>{a.name} {a.email ? '— ' + a.email : ''}</option>)}</select></div>
+          <Input label="Customer-facing name" value={agentName} maxLength={60} onChange={e => setAgentName(e.target.value)} />
+          <Input label="HTTPS profile photo URL" value={agentPhotoURL} onChange={e => setAgentPhotoURL(e.target.value)} />
+          <label className="flex items-center gap-2 text-sm text-neutral-700 self-end pb-2"><input type="checkbox" checked={agentActive} onChange={e => setAgentActive(e.target.checked)} /> Active for ticket assignment</label>
+        </div>
+        <div className="flex items-center gap-3">{agentPhotoURL ? <img src={agentPhotoURL} alt="Agent profile preview" className="h-12 w-12 rounded-full object-cover bg-neutral-100" /> : <div className="h-12 w-12 rounded-full bg-neutral-100" />}<Button onClick={saveAgentProfile} loading={agentSaving} disabled={agentSaving || !profileAgentId}>Save agent profile</Button><Button variant="outline" onClick={() => void loadAgents()} disabled={agentsLoading}>Refresh agents</Button></div>
+      </>}
+    </Card>
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4"><StatCard title="Open" value={tickets.filter(ticket => ticket.status === 'open').length.toString()} /><StatCard title="In Progress" value={tickets.filter(ticket => ticket.status === 'in_progress').length.toString()} /><StatCard title="Resolved" value={tickets.filter(ticket => ticket.status === 'resolved').length.toString()} /><StatCard title="Closed" value={tickets.filter(ticket => ticket.status === 'closed').length.toString()} /></div>
+    <div className="space-y-3">{tickets.map(ticket => <Card key={ticket.id} className="p-4"><div onClick={() => void open(ticket)} className="flex items-start justify-between gap-3 cursor-pointer"><div className="min-w-0"><div className="flex items-center gap-2 mb-1"><span className="text-xs font-mono text-neutral-500">{ticket.ticketId}</span><Badge variant={getStatusBadge(ticket.status).variant}>{getStatusBadge(ticket.status).label}</Badge></div><p className="font-medium text-sm text-neutral-900">{ticket.subject}</p><p className="text-xs text-neutral-500 mt-1">{ticket.customerName} | {ticket.category}</p><p className="text-xs text-neutral-500 mt-1">{ticket.assignedAgentName ? 'Assigned to ' + ticket.assignedAgentName : 'Unassigned'}</p></div><div className="flex items-center gap-2 shrink-0"><select aria-label={'Assign agent for ' + ticket.ticketId} value={ticket.assignedAgentId || ''} disabled={agentsLoading || assigning === ticket.id} onClick={event => event.stopPropagation()} onChange={event => { event.stopPropagation(); void assign(ticket, event.target.value); }} className="max-w-36 px-2 py-1.5 border border-neutral-300 rounded-lg text-xs"><option value="">Unassigned</option>{agents.filter((a: any) => a.active !== false).map((a: any) => <option key={a.agentId} value={a.agentId}>{a.name}</option>)}</select><Button variant="ghost" size="sm" onClick={event => { event.stopPropagation(); void open(ticket); }}>Open</Button></div></div></Card>)}</div>
+  </div>;
 }
 
 function ComingSoon({ title }: { title: string }) {
@@ -768,7 +847,7 @@ export default function AdminDashboard() {
           {activeSection === 'payments' && <AdminPayments res={ordersRes} orders={orders} printpay={printpay} />}
           {activeSection === 'refunds' && <AdminRefunds />}
           {activeSection === 'tips' && <AdminTips />}
-          {activeSection === 'support' && <AdminSupport tickets={supportTickets} />}
+          {activeSection === 'support' && <AdminSupport tickets={supportTickets} onRefresh={supportRes.reload} />}
           {activeSection === 'messages' && <AdminMessages />}
           {activeSection === 'email-campaigns' && <AdminEmailCampaigns />}
           {activeSection === 'sms-campaigns' && <AdminSmsCampaigns />}
