@@ -15,6 +15,7 @@ type Review = {
   createdAt?: string | null;
   helpfulCount?: number;
   notHelpfulCount?: number;
+  photos?: string[];
 };
 
 export function ProductReviews({ productId }: { productId: string }) {
@@ -24,6 +25,11 @@ export function ProductReviews({ productId }: { productId: string }) {
   const [rating, setRating] = useState(5);
   const [title, setTitle] = useState('');
   const [comment, setComment] = useState('');
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [photoFilter, setPhotoFilter] = useState(false);
+  const [ratingFilter, setRatingFilter] = useState('ALL');
+  const [sortBy, setSortBy] = useState('newest');
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -66,6 +72,38 @@ export function ProductReviews({ productId }: { productId: string }) {
     finally { setVoting(null); }
   };
 
+  const uploadPhotos = async (files: FileList | null) => {
+    if (!files?.length) return;
+    const selected = Array.from(files).slice(0, Math.max(0, 3 - photos.length));
+    if (!selected.length) { setMessage({ text: 'You can attach up to 3 photos per review.', error: true }); return; }
+    setUploading(true); setMessage(null);
+    try {
+      const uploaded: string[] = [];
+      for (const file of selected) {
+        if (file.size > 5 * 1024 * 1024) throw new Error('Each photo must be 5 MB or smaller.');
+        const signature: any = await apiFetch('/api/reviews/sign-upload', {
+          method: 'POST',
+          body: JSON.stringify({ fileName: file.name, bytes: file.size, mimeType: file.type }),
+        });
+        const form = new FormData();
+        form.append('file', file);
+        form.append('api_key', signature.apiKey);
+        form.append('timestamp', String(signature.timestamp));
+        form.append('signature', signature.signature);
+        form.append('folder', signature.folder);
+        form.append('public_id', signature.publicId);
+        form.append('allowed_formats', signature.allowedFormats.join(','));
+        const response = await fetch('https://api.cloudinary.com/v1_1/' + signature.cloudName + '/image/upload', { method: 'POST', body: form });
+        const result: any = await response.json();
+        if (!response.ok || !result.secure_url) throw new Error('A photo could not be uploaded. Please try again.');
+        uploaded.push(result.secure_url);
+      }
+      setPhotos(current => [...current, ...uploaded].slice(0, 3));
+    } catch (error: any) {
+      setMessage({ text: error?.message || 'Photo upload failed.', error: true });
+    } finally { setUploading(false); }
+  };
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSubmitting(true);
@@ -73,11 +111,12 @@ export function ProductReviews({ productId }: { productId: string }) {
     try {
       const result: any = await apiFetch('/api/reviews', {
         method: 'POST',
-        body: JSON.stringify({ productId, rating, title, comment }),
+        body: JSON.stringify({ productId, rating, title, comment, photos }),
       });
       setMessage({ text: result.message || 'Review submitted for approval.', error: false });
       setTitle('');
       setComment('');
+      setPhotos([]);
     } catch (error: any) {
       setMessage({ text: error?.message || 'Your review could not be submitted.', error: true });
     } finally {
@@ -121,17 +160,29 @@ export function ProductReviews({ productId }: { productId: string }) {
               <label className="block text-sm font-medium text-neutral-800 mb-1" htmlFor={`review-comment-${productId}`}>Your review</label>
               <textarea id={`review-comment-${productId}`} value={comment} onChange={event => setComment(event.target.value)} required minLength={5} maxLength={2000} rows={4} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="How did the shoes fit? How was the quality?" />
             </div>
-            <Button type="submit" disabled={submitting || comment.trim().length < 5}>{submitting ? 'Submitting…' : 'Submit review'}</Button>
+            <div>
+              <label className="block text-sm font-medium text-neutral-800 mb-1" htmlFor={`review-photos-${productId}`}>Customer photos (optional, up to 3)</label>
+              <input id={`review-photos-${productId}`} type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple onChange={event => { void uploadPhotos(event.target.files); event.currentTarget.value = ''; }} disabled={uploading || photos.length >= 3} className="block w-full text-sm text-neutral-600 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-100 file:px-3 file:py-2" />
+              <p className="mt-1 text-xs text-neutral-500">JPEG, PNG, WebP or AVIF, up to 5 MB each. Photos appear after approval.</p>
+              {uploading && <p className="mt-2 text-xs text-neutral-500">Uploading photos…</p>}
+              {photos.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{photos.map((url, index) => <div key={url} className="relative"><img src={url} alt={`Review upload ${index + 1}`} className="h-16 w-16 rounded-lg border object-cover" /><button type="button" onClick={() => setPhotos(current => current.filter(item => item !== url))} className="absolute -right-2 -top-2 rounded-full bg-neutral-900 px-1.5 text-xs text-white" aria-label="Remove photo">×</button></div>)}</div>}
+            </div>
+            <Button type="submit" disabled={submitting || uploading || comment.trim().length < 5}>{submitting ? 'Submitting…' : 'Submit review'}</Button>
           </form>
         </Card>
       )}
 
       {message && <p role="status" className={`text-sm ${message.error ? 'text-red-700' : 'text-emerald-700'}`}>{message.text}</p>}
+      {!loading && reviews.length > 0 && <div className="flex flex-wrap items-center gap-3">
+        <label className="text-xs text-neutral-600">Rating <select value={ratingFilter} onChange={event => setRatingFilter(event.target.value)} className="ml-2 rounded-lg border border-neutral-300 bg-white px-2 py-2 text-sm"><option value="ALL">All</option><option value="5">5 stars</option><option value="4">4 stars</option><option value="3">3 stars</option><option value="2">2 stars</option><option value="1">1 star</option></select></label>
+        <label className="flex items-center gap-2 text-sm text-neutral-700"><input type="checkbox" checked={photoFilter} onChange={event => setPhotoFilter(event.target.checked)} /> With photos</label>
+        <label className="text-xs text-neutral-600">Sort <select value={sortBy} onChange={event => setSortBy(event.target.value)} className="ml-2 rounded-lg border border-neutral-300 bg-white px-2 py-2 text-sm"><option value="newest">Newest</option><option value="highest">Highest rating</option><option value="lowest">Lowest rating</option><option value="helpful">Most helpful</option></select></label>
+      </div>}
       {loading ? <p className="text-sm text-neutral-500">Loading reviews…</p> : reviews.length === 0 ? (
         <Card className="p-5 text-sm text-neutral-500">No approved reviews yet. If you purchased this product, sign in to share your experience.</Card>
       ) : (
         <div className="space-y-3">
-          {reviews.map(review => (
+          {reviews.filter(review => (ratingFilter === 'ALL' || review.rating === Number(ratingFilter)) && (!photoFilter || Boolean(review.photos?.length))).slice().sort((a, b) => sortBy === 'highest' ? b.rating - a.rating : sortBy === 'lowest' ? a.rating - b.rating : sortBy === 'helpful' ? (b.helpfulCount || 0) - (a.helpfulCount || 0) : String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).map(review => (
             <Card key={review.id} className="p-5">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -143,6 +194,7 @@ export function ProductReviews({ productId }: { productId: string }) {
                 </div>
               </div>
               <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">{review.comment}</p>
+              {!!review.photos?.length && <div className="mt-3 flex flex-wrap gap-2">{review.photos.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer" aria-label={`Open customer photo ${index + 1}`}><img src={url} alt={`Customer review photo ${index + 1}`} loading="lazy" className="h-20 w-20 rounded-lg border border-neutral-200 object-cover" /></a>)}</div>}
               <div className="mt-4 border-t border-neutral-100 pt-3">
                 <p className="text-xs font-medium text-neutral-600 mb-2">Was this helpful?</p>
                 <div className="flex flex-wrap gap-2">

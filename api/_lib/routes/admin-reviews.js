@@ -27,6 +27,7 @@ export default async function adminReviews(req, res) {
         rating: d.rating,
         title: d.title || '',
         comment: d.comment || '',
+        photos: Array.isArray(d.photos) ? d.photos.filter(url => typeof url === 'string').slice(0, 3) : [],
         status: d.status || 'PENDING',
         verifiedPurchase: d.verifiedPurchase === true,
         createdAt: iso(d.createdAt),

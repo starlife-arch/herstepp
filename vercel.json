@@ -73,6 +73,10 @@
       "destination": "/api/admin?route=cron/abandoned-carts"
     },
     {
+      "source": "/api/reviews/sign-upload",
+      "destination": "/api/users?route=reviews/sign-upload"
+    },
+    {
       "source": "/api/reviews",
       "destination": "/api/users?route=reviews"
     },

@@ -13,6 +13,7 @@ type Review = {
   status: string;
   verifiedPurchase: boolean;
   createdAt?: string | null;
+  photos?: string[];
 };
 
 export function AdminReviews() {
@@ -87,6 +88,7 @@ export function AdminReviews() {
                     {Array.from({ length: 5 }, (_, index) => <Star key={index} className={`h-4 w-4 ${index < review.rating ? 'fill-amber-400 text-amber-500' : 'text-neutral-300'}`} />)}
                   </div>
                   <p className="mt-3 whitespace-pre-wrap text-sm leading-relaxed text-neutral-700">{review.comment}</p>
+                  {!!review.photos?.length && <div className="mt-3 flex flex-wrap gap-2">{review.photos.map((url, index) => <a key={url} href={url} target="_blank" rel="noreferrer" aria-label={`Open submitted photo ${index + 1}`}><img src={url} alt={`Submitted review photo ${index + 1}`} loading="lazy" className="h-20 w-20 rounded-lg border border-neutral-200 object-cover" /></a>)}</div>}
                 </div>
                 {review.status !== 'APPROVED' && (
                   <div className="flex shrink-0 gap-2">

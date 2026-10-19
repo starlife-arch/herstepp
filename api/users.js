@@ -11,6 +11,7 @@ export default (req, res) => dispatchRoute(req, res, {
   dashboard: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.dashboard }))),
   notifications: lazyRoute(() => import('./_lib/routes/dashboard.js').then(m => ({ default: m.notifications }))),
   reviews: lazyRoute(() => import('./_lib/routes/reviews.js')),
+  'reviews/sign-upload': lazyRoute(() => import('./_lib/routes/review-sign-upload.js')),
   'restock-alerts': lazyRoute(() => import('./_lib/routes/restock-alerts.js')),
   wishlist: lazyRoute(() => import('./_lib/routes/wishlist.js')),
   'abandoned-cart/snapshot': lazyRoute(() => import('./_lib/routes/abandoned-cart.js').then(m => ({ default: m.snapshot }))),
