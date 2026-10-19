@@ -24,6 +24,7 @@ export default async function reviews(req, res) {
         rating: d.rating,
         title: d.title ?? '',
         comment: d.comment ?? '',
+        photos: Array.isArray(d.photos) ? d.photos.filter(url => typeof url === 'string').slice(0, 3) : [],
         customerName: d.customerName || 'Verified customer',
         verifiedPurchase: true,
         createdAt: d.createdAt?.toDate?.().toISOString?.() ?? null,
@@ -69,6 +70,16 @@ export default async function reviews(req, res) {
     const rating = Number(req.body?.rating);
     const title = clean(req.body?.title).slice(0, 100);
     const comment = clean(req.body?.comment).slice(0, 2000);
+    const photos = Array.isArray(req.body?.photos) ? [...new Set(req.body.photos.filter(url => typeof url === 'string').map(url => url.trim()))].slice(0, 3) : [];
+    const cloudName = String(process.env.CLOUDINARY_CLOUD_NAME || '').trim();
+    const validPhotoUrl = url => {
+      try {
+        const parsed = new URL(url);
+        return parsed.protocol === 'https:' && parsed.hostname === 'res.cloudinary.com' && parsed.pathname.startsWith('/' + cloudName + '/image/upload/') && url.length <= 1200;
+      } catch { return false; }
+    };
+    if (!cloudName && photos.length) throw clientError('Photo uploads are not configured.', 503);
+    if (photos.some(url => !validPhotoUrl(url))) throw clientError('Review photos must be uploaded through HerStep’s secure photo uploader.');
     if (!productId || productId.length > 160) throw clientError('A valid product is required.');
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) throw clientError('Choose a rating from 1 to 5.');
     if (comment.length < 5) throw clientError('Please write at least 5 characters about your experience.');
@@ -98,6 +109,7 @@ export default async function reviews(req, res) {
       rating,
       title,
       comment,
+      photos,
       verifiedPurchase: true,
       status: 'PENDING',
       createdAt: new Date(),
@@ -106,7 +118,7 @@ export default async function reviews(req, res) {
     await adminDb.collection('reviews').doc(reviewIdFor(productId, user.uid)).create(review);
     return res.status(201).json({
       message: 'Thank you. Your review has been submitted for approval.',
-      review: { productId, rating, title, comment, status: 'PENDING', verifiedPurchase: true },
+      review: { productId, rating, title, comment, photos, status: 'PENDING', verifiedPurchase: true },
     });
   }
 
