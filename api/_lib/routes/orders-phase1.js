@@ -278,8 +278,9 @@ export async function adminOrders(req, res) {
     const targetOrder = targetOrderSnap.data() || {};
     const hasMarketplaceItems = (Array.isArray(targetOrder.items) ? targetOrder.items : [])
       .some(item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim());
+    const targetPaymentStatus = String(targetOrder.paymentStatus || '').toUpperCase();
     const cancellingUnpaidOrder = String(orderStatus || '').toUpperCase() === 'CANCELLED'
-      && String(targetOrder.paymentStatus || '').toUpperCase() !== 'PAID';
+      && !['PAID', 'REFUNDED'].includes(targetPaymentStatus);
     if (hasMarketplaceItems && !cancellingUnpaidOrder) {
       throw clientError('This order contains marketplace seller items. Sellers manage fulfilment from their Seller Dashboard; use marketplace admin tools for reports, disputes, moderation, and refunds.', 409);
     }
