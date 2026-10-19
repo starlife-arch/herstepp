@@ -5,7 +5,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { queueEmail, deliverQueuedEmailInline } from './email-service.js';
 import { sendTelegramMessage } from './telegram.js';
-import { buildEmail, orderReceiptEmail, invoiceEmail, escapeHtml } from './email-templates.js';
+import { buildEmail, orderReceiptEmail, invoiceEmail, marketplaceInvoiceEmail, escapeHtml } from './email-templates.js';
 import { invoiceNumberFor } from './invoice-number.js';
 import { siteUrl } from './site-url.js';
 import { queueSms, deliverQueuedSms } from './sms-service.js';
@@ -119,6 +119,49 @@ export function queuePaymentEmail(tx, db, { orderDocumentId, order, paymentId, s
 // In-app notification written in the SAME transaction that marks a payment
 // PAID: "invoice ready" points the customer at My Orders. Deterministic key
 // makes a replayed callback a no-op (same doc id).
+// Seller-specific invoices are queued only after verified payment. Each
+// seller gets only their own lines; the buyer gets one invoice per seller in
+// a multi-seller basket. No SMS is sent for these marketplace invoice notices.
+export function queueMarketplaceSaleInvoices(tx, db, { orderDocumentId, order, sellerDetails, receiptNumber }) {
+  try {
+    const groups = new Map();
+    for (const item of Array.isArray(order?.items) ? order.items : []) {
+      const sellerId = String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim();
+      if (!sellerId) continue;
+      if (!groups.has(sellerId)) groups.set(sellerId, []);
+      groups.get(sellerId).push(item);
+    }
+    const buyerEmail = String(order?.customerEmail || order?.email || '').trim().toLowerCase();
+    for (const [sellerId, items] of groups) {
+      const seller = sellerDetails instanceof Map ? (sellerDetails.get(sellerId) || {}) : (sellerDetails?.[sellerId] || {});
+      const sellerEmail = String(seller.email || seller.contactEmail || seller.applicantEmail || '').trim().toLowerCase();
+      const baseOrder = String(order?.orderId || orderDocumentId || '').replace(/[^A-Za-z0-9-]/g, '').slice(-24);
+      const invoiceNumber = `MKT-${baseOrder}-${sellerId.slice(-6).toUpperCase()}`;
+      const invoice = marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, receiptNumber });
+      if (buyerEmail) {
+        queueEmail(tx, db, {
+          key: `${orderDocumentId}-MARKETPLACE-${sellerId}-BUYER-INVOICE`,
+          purpose: 'invoices', to: buyerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent,
+        });
+      }
+      if (sellerEmail && sellerEmail.includes('@')) {
+        queueEmail(tx, db, {
+          key: `${orderDocumentId}-MARKETPLACE-${sellerId}-SELLER-INVOICE`,
+          purpose: 'invoices', to: sellerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent,
+        });
+      } else {
+        const auditId = Buffer.from(`marketplace-invoice-missing-email:${orderDocumentId}:${sellerId}`).toString('base64url');
+        tx.set(db.collection('sellerMarketplaceAudit').doc(auditId), {
+          action: 'MARKETPLACE_SELLER_INVOICE_EMAIL_MISSING', sellerUid: sellerId,
+          orderDocumentId, orderId: order?.orderId || orderDocumentId, createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[notify] queueMarketplaceSaleInvoices failed:', error?.message || error);
+  }
+}
+
 export function queueInvoiceReadyNotification(tx, db, { orderDocumentId, order, deps }) {
   try {
     if (!order?.customerId) return;
