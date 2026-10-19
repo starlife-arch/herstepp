@@ -4,6 +4,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'sellers/application': lazyRoute(() => import('./_lib/routes/seller-application.js')),
   'sellers/dashboard': lazyRoute(() => import('./_lib/routes/seller-dashboard.js')),
   'sellers/shop': lazyRoute(() => import('./_lib/routes/public-seller-shop.js')),
+  'marketplace/reports': lazyRoute(() => import('./_lib/routes/marketplace-reports.js').then(m => ({ default: m.create }))),
   'sellers/subscription': lazyRoute(() => import('./_lib/routes/seller-subscription.js')),
   'sellers/entitlements': lazyRoute(() => import('./_lib/routes/seller-entitlements.js')),
   'sellers/products': lazyRoute(() => import('./_lib/routes/seller-products.js')),
