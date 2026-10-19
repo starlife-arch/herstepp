@@ -1,7 +1,7 @@
 import { usePageMeta } from '../hooks/usePageMeta';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowRight, Truck, Shield, Clock, MapPin, Star, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowRight, Truck, Shield, Clock, MapPin, Star, Sparkles, ChevronLeft, ChevronRight, BadgeCheck } from 'lucide-react';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { Button, Card, Skeleton, EmptyState, formatCurrency } from '../components/ui';
 import { loadHero, heroImageUrl, heroVideoUrl, type HeroData, type HeroSlide } from '../lib/storefront';
@@ -183,6 +183,7 @@ export default function Home() {
   const featured = products.filter(p => p.featured);
   const newArrivals = products.filter(p => p.newArrival);
   const bestsellers = products.filter(p => p.bestseller);
+  const promotedProducts = products.filter(p => { const expiry = p.promotedUntil ? new Date(p.promotedUntil).getTime() : 0; return Number.isFinite(expiry) && expiry > Date.now(); });
   const [hero, setHero] = useState<HeroData | null>(null);
 
   // Load /api/hero once (the loader caches it); while loading or without
@@ -210,7 +211,14 @@ export default function Home() {
       {/* Hero Section */}
       {hero ? <HeroCarousel hero={hero} /> : <StaticHero />}
 
-      {/* Promo banner hidden until Phase 2 — promotions have no backend yet. */}
+      {/* Paid marketplace promotions are shown near the top of the homepage. */}
+      {promotedProducts.length > 0 && <section className="max-w-7xl mx-auto px-4 sm:px-6 pt-8">
+        <div className="flex items-center justify-between mb-5">
+          <div><p className="text-xs font-bold tracking-wider text-amber-700">SPONSORED MARKETPLACE LISTINGS</p><h2 className="text-2xl font-bold text-neutral-900 mt-1">Promoted products</h2></div>
+          <Link to="/shop" className="text-sm font-medium text-neutral-600 hover:text-neutral-900 flex items-center gap-1">View all <ArrowRight className="w-4 h-4" /></Link>
+        </div>
+        <ProductGrid loading={catalogLoading} products={promotedProducts} />
+      </section>}
 
       {/* Categories */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-16">
@@ -330,9 +338,13 @@ function ProductGrid({ products, loading }: { products: Product[]; loading: bool
   if (products.length === 0) {
     return <p className="text-sm text-neutral-500 py-6">Nothing here yet — check back soon.</p>;
   }
+  const ordered = [...products].sort((a, b) => {
+    const active = (p: Product) => { const expiry = p.promotedUntil ? new Date(p.promotedUntil).getTime() : 0; return Number.isFinite(expiry) && expiry > Date.now(); };
+    return Number(active(b)) - Number(active(a));
+  });
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-      {products.map(product => <ProductCard key={product.id} product={product} />)}
+      {ordered.map(product => <ProductCard key={product.id} product={product} />)}
     </div>
   );
 }
@@ -368,7 +380,7 @@ export function ProductCard({ product }: { product: Product }) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
-          {isPromoted && !isSoldOut && <div className="absolute bottom-2 left-2"><span className="bg-amber-300 text-neutral-900 px-2 py-0.5 rounded text-xs font-bold">PROMOTED</span></div>}
+          {isPromoted && <div className="absolute bottom-2 left-2"><span className="bg-amber-300 text-neutral-900 px-2 py-0.5 rounded text-xs font-bold">PROMOTED · AD</span></div>}
           {isSoldOut && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <span className="bg-white text-neutral-900 px-3 py-1 rounded-full text-xs font-bold">SOLD OUT</span>
@@ -387,7 +399,11 @@ export function ProductCard({ product }: { product: Product }) {
         </div>
         <div className="p-3 sm:p-4">
           {categoryName && <p className="text-xs text-neutral-500 mb-1">{categoryName}</p>}
-          <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-2 line-clamp-2">{product.name}</h3>
+          <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-1 line-clamp-2">{product.name}</h3>
+          {product.sellerUid && <p className="text-xs text-neutral-600 mb-2 flex items-center gap-1 min-w-0">
+            <span className="truncate">{product.sellerBusinessName || product.sellerDisplayName || 'Marketplace seller'}</span>
+            {product.sellerVerificationBadgeActive && <span title="Verified seller" aria-label="Verified seller" className="inline-flex shrink-0 text-blue-600"><BadgeCheck className="w-3.5 h-3.5 fill-blue-50" /></span>}
+          </p>}
           <div className="flex items-center gap-2 mb-2">
             {hasDiscount(product) ? (
               <>

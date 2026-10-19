@@ -20,6 +20,8 @@ export interface Product {
   sellerDisplayName?: string;
   sellerBusinessName?: string;
   marketplaceSeller?: boolean;
+  promotedUntil?: string | null;
+  sellerVerificationBadgeActive?: boolean;
   createdAt: string;
   updatedAt: string;
 }

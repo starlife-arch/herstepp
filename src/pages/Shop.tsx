@@ -78,6 +78,13 @@ export default function Shop() {
       case 'popular': result.sort((a, b) => (b.bestseller ? 1 : 0) - (a.bestseller ? 1 : 0)); break;
       case 'newest': result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()); break;
     }
+    // Paid, currently active promotions take priority while preserving the user's
+    // chosen sort order within promoted and non-promoted groups.
+    const activePromotion = (product: typeof result[number]) => {
+      const expiry = product.promotedUntil ? new Date(product.promotedUntil).getTime() : 0;
+      return Number.isFinite(expiry) && expiry > Date.now();
+    };
+    result.sort((a, b) => Number(activePromotion(b)) - Number(activePromotion(a)));
     return result;
   }, [products, categories, search, selectedCategory, selectedSize, priceRange, sortBy, availability]);
 
