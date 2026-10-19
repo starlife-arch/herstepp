@@ -11,17 +11,31 @@ async function availableAfterRefundHolds(ledgerDocs, readOrder) {
   const orderIds = [...new Set(rows.filter(row => row.data.balanceBucket === 'AVAILABLE' && row.data.orderDocumentId).map(row => row.data.orderDocumentId))];
   const orderStatuses = new Map();
   for (const orderId of orderIds) {
-    const snap = await readOrder(orderId);
-    const data = snap.exists ? snap.data() || {} : {};
-    orderStatuses.set(orderId, {
-      status: snap.exists ? String(data.refundStatus || (data.paymentStatus === 'REFUNDED' ? 'CONFIRMED' : 'NONE')).toUpperCase() : 'UNKNOWN',
-      reconciliationStatus: String(data.marketplaceRefundReconciliationStatus || 'REQUIRED').toUpperCase(),
-    });
+    // Older ledger rows can contain an order reference that is not a bare
+    // Firestore document ID. Treat those rows as held rather than letting one
+    // malformed reference crash the entire seller payout endpoint.
+    if (typeof orderId !== 'string' || !orderId.trim() || orderId.includes('/')) {
+      orderStatuses.set(orderId, { status: 'UNKNOWN', reconciliationStatus: 'REQUIRED', readFailed: true });
+      continue;
+    }
+    try {
+      const snap = await readOrder(orderId);
+      const data = snap.exists ? snap.data() || {} : {};
+      orderStatuses.set(orderId, {
+        status: snap.exists ? String(data.refundStatus || (data.paymentStatus === 'REFUNDED' ? 'CONFIRMED' : 'NONE')).toUpperCase() : 'UNKNOWN',
+        reconciliationStatus: String(data.marketplaceRefundReconciliationStatus || 'REQUIRED').toUpperCase(),
+        readFailed: !snap.exists,
+      });
+    } catch (error) {
+      console.error('[marketplace-payouts] Could not inspect order before releasing seller earnings; holding balance.', { orderId, message: error?.message || String(error) });
+      orderStatuses.set(orderId, { status: 'UNKNOWN', reconciliationStatus: 'REQUIRED', readFailed: true });
+    }
   }
   return rows.filter(row => {
     if (row.data.balanceBucket !== 'AVAILABLE') return false;
     if (!row.data.orderDocumentId) return true;
-    const order = orderStatuses.get(row.data.orderDocumentId) || { status: 'UNKNOWN', reconciliationStatus: 'REQUIRED' };
+    const order = orderStatuses.get(row.data.orderDocumentId) || { status: 'UNKNOWN', reconciliationStatus: 'REQUIRED', readFailed: true };
+    if (order.readFailed || order.status === 'UNKNOWN') return false;
     if (!REFUND_HOLD.has(order.status)) return true;
     return ['CONFIRMED', 'PARTIALLY_REFUNDED'].includes(order.status) && order.reconciliationStatus === 'RECONCILED';
   }).reduce((sum, row) => sum + Number(row.data.amount || 0), 0);
