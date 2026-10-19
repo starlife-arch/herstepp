@@ -6,7 +6,7 @@ import { apiFetch } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
 
 type ImageItem = { url: string; publicId: string; resourceType: 'image' };
-type Draft = { id: string; name: string; categoryId: string; price: number; status: string; updatedAt?: string };
+type Draft = { id: string; name: string; description?: string; categoryId: string; sku?: string; price: number; salePrice?: number | null; inventory?: { size: string; quantity: number; costPrice?: number | null }[]; images?: ImageItem[]; status: string; updatedAt?: string };
 type Category = { id: string; name: string };
 
 const sizeOptions = [...Array.from({ length: 16 }, (_, i) => String(i + 30)), 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size', 'Free Size'];
@@ -50,6 +50,7 @@ export default function SellerProducts() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -97,8 +98,9 @@ export default function SellerProducts() {
     event.preventDefault(); setSaving(true); setError(''); setMessage('');
     try {
       const result: any = await apiFetch('/api/sellers/products', {
-        method: 'POST',
+        method: editingId ? 'PATCH' : 'POST',
         body: JSON.stringify({
+          ...(editingId ? { id: editingId } : {}),
           name, description, categoryId, sku: sku.toUpperCase(),
           price: Number(price),
           salePrice: salePrice.trim() ? Number(salePrice) : null,
@@ -106,10 +108,11 @@ export default function SellerProducts() {
           images,
         }),
       });
-      setDrafts(old => [result.product, ...old]);
+      setDrafts(old => editingId ? old.map(item => item.id === editingId ? result.product : item) : [result.product, ...old]);
+      setEditingId(null);
       setName(''); setDescription(''); setSku(''); setPrice(''); setSalePrice('');
       setQuantity('1'); setCostPrice(''); setImages([]);
-      setMessage('Draft saved privately. It is not visible in the public shop.');
+      setMessage(editingId ? 'Private draft updated.' : 'Draft saved privately. It is not visible in the public shop.');
     } catch (err: any) {
       setError(err?.message || 'Could not save product draft.');
     } finally { setSaving(false); }
@@ -135,7 +138,7 @@ export default function SellerProducts() {
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">
         <Card className="p-5 sm:p-6 lg:col-span-3">
-          <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2 mb-5"><PackagePlus className="w-5 h-5" /> Create product draft</h2>
+          <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2 mb-5"><PackagePlus className="w-5 h-5" /> {editingId ? 'Edit product draft' : 'Create product draft'}</h2>
           <form onSubmit={saveDraft} className="space-y-4">
             <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-name">Product name</label><input id="seller-product-name" className={fieldClass} value={name} onChange={e => setName(e.target.value)} maxLength={160} required placeholder="e.g. Satin evening dress" /></div>
             <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-description">Description</label><textarea id="seller-product-description" className={fieldClass} value={description} onChange={e => setDescription(e.target.value)} maxLength={4000} rows={3} placeholder="Describe the product, material, fit, and care." /></div>
@@ -161,14 +164,15 @@ export default function SellerProducts() {
               </label>
               {images.length > 0 && <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">{images.map((image, index) => <div key={image.publicId} className="relative"><img src={image.url} alt={`Product upload ${index + 1}`} className="aspect-square w-full object-cover rounded-lg border" /><button type="button" onClick={() => setImages(old => old.filter((_, i) => i !== index))} className="absolute top-1 right-1 rounded-full bg-white p-1 shadow" aria-label="Remove image"><Trash2 className="w-4 h-4 text-red-600" /></button></div>)}</div>}
             </div>
-            <Button type="submit" disabled={saving || uploading || !images.length || !categories.length} className="w-full"><Save className="w-4 h-4 mr-2" />{saving ? 'Saving draft…' : 'Save private draft'}</Button>
+            <Button type="submit" disabled={saving || uploading || !images.length || !categories.length} className="w-full"><Save className="w-4 h-4 mr-2" />{saving ? 'Saving draft…' : editingId ? 'Update private draft' : 'Save private draft'}</Button>
+            {editingId && <Button type="button" variant="outline" className="w-full" onClick={() => { setEditingId(null); setName(''); setDescription(''); setSku(''); setPrice(''); setSalePrice(''); setQuantity('1'); setCostPrice(''); setImages([]); }}>Cancel editing</Button>}
           </form>
         </Card>
 
         <section className="lg:col-span-2">
           <Card className="p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3 mb-4"><h2 className="text-lg font-semibold">My saved drafts</h2><span className="text-xs rounded-full bg-neutral-100 px-2.5 py-1">{drafts.length}</span></div>
-            {loading ? <p className="text-sm text-neutral-500 py-6 text-center">Loading drafts…</p> : drafts.length === 0 ? <div className="text-center py-8 text-sm text-neutral-500"><Store className="w-8 h-8 mx-auto mb-2 opacity-50" />No product drafts yet.</div> : <div className="space-y-3">{drafts.map(draft => <div key={draft.id} className="flex items-start gap-3 rounded-lg border border-neutral-200 p-3"><div className="rounded-lg bg-neutral-100 p-2"><PackagePlus className="w-5 h-5 text-neutral-600" /></div><div className="min-w-0 flex-1"><p className="font-medium text-sm break-words">{draft.name}</p><p className="text-xs text-neutral-500 mt-1">{money(draft.price)} · Private draft</p><p className="text-xs text-neutral-500 mt-1">Status: {draft.status}</p></div></div>)}</div>}
+            {loading ? <p className="text-sm text-neutral-500 py-6 text-center">Loading drafts…</p> : drafts.length === 0 ? <div className="text-center py-8 text-sm text-neutral-500"><Store className="w-8 h-8 mx-auto mb-2 opacity-50" />No product drafts yet.</div> : <div className="space-y-3">{drafts.map(draft => <div key={draft.id} className="flex items-start gap-3 rounded-lg border border-neutral-200 p-3"><div className="rounded-lg bg-neutral-100 p-2"><PackagePlus className="w-5 h-5 text-neutral-600" /></div><div className="min-w-0 flex-1"><p className="font-medium text-sm break-words">{draft.name}</p><p className="text-xs text-neutral-500 mt-1">{money(draft.price)} · Private draft</p><p className="text-xs text-neutral-500 mt-1">Status: {draft.status}</p><button type="button" className="mt-2 text-sm font-medium underline" onClick={() => { setEditingId(draft.id); setName(draft.name); setDescription(draft.description || ''); setCategoryId(draft.categoryId); setSku(draft.sku || ''); setPrice(String(draft.price)); setSalePrice(draft.salePrice == null ? '' : String(draft.salePrice)); const first = draft.inventory?.[0]; setSize(first?.size || 'One Size'); setQuantity(String(first?.quantity ?? 1)); setCostPrice(first?.costPrice == null ? '' : String(first.costPrice)); setImages(draft.images || []); setError(''); setMessage('Editing a private draft.'); }}>Edit draft</button></div></div>)}</div>}
           </Card>
           <p className="text-xs text-neutral-500 mt-3">Product editing, multiple stock variants, bulk AI upload, and publishing will be added in later reviewed steps.</p>
         </section>
