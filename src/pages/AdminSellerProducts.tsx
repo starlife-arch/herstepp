@@ -14,14 +14,14 @@ type SellerProduct = {
 };
 const money = (amount: number) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(amount);
 const filters = [
-  { value: 'ALL', label: 'All listings' }, { value: 'DRAFT', label: 'Awaiting review' },
+  { value: 'ALL', label: 'All listings' }, { value: 'PENDING_REVIEW', label: 'Submitted — awaiting review' }, { value: 'DRAFT', label: 'Private drafts' },
   { value: 'APPROVED', label: 'Approved — private' }, { value: 'PUBLISHED', label: 'Published' },
   { value: 'REJECTED', label: 'Rejected' },
 ];
 
 export default function AdminSellerProducts() {
   usePageMeta('Seller Product Moderation | HerStep Admin', 'Review seller marketplace product listings.');
-  const [status, setStatus] = useState('DRAFT');
+  const [status, setStatus] = useState('PENDING_REVIEW');
   const [products, setProducts] = useState<SellerProduct[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -69,7 +69,7 @@ export default function AdminSellerProducts() {
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-4">{error}</div>}
     {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 mb-4">{notice}</div>}
     {loading ? <Card className="p-8 text-center text-sm text-neutral-500">Loading seller listings…</Card> : products.length === 0 ?
-      <Card><EmptyState title="No seller listings found" description={status === 'DRAFT' ? 'New seller drafts will appear here for review.' : 'Try another listing status filter.'} /></Card> :
+      <Card><EmptyState title="No seller listings found" description={status === 'PENDING_REVIEW' ? 'Submitted seller listings will appear here for review.' : status === 'DRAFT' ? 'Private drafts are not yet submitted by their sellers.' : 'Try another listing status filter.'} /></Card> :
       <div className="space-y-4">{products.map(product => {
         const badge = getStatusBadge(product.status);
         const busy = busyId === product.id;
@@ -83,8 +83,8 @@ export default function AdminSellerProducts() {
             {product.moderationReason && <p className="text-sm text-rose-700 mt-2">Reason: {product.moderationReason}</p>}
             <div className="mt-4 max-w-xl"><Input label="Decision reason / note" value={reasons[product.id] ?? product.moderationReason ?? ''} onChange={e => setReasons(old => ({ ...old, [product.id]: e.target.value }))} maxLength={500} placeholder="Required when rejecting" /></div>
             <div className="flex flex-wrap gap-2 mt-3">
-              {['DRAFT', 'REJECTED'].includes(product.status) && <Button size="sm" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => moderate(product, 'APPROVE')}><ShieldCheck className="w-4 h-4 mr-1.5" /> Approve draft</Button>}
-              {['DRAFT', 'APPROVED', 'REJECTED'].includes(product.status) && <Button size="sm" variant="danger" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => moderate(product, 'REJECT')}><XCircle className="w-4 h-4 mr-1.5" /> Reject</Button>}
+              {['DRAFT', 'PENDING_REVIEW', 'REJECTED'].includes(product.status) && <Button size="sm" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => moderate(product, 'APPROVE')}><ShieldCheck className="w-4 h-4 mr-1.5" /> Approve listing</Button>}
+              {['DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED'].includes(product.status) && <Button size="sm" variant="danger" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => moderate(product, 'REJECT')}><XCircle className="w-4 h-4 mr-1.5" /> Reject</Button>}
               {product.status === 'APPROVED' && <Button size="sm" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => moderate(product, 'PUBLISH')}><CheckCircle2 className="w-4 h-4 mr-1.5" /> Publish publicly</Button>}
               {product.status === 'PUBLISHED' && product.publishedProductId && <Link to={'/product/' + encodeURIComponent(product.publishedProductId)} className="inline-flex items-center text-sm font-medium underline">View public listing</Link>}
             </div>
