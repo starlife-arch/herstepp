@@ -614,14 +614,14 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       failureReason: status === PAYMENT_STATUS.PAID ? null : (callback.reason || `M-Pesa ${status.toLowerCase()}`),
       receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
     });
-    if (status === PAYMENT_STATUS.PAID) {
-      queueMarketplaceSaleInvoices(tx, db, {
-        orderDocumentId: payment.orderDocumentId,
-        order: { ...order, ...orderUpdate },
-        sellerDetails: marketplaceSellerDetails,
-        receiptNumber: receiptNumberFor(paymentRef.id),
-      });
-    }
+    const marketplaceEmailKeys = status === PAYMENT_STATUS.PAID
+      ? queueMarketplaceSaleInvoices(tx, db, {
+          orderDocumentId: payment.orderDocumentId,
+          order: { ...order, ...orderUpdate },
+          sellerDetails: marketplaceSellerDetails,
+          receiptNumber: receiptNumberFor(paymentRef.id),
+        }) || []
+      : [];
     const smsKey = queuePaymentSms(tx, db, {
       orderDocumentId: payment.orderDocumentId,
       order,
@@ -776,7 +776,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       }
     }
 
-    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys, smsKey };
+    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: [...queuedEmailKeys, ...marketplaceEmailKeys], smsKey };
   }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
 }
 
