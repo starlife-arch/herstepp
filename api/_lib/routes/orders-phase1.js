@@ -7,7 +7,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { waitUntil } from '@vercel/functions';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
+import { ALLOWED_ORDER_TRANSITIONS, adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
 import { deliverEmailAfterCommit } from '../notify.js';
 import { retryPendingEmails } from '../email-service.js';
 import { retryPendingSms } from '../sms-service.js';
@@ -111,6 +111,7 @@ export async function track(req, res) {
       orderStatus: d.orderStatus,
       paymentStatus: d.paymentStatus,
       sellerFulfilment: d.sellerFulfilment || {},
+      firstPartyFulfilment: d.firstPartyFulfilment || null,
       // Invoice number exists as soon as the payment is PAID (set in the same
       // transaction). Derive defensively for legacy paid orders.
       invoiceNumber: d.invoiceNumber
@@ -282,7 +283,40 @@ export async function adminOrders(req, res) {
     const cancellingUnpaidOrder = String(orderStatus || '').toUpperCase() === 'CANCELLED'
       && !['PAID', 'REFUNDED'].includes(targetPaymentStatus);
     if (hasMarketplaceItems && !cancellingUnpaidOrder) {
-      throw clientError('This order contains marketplace seller items. Sellers manage fulfilment from their Seller Dashboard; use marketplace admin tools for reports, disputes, moderation, and refunds.', 409);
+      const hasFirstPartyItems = (Array.isArray(targetOrder.items) ? targetOrder.items : [])
+        .some(item => !String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim());
+      if (hasFirstPartyItems && targetPaymentStatus === 'PAID') {
+        const orderRef = adminDb.collection('orders').doc(orderDocumentId);
+        const requested = String(orderStatus || '').toUpperCase();
+        const noteText = typeof note === 'string' ? note.trim().slice(0, 500) : '';
+        await adminDb.runTransaction(async tx => {
+          const snap = await tx.get(orderRef);
+          if (!snap.exists) throw clientError('Order not found.', 404);
+          const order = snap.data() || {};
+          const current = String(order.firstPartyFulfilment?.status || 'PENDING').toUpperCase();
+          if (String(order.paymentStatus || '').toUpperCase() !== 'PAID') throw clientError('Payment must be confirmed before fulfilment.', 409);
+          if (!(ALLOWED_ORDER_TRANSITIONS[current] || []).includes(requested)) {
+            throw clientError(`Cannot move HerStep-owned items from ${current.replace(/_/g, ' ').toLowerCase()} to ${requested.replace(/_/g, ' ').toLowerCase()}.`, 409);
+          }
+          const now = FieldValue.serverTimestamp();
+          tx.update(orderRef, {
+            firstPartyFulfilment: { status: requested, note: noteText, updatedAt: now, updatedBy: a.uid },
+            updatedAt: now,
+          });
+          tx.set(adminDb.collection('orderStatusHistory').doc(), {
+            orderId: order.orderId || orderDocumentId, orderDocumentId, customerId: order.customerId || null,
+            eventType: 'FIRST_PARTY_FULFILMENT_STATUS_CHANGED', previousStatus: current, newStatus: requested,
+            paymentStatus: order.paymentStatus, note: noteText, source: 'ADMIN', adminUid: a.uid, createdAt: now,
+          });
+          tx.set(adminDb.collection('notifications').doc(`${orderDocumentId}-FIRST_PARTY_${requested}`), {
+            customerId: order.customerId, orderDocumentId, event: 'FIRST_PARTY_FULFILMENT_STATUS_CHANGED',
+            title: 'HerStep item update', body: `The HerStep Collection items in your order are now ${requested.replace(/_/g, ' ').toLowerCase()}.`,
+            readAt: null, createdAt: now,
+          });
+        });
+        return res.json({ ok: true, message: 'Updated fulfilment for HerStep-owned items only. Marketplace sellers manage their own items separately.' });
+      }
+      throw clientError('This is a marketplace seller order. Sellers manage fulfilment from their Seller Dashboard; use marketplace admin tools for reports, disputes, moderation, and refunds.', 409);
     }
   }
   const result = await adminOrderTransitionCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
