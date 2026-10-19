@@ -231,6 +231,7 @@ export async function adminOrders(req, res) {
       customerName: o.customerName ?? '',
       customerPhone: o.customerPhone ?? o.delivery?.phone ?? '',
       customerEmail: o.customerEmail ?? '',
+      firstPartyFulfilment: o.firstPartyFulfilment || null,
       delivery: {
         fullName: o.delivery?.fullName ?? '',
         phone: o.delivery?.phone ?? '',
