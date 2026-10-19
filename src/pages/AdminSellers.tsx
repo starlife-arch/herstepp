@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ClipboardCheck, RefreshCw, ShieldCheck, Store } from 'lucide-react';
+import { ArrowLeft, ClipboardCheck, RefreshCw, ShieldCheck, Store, Save } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, getStatusBadge, formatDateTime } from '../components/ui';
 import { apiFetch } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -33,6 +33,7 @@ export default function AdminSellers() {
   const [status, setStatus] = useState('PENDING');
   const [applications, setApplications] = useState<SellerApplication[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [profileEdits, setProfileEdits] = useState<Record<string, { displayName: string; businessName: string }>>({});
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState('');
   const [error, setError] = useState('');
@@ -52,6 +53,30 @@ export default function AdminSellers() {
   }, [status]);
 
   useEffect(() => { load(); }, [load]);
+
+  const saveBusinessProfile = async (application: SellerApplication) => {
+    const edit = profileEdits[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName };
+    if (edit.displayName.trim().length < 2 || edit.businessName.trim().length < 2) {
+      setError('Display name and business name must each be at least 2 characters.');
+      return;
+    }
+    setBusyId(application.applicantUid); setError(''); setNotice('');
+    try {
+      const result: any = await apiFetch('/api/admin/sellers/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          sellerUid: application.applicantUid,
+          displayName: edit.displayName,
+          businessName: edit.businessName,
+          reason: (reasons[application.applicantUid] || 'Admin profile correction').trim(),
+        }),
+      });
+      setNotice(result.message || 'Seller business profile updated.');
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'Could not update the seller business profile.');
+    } finally { setBusyId(''); }
+  };
 
   const updateApplication = async (application: SellerApplication, nextStatus: string) => {
     if (nextStatus === 'REJECTED' && (reasons[application.applicantUid] || '').trim().length < 3) {
@@ -133,6 +158,12 @@ export default function AdminSellers() {
                       </div>
                     </div>
                     <div className="w-full lg:max-w-sm space-y-3">
+                      <div className="rounded-lg border border-neutral-200 p-3 space-y-3">
+                        <p className="text-sm font-semibold">Business profile details</p>
+                        <Input label="Seller display name" value={(profileEdits[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }).displayName} onChange={e => setProfileEdits(current => ({ ...current, [application.applicantUid]: { ...(current[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }), displayName: e.target.value } }))} maxLength={60} />
+                        <Input label="Business name" value={(profileEdits[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }).businessName} onChange={e => setProfileEdits(current => ({ ...current, [application.applicantUid]: { ...(current[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }), businessName: e.target.value } }))} maxLength={100} />
+                        <Button size="sm" variant="outline" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => void saveBusinessProfile(application)}><Save className="w-4 h-4 mr-1.5" /> Save profile (admin override)</Button>
+                      </div>
                       <Input label="Admin note / decision reason" value={reasons[application.applicantUid] ?? application.adminReason ?? ''} onChange={e => setReasons(current => ({ ...current, [application.applicantUid]: e.target.value }))} placeholder="Add context for the applicant" maxLength={500} />
                       <div className="flex flex-wrap gap-2">
                         {application.status === 'PENDING' && <>
