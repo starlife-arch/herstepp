@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, ShieldCheck, Store } from 'lucide-react';
+import { ArrowLeft, ClipboardCheck, RefreshCw, ShieldCheck, Store } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, getStatusBadge, formatDateTime } from '../components/ui';
 import { apiFetch } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -89,7 +89,7 @@ export default function AdminSellers() {
             <h1 className="text-3xl font-bold text-neutral-900">Seller applications</h1>
             <p className="text-sm text-neutral-600 mt-2">Review applicants before enabling their seller accounts.</p>
           </div>
-          <Button variant="outline" onClick={load} loading={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
+          <div className="flex flex-wrap gap-2"><Link to="/admin/seller-products"><Button variant="secondary"><ClipboardCheck className="w-4 h-4 mr-2" /> Product moderation</Button></Link><Button variant="outline" onClick={load} loading={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div>
         </div>
 
         <Card className="p-4 mb-6">
