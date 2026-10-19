@@ -3,6 +3,7 @@ import { adminDb, requireUser } from '../firebase-admin.js';
 import { getMpesaProvider } from '../mpesa-provider.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { SELLER_PLANS, SELLER_BADGE_MONTHLY_FEE, normalizeSellerPhone, sellerSubscriptionPaymentId, applySellerSubscriptionPayment } from '../seller-subscription-core.js';
+import { RECONCILE_TIMEOUT_MS } from '../order-core.js';
 
 export default async function sellerSubscription(req, res) {
   const user = await requireUser(req);
@@ -18,6 +19,10 @@ export default async function sellerSubscription(req, res) {
     if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== user.uid) throw clientError('An approved seller account is required.', 403);
     const seller = sellerSnap.data();
     if (seller.status !== 'ACTIVE') throw clientError('Your seller account is not active.', 403);
+    const expiry = seller.subscriptionExpiresAt?.toDate?.() || (seller.subscriptionExpiresAt instanceof Date ? seller.subscriptionExpiresAt : null);
+    if (seller.billingStatus === 'ACTIVE' && expiry && expiry.getTime() > Date.now()) {
+      throw clientError('Your current subscription is still active. You can purchase the next plan after it expires.', 409);
+    }
     const paymentId = sellerSubscriptionPaymentId(user.uid, idempotencyKey);
     const paymentRef = adminDb.collection('sellerSubscriptionPayments').doc(paymentId);
     const created = await adminDb.runTransaction(async tx => {
@@ -75,6 +80,15 @@ export default async function sellerSubscription(req, res) {
             eventId: result.eventId || 'seller-status:' + paymentId + ':' + result.status,
             source: 'PRINTPAY', reason: result.reason || null,
           });
+        } else {
+          const initiatedMs = data.initiatedAt?.toMillis?.() || data.createdAt?.toMillis?.() || 0;
+          if (initiatedMs && Date.now() - initiatedMs > RECONCILE_TIMEOUT_MS) {
+            await applySellerSubscriptionPayment(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
+              providerReference: data.providerReference, status: 'TIMEOUT', amount: Number(data.amount),
+              transactionReference: null, eventId: 'seller-timeout:' + paymentId, source: 'SYSTEM',
+              reason: 'The M-Pesa request timed out or was cancelled.',
+            });
+          }
         }
       } catch (error) {
         console.error('seller-subscription status reconciliation failed:', error?.message || error);
