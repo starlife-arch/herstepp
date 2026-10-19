@@ -18,6 +18,7 @@ function serializeProfile(seller, application, uid) {
     displayName: String(seller.displayName || application.displayName || ''),
     businessName: String(seller.businessName || application.businessName || ''),
     phone: String(seller.phone || application.phone || ''),
+    defaultPayoutPhone: String(seller.defaultPayoutPhone || ''),
     description: String(seller.description || application.description || ''),
     categories: Array.isArray(seller.categories) ? seller.categories : Array.isArray(application.categories) ? application.categories : [],
     sellerStatus: String(seller.status || application.status || 'NOT_STARTED'),
@@ -115,6 +116,7 @@ export default async function sellerProfile(req, res) {
     const displayName = clean(req.body?.displayName).slice(0, 60);
     const phone = clean(req.body?.phone).slice(0, 24);
     const description = clean(req.body?.description).slice(0, 500);
+    const defaultPayoutPhone = clean(req.body?.defaultPayoutPhone) ? normalizeSellerPhone(req.body.defaultPayoutPhone) : '';
     const categories = [...new Set((Array.isArray(req.body?.categories) ? req.body.categories : [])
       .map(clean).filter(value => ['shoes', 'dresses', 'watches', 'necklaces', 'handbags', 'bags', 'accessories', 'other'].includes(value)).slice(0, 8))];
     if (displayName.length < 2) throw clientError('Enter a seller display name (at least 2 characters).');
@@ -123,12 +125,12 @@ export default async function sellerProfile(req, res) {
     const [sellerSnap, appSnap] = await Promise.all([sellerRef.get(), applicationRef.get()]);
     if (!sellerSnap.exists && !appSnap.exists) throw clientError('Submit a seller application before editing your profile.', 404);
     const now = FieldValue.serverTimestamp();
-    const shared = { displayName, phone, description, categories, updatedAt: now };
+    const shared = { displayName, phone, description, categories, defaultPayoutPhone, updatedAt: now };
     if (sellerSnap.exists) await sellerRef.set(shared, { merge: true });
     if (appSnap.exists) await applicationRef.set(shared, { merge: true });
     await adminDb.collection('sellerMarketplaceAudit').add({
       action: 'SELLER_PROFILE_UPDATED', sellerUid: user.uid, actorUid: user.uid,
-      changedFields: ['displayName', 'phone', 'description', 'categories'], createdAt: now,
+      changedFields: ['displayName', 'phone', 'description', 'categories', 'defaultPayoutPhone'], createdAt: now,
     });
     return res.json({ success: true, message: 'Business profile updated.', profile: serializeProfile(
       { ...(sellerSnap.data() || {}), ...shared }, { ...(appSnap.data() || {}), ...shared }, user.uid,
