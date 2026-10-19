@@ -19,10 +19,6 @@ export default async function sellerSubscription(req, res) {
     if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== user.uid) throw clientError('An approved seller account is required.', 403);
     const seller = sellerSnap.data();
     if (seller.status !== 'ACTIVE') throw clientError('Your seller account is not active.', 403);
-    const expiry = seller.subscriptionExpiresAt?.toDate?.() || (seller.subscriptionExpiresAt instanceof Date ? seller.subscriptionExpiresAt : null);
-    if (seller.billingStatus === 'ACTIVE' && expiry && expiry.getTime() > Date.now()) {
-      throw clientError('Your current subscription is still active. You can purchase the next plan after it expires.', 409);
-    }
     const paymentId = sellerSubscriptionPaymentId(user.uid, idempotencyKey);
     const paymentRef = adminDb.collection('sellerSubscriptionPayments').doc(paymentId);
     const created = await adminDb.runTransaction(async tx => {
