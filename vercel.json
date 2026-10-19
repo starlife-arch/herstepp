@@ -25,6 +25,10 @@
       "destination": "/api/admin?route=marketplace-reports"
     },
     {
+      "source": "/api/sellers/promotions",
+      "destination": "/api/users?route=sellers/promotions"
+    },
+    {
       "source": "/api/sellers/subscription",
       "destination": "/api/users?route=sellers/subscription"
     },
