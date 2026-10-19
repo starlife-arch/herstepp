@@ -1131,8 +1131,8 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
 
   const statusForAdmin = (order: any) => {
     const items = Array.isArray(order.items) ? order.items : [];
-    const hasMarketplaceItems = items.some((item: any) => Boolean(item.sellerId));
-    const hasFirstPartyItems = items.some((item: any) => !item.sellerId);
+    const hasMarketplaceItems = items.some((item: any) => Boolean(item.sellerId || item.sellerSnapshot?.sellerId));
+    const hasFirstPartyItems = items.some((item: any) => !String(item.sellerId || item.sellerSnapshot?.sellerId || '').trim());
     return hasMarketplaceItems && hasFirstPartyItems
       ? (order.firstPartyFulfilment?.status || 'PENDING')
       : order.orderStatus;
@@ -1199,7 +1199,7 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                     const hasFirstPartyItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => !item.sellerId);
                     const mixedBasket = hasMarketplaceItems && hasFirstPartyItems;
                     const adminFulfilmentStatus = mixedBasket ? (order.firstPartyFulfilment?.status || 'PENDING') : order.orderStatus;
-                    const next = nextOrderStatuses(adminFulfilmentStatus);
+                    const next = mixedBasket ? nextOrderStatuses(adminFulfilmentStatus).filter(status => status !== 'CANCELLED') : nextOrderStatuses(adminFulfilmentStatus);
                     return (
                       <tr key={order.id} className="hover:bg-neutral-50 cursor-pointer" onClick={() => setDetailId(order.id)}>
                         <td className="px-4 py-3 font-medium">{order.orderId}
