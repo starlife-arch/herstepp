@@ -186,6 +186,41 @@ export default function SellerDashboard() {
   }
 
   useEffect(() => {
+    if (!payment?.paymentId || payment.status !== 'PENDING') return;
+    let active = true;
+    let attempts = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async () => {
+      if (!active || attempts >= 24) return;
+      attempts++;
+      try {
+        const result: any = await apiFetch(`/api/sellers/subscription?paymentId=${encodeURIComponent(payment.paymentId)}`);
+        const current = result.payment;
+        if (active && current) {
+          setPayment({ ...current, planCode: current.planCode || payment.planCode });
+          if (current.status === 'PAID') {
+            setPaymentNotice('Payment confirmed automatically. Your seller subscription is active.');
+            setIdempotencyKeys(keys => { const next = { ...keys }; delete next[payment.planCode]; return next; });
+            await refreshDashboard();
+            return;
+          }
+          if (terminalStatuses.has(current.status)) {
+            setPaymentNotice(current.failureReason || `Payment status: ${current.status}. You can start another payment attempt.`);
+            setIdempotencyKeys(keys => { const next = { ...keys }; delete next[payment.planCode]; return next; });
+            return;
+          }
+        }
+      } catch (err: any) {
+        if (active) setPaymentError(err?.message || 'Payment verification is still retrying.');
+      }
+      if (active && attempts < 24) timer = setTimeout(poll, 5000);
+      else if (active) setPaymentNotice('Payment is still pending. We will keep the status available here; you can retry the check shortly.');
+    };
+    timer = setTimeout(poll, 3000);
+    return () => { active = false; if (timer) clearTimeout(timer); };
+  }, [payment?.paymentId, payment?.status]);
+
+  useEffect(() => {
     const expires = seller?.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt).getTime() : 0;
     const active = seller?.status === 'ACTIVE' && seller?.billingStatus === 'ACTIVE' && Number.isFinite(expires) && expires > Date.now();
     if (!active) return;
