@@ -41,14 +41,26 @@ async function availableAfterRefundHolds(ledgerDocs, readOrder) {
   }).reduce((sum, row) => sum + Number(row.data.amount || 0), 0);
 }
 
-const iso = value => value?.toDate?.().toISOString?.() ?? null;
-const safePayout = doc => {
+const toDate = value => {
+  if (value?.toDate) return value.toDate();
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+  return null;
+};
+const iso = value => toDate(value)?.toISOString?.() ?? null;
+const timeValue = value => toDate(value)?.getTime?.() ?? 0;
+const safePayout = (doc, includePayoutPhone = false) => {
   const d = doc.data() || {};
   return {
     id: doc.id, sellerId: d.sellerId, sellerName: d.sellerName || '', amount: d.amount, currency: d.currency || 'KES',
-    status: d.status, reason: d.reason || '', providerReference: d.providerReference || '',
-    requestedAt: iso(d.createdAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
-    rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || '',
+    status: String(d.status || 'REQUESTED').toUpperCase(), reason: d.reason || d.reviewNote || '',
+    reviewNote: d.reviewNote || '', providerReference: d.providerReference || '',
+    requestedAt: iso(d.createdAt || d.requestedAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
+    rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || maskPhone(d.payoutPhone || ''),
+    ...(includePayoutPhone ? { payoutPhone: d.payoutPhone || '' } : {}),
   };
 };
 function normalizeKenyanPhone(value) {
@@ -116,10 +128,17 @@ export async function sellerPayouts(req, res) {
 export async function adminMarketplacePayouts(req, res) {
   const admin = await requireAdmin(req);
   if (req.method === 'GET') {
-    const [payoutSnap, refundSnap] = await Promise.all([
-      adminDb.collection('sellerPayouts').orderBy('createdAt', 'desc').limit(200).get(),
+    const [payoutSnapshots, refundSnap] = await Promise.all([
+      // Query each operational status independently and avoid orderBy(createdAt):
+      // Firestore orderBy silently excludes older/partial records missing that field.
+      Promise.all(['REQUESTED', 'APPROVED', 'REJECTED', 'PAID'].map(status =>
+        adminDb.collection('sellerPayouts').where('status', '==', status).limit(500).get()
+      )),
       adminDb.collection('refundRecords').where('status', '==', 'CONFIRMED').limit(200).get().catch(() => ({ docs: [] })),
     ]);
+    const payoutDocs = payoutSnapshots.flatMap(snapshot => snapshot.docs)
+      .filter((doc, index, all) => all.findIndex(other => other.id === doc.id) === index)
+      .sort((a, b) => timeValue(b.data()?.createdAt || b.data()?.requestedAt) - timeValue(a.data()?.createdAt || a.data()?.requestedAt));
     const refundsToReconcile = [];
     for (const doc of refundSnap.docs) {
       const refund = doc.data() || {};
@@ -140,7 +159,7 @@ export async function adminMarketplacePayouts(req, res) {
         providerReference: refund.providerReference || '', confirmedAt: iso(refund.confirmedAt), sellerLines,
       });
     }
-    return res.json({ payouts: payoutSnap.docs.map(safePayout), refundsToReconcile });
+    return res.json({ payouts: payoutDocs.map(doc => safePayout(doc, true)), refundsToReconcile });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const action = clean(req.body?.action, 30).toUpperCase();
