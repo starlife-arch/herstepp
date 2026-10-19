@@ -78,6 +78,7 @@ export default function SellerDashboard() {
   async function refreshDashboard() {
     const result: any = await apiFetch('/api/sellers/dashboard');
     setSeller(result.seller || null);
+    setPayoutPhone(current => current || result.seller?.defaultPayoutPhone || '');
     setApplication(result.application || null);
   }
 
@@ -87,6 +88,7 @@ export default function SellerDashboard() {
       .then((result: any) => {
         if (!active) return;
         setSeller(result.seller || null);
+        setPayoutPhone(current => current || result.seller?.defaultPayoutPhone || '');
         setApplication(result.application || null);
       })
       .catch((err: any) => {
@@ -239,7 +241,7 @@ export default function SellerDashboard() {
           <h1 className="text-3xl font-bold text-neutral-900">Seller dashboard</h1>
           <p className="text-neutral-600 mt-2">Your seller account, subscription options, and next steps in one place.</p>
         </div>
-        <div className="flex flex-wrap gap-2"><Link to="/messages"><Button variant="outline"><MessageCircle className="w-4 h-4 mr-2" /> Messages</Button></Link><Link to="/seller/products"><Button><PackagePlus className="w-4 h-4 mr-2" /> My products</Button></Link><Link to="/seller/apply"><Button variant="outline"><Store className="w-4 h-4 mr-2" /> Application details</Button></Link></div>
+        <div className="flex flex-wrap gap-2"><Link to="/messages"><Button variant="outline"><MessageCircle className="w-4 h-4 mr-2" /> Messages</Button></Link><Link to="/seller/products"><Button><PackagePlus className="w-4 h-4 mr-2" /> My products</Button></Link><Link to="/seller/apply"><Button variant="outline"><Store className="w-4 h-4 mr-2" /> Application details</Button></Link><Link to="/seller/profile"><Button variant="outline"><Store className="w-4 h-4 mr-2" /> Business profile</Button></Link></div>
       </div>
 
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-6">{error}</div>}
@@ -258,7 +260,7 @@ export default function SellerDashboard() {
         </div>
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] mt-4 items-end">
           <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-amount">Amount (KSh)</label><input id="seller-payout-amount" type="number" min="1" step="1" max={Number(payoutData?.availableBalance) || undefined} value={payoutAmount} onChange={e => setPayoutAmount(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. 1500" /></div>
-          <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-phone">M-Pesa number</label><input id="seller-payout-phone" value={payoutPhone} onChange={e => setPayoutPhone(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="07… or +254…" autoComplete="tel" /></div>
+          <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-phone">M-Pesa payout number</label><p className="text-xs text-neutral-500 mb-2">Your saved default is prefilled. You can enter a different number for this payout only.</p><input id="seller-payout-phone" value={payoutPhone} onChange={e => setPayoutPhone(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="07… or +254…" autoComplete="tel" /></div>
           <Button onClick={requestPayout} disabled={payoutBusy || !payoutData || Number(payoutAmount) < 1}><CreditCard className="w-4 h-4 mr-2" />{payoutBusy ? 'Submitting…' : 'Request payout'}</Button>
         </div>
         <p className="text-xs text-neutral-500 mt-2">Requests are reviewed by HerStep admin. This form does not send money automatically.</p>
