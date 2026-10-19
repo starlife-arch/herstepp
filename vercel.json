@@ -13,6 +13,10 @@
       "destination": "/api/users?route=sellers/dashboard"
     },
     {
+      "source": "/api/sellers/payouts/",
+      "destination": "/api/users?route=sellers/payouts"
+    },
+    {
       "source": "/api/sellers/payouts",
       "destination": "/api/users?route=sellers/payouts"
     },
@@ -31,6 +35,10 @@
     {
       "source": "/api/admin/marketplace-reports",
       "destination": "/api/admin?route=marketplace-reports"
+    },
+    {
+      "source": "/api/admin/marketplace-payouts/",
+      "destination": "/api/admin?route=marketplace-payouts"
     },
     {
       "source": "/api/admin/marketplace-payouts",
