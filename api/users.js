@@ -8,6 +8,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'marketplace/messages': lazyRoute(() => import('./_lib/routes/marketplace-messages.js')),
   'sellers/subscription': lazyRoute(() => import('./_lib/routes/seller-subscription.js')),
   'sellers/promotions': lazyRoute(() => import('./_lib/routes/seller-promotions.js')),
+  'sellers/bulk-upload': lazyRoute(() => import('./_lib/routes/seller-bulk-upload.js')),
   'sellers/entitlements': lazyRoute(() => import('./_lib/routes/seller-entitlements.js')),
   'sellers/products': lazyRoute(() => import('./_lib/routes/seller-products.js')),
   'sellers/products/sign-upload': lazyRoute(() => import('./_lib/routes/seller-product-sign-upload.js')),
