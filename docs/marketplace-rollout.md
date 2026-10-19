@@ -40,6 +40,8 @@ Turn HerStep Collection into a multi-vendor marketplace without disrupting the e
 - Do not label balances “paid” until payout is actually confirmed. Add admin-controlled payout approval, immutable audit logs, idempotency, reconciliation, and clear payout status.
 - Verified paid marketplace order lines are written to `sellerLedger` as deterministic `ORDER_PAYMENT_PENDING` entries with a 0% platform fee. These entries are not withdrawable: a separate delivery/refund lifecycle must release or adjust them before payout management is enabled.
 - Seller order views must show only their own order line items and only the customer information needed to fulfill them.
+- Seller payout requests are server-validated against the available seller ledger, reserve funds while `REQUESTED`/`APPROVED`, and are idempotent. Admin must approve/reject and only record `PAID` after an external transfer is confirmed with its provider reference; no transfer is initiated by this workflow.
+- Seller earnings linked to orders with refund status `REQUESTED`, `APPROVED`, `CONFIRMED`, or `PARTIALLY_REFUNDED` are held from payout availability until refund/ledger reconciliation is completed. This conservative hold prevents payout of disputed amounts.
 
 ## Suggested data collections
 

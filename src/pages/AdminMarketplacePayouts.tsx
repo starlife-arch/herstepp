@@ -1,0 +1,50 @@
+import React, { useEffect, useState } from 'react';
+import { RefreshCw, Wallet, CheckCircle2, XCircle, Banknote } from 'lucide-react';
+import { apiFetch } from '../lib/api';
+import { usePageMeta } from '../hooks/usePageMeta';
+import { Card, Button } from '../components/ui';
+
+const money = (value: unknown) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(Number(value) || 0);
+type Payout = { id: string; sellerId: string; amount: number; currency: string; status: string; sellerName?: string; payoutPhoneMasked?: string; reason?: string; providerReference?: string; requestedAt?: string; };
+export default function AdminMarketplacePayouts() {
+  usePageMeta('Marketplace Payouts | HerStep Admin', 'Review and reconcile marketplace seller payouts.');
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [references, setReferences] = useState<Record<string, string>>({});
+  async function refresh() {
+    setLoading(true); setError('');
+    try { const result: any = await apiFetch('/api/admin/marketplace-payouts'); setPayouts(Array.isArray(result.payouts) ? result.payouts : []); }
+    catch (err: any) { setError(err?.message || 'Could not load payout requests.'); }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { void refresh(); }, []);
+  async function act(payout: Payout, action: 'APPROVE' | 'REJECT' | 'MARK_PAID') {
+    if (action !== 'MARK_PAID' && !notes[payout.id]?.trim()) { setError('Enter a review note before approving or rejecting.'); return; }
+    if (action === 'MARK_PAID' && !references[payout.id]?.trim()) { setError('Enter the confirmed M-Pesa/provider reference after sending the money.'); return; }
+    setBusy(payout.id); setError(''); setNotice('');
+    try {
+      const result: any = await apiFetch('/api/admin/marketplace-payouts', { method: 'POST', body: JSON.stringify({ payoutId: payout.id, action, reason: notes[payout.id]?.trim() || '', providerReference: references[payout.id]?.trim() || '' }) });
+      setNotice(result.message || 'Payout updated.');
+      await refresh();
+    } catch (err: any) { setError(err?.message || 'Could not update this payout.'); }
+    finally { setBusy(null); }
+  }
+  return <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><div><p className="text-xs font-semibold tracking-wide text-neutral-500">HERSTEP MARKETPLACE</p><h1 className="text-3xl font-bold mt-1">Seller payouts</h1><p className="text-sm text-neutral-600 mt-2">Review seller requests and record confirmed payments. This page does not initiate transfers.</p></div><Button variant="outline" onClick={() => void refresh()} disabled={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div>
+    {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 mb-4">{notice}</div>}
+    {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">{error}</div>}
+    {loading ? <Card className="p-8 text-center text-sm text-neutral-500">Loading payout requests…</Card> : payouts.length === 0 ? <Card className="p-8 text-center"><Wallet className="w-8 h-8 mx-auto text-neutral-400 mb-2" /><p className="font-medium">No payout requests yet</p></Card> : <div className="space-y-4">{payouts.map(payout => <Card key={payout.id} className="p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold text-lg">{payout.sellerName || 'Marketplace seller'}</h2><p className="text-xs text-neutral-500 mt-1">Request: {payout.id}</p><p className="text-sm text-neutral-600 mt-1">Seller UID: {payout.sellerId} · M-Pesa: {payout.payoutPhoneMasked || 'Not available'}</p></div><div className="text-right"><p className="text-2xl font-bold">{money(payout.amount)}</p><p className="text-xs font-semibold mt-1">{payout.status}</p></div></div>
+      {payout.providerReference && <p className="text-sm mt-3">Provider reference: <span className="font-mono">{payout.providerReference}</span></p>}
+      {['REQUESTED','APPROVED'].includes(payout.status) && <div className="mt-4 grid gap-3">
+        <div><label className="block text-xs font-medium mb-1" htmlFor={`payout-note-${payout.id}`}>Review note / reason</label><input id={`payout-note-${payout.id}`} value={notes[payout.id] || ''} onChange={e => setNotes(prev => ({ ...prev, [payout.id]: e.target.value }))} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Reason for approval or rejection" /></div>
+        {payout.status === 'APPROVED' && <div><label className="block text-xs font-medium mb-1" htmlFor={`payout-ref-${payout.id}`}>Confirmed provider reference</label><input id={`payout-ref-${payout.id}`} value={references[payout.id] || ''} onChange={e => setReferences(prev => ({ ...prev, [payout.id]: e.target.value }))} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="M-Pesa transaction reference after payment" /></div>}
+        <div className="flex flex-wrap gap-2">{payout.status === 'REQUESTED' && <><Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'APPROVE')}><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button><Button size="sm" variant="outline" disabled={busy === payout.id} onClick={() => void act(payout,'REJECT')}><XCircle className="w-4 h-4 mr-1" /> Reject</Button></>}{payout.status === 'APPROVED' && <Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'MARK_PAID')}><Banknote className="w-4 h-4 mr-1" /> Record as paid</Button>}</div>
+      </div>}
+    </Card>)}</div>}
+  </div>;
+}
