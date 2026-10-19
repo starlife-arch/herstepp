@@ -8,7 +8,7 @@ const money = (value: unknown) => new Intl.NumberFormat('en-KE', { style: 'curre
 type Payout = { id: string; sellerId: string; amount: number; currency: string; status: string; sellerName?: string; payoutPhoneMasked?: string; reason?: string; providerReference?: string; requestedAt?: string; };
 type SellerLine = { sellerId: string; sellerName: string; productName: string; lineTotal: number; itemIndex: number; };
 type Refund = { id: string; orderDocumentId: string; orderId: string; amount: number; currency: string; reason?: string; providerReference?: string; sellerLines: SellerLine[]; };
-const uniqueSellers = (refund: Refund) => Array.from(new Map(refund.sellerLines.map(line => [line.sellerId, line])).values());
+const uniqueSellers = (refund: Refund) => Array.from(new Map<string, SellerLine>(refund.sellerLines.map(line => [line.sellerId, line] as [string, SellerLine])).values());
 export default function AdminMarketplacePayouts() {
   usePageMeta('Marketplace Payouts | HerStep Admin', 'Review and reconcile marketplace seller payouts.');
   const [payouts, setPayouts] = useState<Payout[]>([]);\n  const [refunds, setRefunds] = useState<Refund[]>([]);\n  const [allocations, setAllocations] = useState<Record<string, string>>({});
@@ -42,7 +42,6 @@ export default function AdminMarketplacePayouts() {
       amount: Number(allocations[`${refund.id}:${seller.sellerId}`] || 0),
     })).filter(row => Number.isSafeInteger(row.amount) && row.amount > 0);
     const total = chosen.reduce((sum, row) => sum + row.amount, 0);
-    if (!chosen.length) { setError('Enter a positive refund allocation for at least one marketplace seller.'); return; }
     if (total > refund.amount) { setError('Seller allocations cannot exceed the confirmed refund amount.'); return; }
     if (!notes[refund.id]?.trim()) { setError('Enter a reconciliation note.'); return; }
     setBusy(refund.id); setError(''); setNotice('');
@@ -60,7 +59,7 @@ export default function AdminMarketplacePayouts() {
     {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 mb-4">{notice}</div>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">{error}</div>}
     {refunds.length > 0 && <section className="mb-8 space-y-4">
-      <div><h2 className="text-xl font-bold">Confirmed refunds awaiting marketplace reconciliation</h2><p className="text-sm text-neutral-600 mt-1">Allocate only the marketplace sellers’ share. Any HerStep first-party portion stays outside seller ledgers. Allocations are capped at the confirmed refund amount and seller earnings for this order.</p></div>
+      <div><h2 className="text-xl font-bold">Confirmed refunds awaiting marketplace reconciliation</h2><p className="text-sm text-neutral-600 mt-1">Allocate only the marketplace sellers’ share. Any HerStep first-party portion stays outside seller ledgers. Leave every allocation at zero when the confirmed refund contains no marketplace seller share; add a note explaining the allocation.</p></div>
       {refunds.map(refund => <Card key={refund.id} className="p-5">
         <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">Order {refund.orderId}</h3><p className="text-xs text-neutral-500">Refund record: {refund.id}</p><p className="text-sm mt-1">Provider reference: {refund.providerReference || 'Not provided'}</p></div><div className="text-right"><p className="text-xl font-bold">{money(refund.amount)}</p><p className="text-xs text-neutral-500">Confirmed refund total</p></div></div>
         <div className="mt-4 space-y-3">{uniqueSellers(refund).map(seller => <div key={seller.sellerId} className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-2 items-center">
