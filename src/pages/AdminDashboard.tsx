@@ -4,7 +4,7 @@
 // GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image, Sparkles, Star } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image, Sparkles, Star, Store } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 
@@ -791,6 +791,7 @@ export default function AdminDashboard() {
               {item.id === 'messages' && unreadContact > 0 && <span className="ml-auto bg-red-600 text-white text-xs rounded-full px-1.5 py-0.5">{unreadContact}</span>}
             </button>
           ))}
+          <Link to="/admin/sellers" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Store className="w-4 h-4" /> Seller Applications</Link>
           <Link to="/admin/ai" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Sparkles className="w-4 h-4" /> Admin AI</Link>
           <Link to="/admin/costs" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><CreditCard className="w-4 h-4" /> Cost &amp; Profit</Link>
           <Link to="/admin/ai-chats" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><MessageSquare className="w-4 h-4" /> Aria Chats</Link>
@@ -832,6 +833,7 @@ export default function AdminDashboard() {
           <Link to="/admin/costs" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Cost &amp; Profit</Link>
           <Link to="/admin/ai" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Admin AI</Link>
           <Link to="/admin/ai-chats" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Aria Chats</Link>
+          <Link to="/admin/sellers" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2"><Store className="inline w-4 h-4 mr-1" /> Seller Applications</Link>
           <Link to="/admin/bulk-upload" className="shrink-0 text-sm font-medium bg-neutral-900 text-white rounded-lg px-3 py-2">Bulk Upload</Link>
         </nav>
       </div>
