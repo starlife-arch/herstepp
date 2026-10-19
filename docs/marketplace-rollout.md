@@ -42,6 +42,10 @@ Turn HerStep Collection into a multi-vendor marketplace without disrupting the e
 - Seller order views must show only their own order line items and only the customer information needed to fulfill them.
 - Seller payout requests are server-validated against the available seller ledger, reserve funds while `REQUESTED`/`APPROVED`, and are idempotent. Admin must approve/reject and only record `PAID` after an external transfer is confirmed with its provider reference; no transfer is initiated by this workflow.
 - Seller earnings linked to orders with refund status `REQUESTED`, `APPROVED`, `CONFIRMED`, or `PARTIALLY_REFUNDED` are held from payout availability until refund/ledger reconciliation is completed. This conservative hold prevents payout of disputed amounts.
+- Admin payout management exposes confirmed refunds that include marketplace order lines. Admin must allocate the marketplace portion by seller and enter a reconciliation note; first-party portions remain outside seller ledgers. Allocations cannot exceed the confirmed refund amount or the seller's remaining gross marketplace earnings for that order.
+- Reconciliation creates deterministic, signed `MARKETPLACE_REFUND_ADJUSTMENT` entries, consuming pending earnings first and then available earnings. If a refund exceeds current available earnings, the available bucket can become negative so future seller earnings are offset instead of silently ignoring the seller's refund liability. Replays are rejected and audit logs record the actor, allocations, amount, and reason.
+- A refund hold is released only when confirmed refunds for that order have been reconciled and no other refund remains requested/approved. A refund containing no marketplace seller share can be reconciled with zero seller allocations and a required admin note.
+- The seller balance API derives pending balance directly from fetched ledger documents. Real money transfers remain external/manual; the API only records a payout as paid after a confirmed provider reference is entered.
 
 ## Suggested data collections
 
