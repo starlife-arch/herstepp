@@ -69,7 +69,7 @@ export default async function sellerProducts(req, res) {
     const planCode = String(seller.planCode || 'STARTER').toUpperCase();
     const plan = SELLER_PLANS[planCode];
     const publishingEnabled = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
-      && Boolean(expiry && expiry.getTime() > Date.now()) && Boolean(plan || planCode === 'UNLIMITED');
+      && Boolean(expiry && Number.isFinite(expiry.getTime()) && expiry.getTime() > Date.now()) && Boolean(plan || planCode === 'UNLIMITED');
     return res.status(200).json({ products, publishingEnabled, planCode, subscriptionExpiresAt: expiry?.toISOString?.() || null });
   }
   if (!['POST', 'PATCH'].includes(req.method)) return methodNotAllowed(res, 'GET, POST, PATCH');
@@ -86,7 +86,7 @@ export default async function sellerProducts(req, res) {
     }
     const seller = sellerFresh.data() || {};
     const expiry = toDate(seller.subscriptionExpiresAt);
-    if (seller.status !== 'ACTIVE' || seller.billingStatus !== 'ACTIVE' || !expiry || expiry.getTime() <= Date.now()) {
+    if (seller.status !== 'ACTIVE' || seller.billingStatus !== 'ACTIVE' || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
       throw clientError('An active paid seller plan is required before submitting products for review.', 403);
     }
     const planCode = String(seller.planCode || '').toUpperCase();
