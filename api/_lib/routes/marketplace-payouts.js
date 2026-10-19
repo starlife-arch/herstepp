@@ -133,7 +133,7 @@ export async function adminMarketplacePayouts(req, res) {
       // use PENDING/lowercase statuses or omit status; filtering only modern
       // uppercase values made real seller requests disappear from the admin UI.
       // Avoid orderBy(createdAt) too, since it excludes records missing timestamps.
-      adminDb.collection('sellerPayouts').limit(1000).get(),
+      adminDb.collection('sellerPayouts').get(),
       adminDb.collection('refundRecords').where('status', '==', 'CONFIRMED').limit(200).get().catch(() => ({ docs: [] })),
     ]);
     const payoutDocs = payoutSnapshot.docs
