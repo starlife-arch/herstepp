@@ -21,6 +21,7 @@ function serializeSeller(snap) {
   return {
     displayName: d.displayName || '',
     businessName: d.businessName || '',
+    defaultPayoutPhone: d.defaultPayoutPhone || '',
     status: d.status || 'PENDING',
     planCode: d.planCode || 'STARTER',
     billingStatus: d.billingStatus || 'NOT_CONFIGURED',
