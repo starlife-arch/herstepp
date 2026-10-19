@@ -1186,6 +1186,7 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                 <tbody className="divide-y divide-neutral-100">
                   {filtered.map(order => {
                     const next = nextOrderStatuses(order.orderStatus);
+                    const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => Boolean(item.sellerId));
                     return (
                       <tr key={order.id} className="hover:bg-neutral-50 cursor-pointer" onClick={() => setDetailId(order.id)}>
                         <td className="px-4 py-3 font-medium">{order.orderId}
@@ -1208,18 +1209,18 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                         <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
                         <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
                         <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                          <select
-                            value=""
-                            disabled={busyId === order.id || next.length === 0}
-                            title={next.length === 0 ? 'No further status changes allowed' : undefined}
-                            onChange={e => e.target.value && changeStatus(order, e.target.value)}
-                            className="border border-neutral-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50"
-                          >
-                            <option value="">{busyId === order.id ? 'Saving…' : next.length === 0 ? 'Final' : 'Update status'}</option>
-                            {next.map(s => (
-                              <option key={s} value={s}>{humanStatus(s)}</option>
-                            ))}
-                          </select>
+                          {hasMarketplaceItems
+                            ? <span className="text-xs font-medium text-neutral-500" title="Seller fulfilment is managed by the seller">Seller-managed</span>
+                            : <select
+                                value=""
+                                disabled={busyId === order.id || next.length === 0}
+                                title={next.length === 0 ? 'No further status changes allowed' : undefined}
+                                onChange={e => e.target.value && changeStatus(order, e.target.value)}
+                                className="border border-neutral-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50"
+                              >
+                                <option value="">{busyId === order.id ? 'Saving…' : next.length === 0 ? 'Final' : 'Update status'}</option>
+                                {next.map(s => <option key={s} value={s}>{humanStatus(s)}</option>)}
+                              </select>}
                         </td>
                       </tr>
                     );
