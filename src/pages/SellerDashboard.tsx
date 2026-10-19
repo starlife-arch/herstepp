@@ -311,7 +311,7 @@ export default function SellerDashboard() {
           {paymentError && <p role="alert" className="text-sm text-red-700 mt-3">{paymentError}</p>}
           <div className="flex gap-3 mt-5">
             <Button variant="outline" className="flex-1" disabled={paymentBusy} onClick={() => { setSelectedPlan(null); setPaymentError(''); }}>Cancel</Button>
-            <Button className="flex-1" disabled={paymentBusy || !phone.trim()} onClick={() => startSubscription(selectedPlan)}><CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Starting…' : 'Pay with M-Pesa'}</Button>
+            <Button className="flex-1" disabled={paymentBusy || !phone.trim()} onClick={() => { if (selectedPlan) void startSubscription(selectedPlan); }}><CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Starting…' : 'Pay with M-Pesa'}</Button>
           </div>
         </Card>
       </div>}
