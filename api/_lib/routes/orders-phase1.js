@@ -232,6 +232,7 @@ export async function adminOrders(req, res) {
       customerPhone: o.customerPhone ?? o.delivery?.phone ?? '',
       customerEmail: o.customerEmail ?? '',
       firstPartyFulfilment: o.firstPartyFulfilment || null,
+       sellerFulfilment: o.sellerFulfilment || {},
       delivery: {
         fullName: o.delivery?.fullName ?? '',
         phone: o.delivery?.phone ?? '',
