@@ -64,7 +64,7 @@ export default async function sellerProducts(req, res) {
       .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     return res.status(200).json({ products, publishingEnabled: false });
   }
-  if (req.method !== 'POST') return methodNotAllowed(res, 'GET, POST');
+  if (!['POST', 'PATCH'].includes(req.method)) return methodNotAllowed(res, 'GET, POST, PATCH');
 
   const product = validateDraft(req.body);
   const category = await adminDb.collection('categories').doc(product.categoryId).get();
