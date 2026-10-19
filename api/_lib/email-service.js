@@ -89,7 +89,7 @@ export function emailId(key) {
 // attachInvoiceFor: order document id whose invoice PDF must be generated AT
 // SEND TIME and attached. The PDF bytes are NEVER stored in this outbox doc
 // (Firestore ~1 MiB document limit) — regeneration also makes retries work.
-export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, textContent = null, attachInvoiceFor = null }) {
+export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, textContent = null, attachInvoiceFor = null, attachMarketplaceInvoice = null }) {
   if (!key || !to || !subject || !htmlContent) {
     throw new Error('queueEmail requires key, purpose, to, subject and htmlContent.');
   }
@@ -103,6 +103,12 @@ export function queueEmail(tx, db, { key, purpose, to, subject, htmlContent, tex
     textContent: textContent ? String(textContent) : null,
     status: 'PENDING',
     attachInvoiceFor: attachInvoiceFor ? String(attachInvoiceFor) : null,
+    attachMarketplaceInvoice: attachMarketplaceInvoice && typeof attachMarketplaceInvoice === 'object' ? {
+      orderDocumentId: String(attachMarketplaceInvoice.orderDocumentId || ''),
+      sellerId: String(attachMarketplaceInvoice.sellerId || ''),
+      invoiceNumber: String(attachMarketplaceInvoice.invoiceNumber || ''),
+      receiptNumber: String(attachMarketplaceInvoice.receiptNumber || ''),
+    } : null,
     createdAt: FieldValue.serverTimestamp(),
     sentAt: null,
     lastError: null,
@@ -196,6 +202,38 @@ export async function deliverQueuedEmail(db, docId, { cfg = emailConfig(), fetch
       } catch (error) {
         console.error(`[email] invoice PDF generation failed for ${claimed.attachInvoiceFor}:`, error?.message || error);
         attachments = null; // send without the attachment — never block the email
+      }
+    }
+
+    if (claimed.attachMarketplaceInvoice && typeof claimed.attachMarketplaceInvoice === 'object') {
+      try {
+        const spec = claimed.attachMarketplaceInvoice;
+        if (!spec.orderDocumentId || !spec.sellerId || !spec.invoiceNumber) throw new Error('Marketplace invoice attachment metadata is incomplete.');
+        const [orderSnap, sellerSnap, applicationSnap] = await Promise.all([
+          db.collection('orders').doc(spec.orderDocumentId).get(),
+          db.collection('sellers').doc(spec.sellerId).get(),
+          db.collection('sellerApplications').doc(spec.sellerId).get(),
+        ]);
+        if (!orderSnap.exists) throw new Error('Marketplace invoice order was not found.');
+        const order = { id: spec.orderDocumentId, ...orderSnap.data() };
+        const items = (Array.isArray(order.items) ? order.items : []).filter(item =>
+          String(item?.sellerId || item?.sellerSnapshot?.sellerId || '') === spec.sellerId);
+        if (!items.length) throw new Error('Marketplace invoice has no items for this seller.');
+        const sellerData = sellerSnap.exists ? sellerSnap.data() || {} : {};
+        const application = applicationSnap.exists ? applicationSnap.data() || {} : {};
+        const snapshot = items[0]?.sellerSnapshot || {};
+        const seller = {
+          businessName: snapshot.businessName || sellerData.businessName || application.businessName || '',
+          displayName: snapshot.displayName || sellerData.displayName || application.displayName || '',
+          phone: sellerData.phone || sellerData.contactPhone || application.phone || '',
+          email: sellerData.email || sellerData.contactEmail || sellerData.applicantEmail || application.applicantEmail || application.email || '',
+        };
+        const build = (await import('./invoice-pdf.js')).buildMarketplaceInvoicePdf;
+        const pdfBytes = await build({ order, seller, items, invoiceNumber: spec.invoiceNumber, receiptNumber: spec.receiptNumber });
+        attachments = [{ name: `Marketplace-Invoice-${spec.invoiceNumber}.pdf`, content: Buffer.from(pdfBytes).toString('base64') }];
+      } catch (error) {
+        console.error('[email] marketplace invoice PDF generation failed:', error?.message || error);
+        attachments = null; // the detailed invoice email body is still sent
       }
     }
 
