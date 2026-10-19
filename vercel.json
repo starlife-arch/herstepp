@@ -17,6 +17,10 @@
       "destination": "/api/users?route=sellers/payouts"
     },
     {
+      "source": "/api/sellers/orders",
+      "destination": "/api/users?route=sellers/orders"
+    },
+    {
       "source": "/api/sellers/shop",
       "destination": "/api/users?route=sellers/shop"
     },
