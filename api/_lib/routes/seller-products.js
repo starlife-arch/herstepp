@@ -118,11 +118,36 @@ export default async function sellerProducts(req, res) {
     const ref = adminDb.collection('sellerProducts').doc(id);
     const snap = await ref.get();
     if (!snap.exists || snap.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
-    if (!['DRAFT', 'REJECTED'].includes(String(snap.data()?.status || '').toUpperCase())) throw clientError('Only private or rejected drafts can be edited.');
+    const current = snap.data() || {};
+    const currentStatus = String(current.status || '').toUpperCase();
+    if (currentStatus === 'PUBLISHED') {
+      const publicRef = adminDb.collection('products').doc(String(current.publishedProductId || id));
+      const publicSnap = await publicRef.get();
+      if (!publicSnap.exists || publicSnap.data()?.sellerUid !== user.uid) {
+        throw clientError('The published marketplace listing could not be verified. Contact support before editing it.', 409);
+      }
+      const revision = { ...product, status: 'ACTIVE' };
+      await ref.update({
+        status: 'PENDING_REVIEW',
+        pendingRevision: revision,
+        pendingRevisionSubmittedAt: now,
+        moderationReason: null,
+        updatedAt: now,
+      });
+      await adminDb.collection('sellerMarketplaceAudit').add({
+        action: 'SELLER_PRODUCT_UPDATE_SUBMITTED_FOR_REVIEW', sellerUid: user.uid,
+        productDraftId: id, publicProductId: publicRef.id, actorUid: user.uid, createdAt: now,
+      });
+      return res.status(200).json({
+        product: { id, ...current, status: 'PENDING_REVIEW', pendingRevision: revision, updatedAt: new Date().toISOString() },
+        message: 'Product changes submitted for review. Your current published listing stays live until an admin approves the update.',
+      });
+    }
+    if (!['DRAFT', 'REJECTED'].includes(currentStatus)) throw clientError('This listing cannot be edited while it is awaiting review.');
     await ref.update({ ...product, status: 'DRAFT', moderationReason: null, reviewedBy: null, reviewedAt: null, updatedAt: now });
     return res.status(200).json({
       product: { id, ...product, updatedAt: new Date().toISOString() },
-      message: 'Private draft updated and returned to draft status. It is not visible in the public shop.',
+      message: 'Private draft updated. It is not visible in the public shop until approved and published.',
     });
   }
 
