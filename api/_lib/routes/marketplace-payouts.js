@@ -22,7 +22,7 @@ const iso = value => value?.toDate?.().toISOString?.() ?? null;
 const safePayout = doc => {
   const d = doc.data() || {};
   return {
-    id: doc.id, sellerId: d.sellerId, amount: d.amount, currency: d.currency || 'KES',
+    id: doc.id, sellerId: d.sellerId, sellerName: d.sellerName || '', amount: d.amount, currency: d.currency || 'KES',
     status: d.status, reason: d.reason || '', providerReference: d.providerReference || '',
     requestedAt: iso(d.createdAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
     rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || '',
