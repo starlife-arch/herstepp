@@ -306,7 +306,9 @@ export default function OrderTracking() {
                   <div className="flex-1">
                     <p className="font-medium text-sm text-neutral-900">{item.name}</p>
                     <p className="text-xs text-neutral-500">Size {item.size} | Qty {item.quantity}</p>
-                    {item.sellerId && <p className="text-xs text-blue-700 mt-1">{item.sellerBusinessName || 'Marketplace seller'} · Fulfilment: {String(order.sellerFulfilment?.[item.sellerId]?.status || 'PENDING').replace(/_/g, ' ')}</p>}
+                    {item.sellerId
+                      ? <p className="text-xs text-blue-700 mt-1">{item.sellerBusinessName || 'Marketplace seller'} · Fulfilment: {String(order.sellerFulfilment?.[item.sellerId]?.status || 'PENDING').replace(/_/g, ' ')}</p>
+                      : order.firstPartyFulfilment && <p className="text-xs text-neutral-600 mt-1">HerStep Collection · Fulfilment: {String(order.firstPartyFulfilment.status || 'PENDING').replace(/_/g, ' ')}</p>}
                   </div>
                   <span className="font-medium text-sm">{formatCurrency(num(item.lineTotal))}</span>
                 </div>
