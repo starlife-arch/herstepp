@@ -123,6 +123,7 @@ export function queuePaymentEmail(tx, db, { orderDocumentId, order, paymentId, s
 // seller gets only their own lines; the buyer gets one invoice per seller in
 // a multi-seller basket. No SMS is sent for these marketplace invoice notices.
 export function queueMarketplaceSaleInvoices(tx, db, { orderDocumentId, order, sellerDetails, receiptNumber }) {
+  const keys = [];
   try {
     const groups = new Map();
     for (const item of Array.isArray(order?.items) ? order.items : []) {
@@ -139,16 +140,14 @@ export function queueMarketplaceSaleInvoices(tx, db, { orderDocumentId, order, s
       const invoiceNumber = `MKT-${baseOrder}-${sellerId.slice(-6).toUpperCase()}`;
       const invoice = marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, receiptNumber });
       if (buyerEmail) {
-        queueEmail(tx, db, {
-          key: `${orderDocumentId}-MARKETPLACE-${sellerId}-BUYER-INVOICE`,
-          purpose: 'invoices', to: buyerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent,
-        });
+        const key = `${orderDocumentId}-MARKETPLACE-${sellerId}-BUYER-INVOICE`;
+        queueEmail(tx, db, { key, purpose: 'invoices', to: buyerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent });
+        keys.push(key);
       }
       if (sellerEmail && sellerEmail.includes('@')) {
-        queueEmail(tx, db, {
-          key: `${orderDocumentId}-MARKETPLACE-${sellerId}-SELLER-INVOICE`,
-          purpose: 'invoices', to: sellerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent,
-        });
+        const key = `${orderDocumentId}-MARKETPLACE-${sellerId}-SELLER-INVOICE`;
+        queueEmail(tx, db, { key, purpose: 'invoices', to: sellerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent });
+        keys.push(key);
       } else {
         const auditId = Buffer.from(`marketplace-invoice-missing-email:${orderDocumentId}:${sellerId}`).toString('base64url');
         tx.set(db.collection('sellerMarketplaceAudit').doc(auditId), {
@@ -157,8 +156,10 @@ export function queueMarketplaceSaleInvoices(tx, db, { orderDocumentId, order, s
         });
       }
     }
+    return keys;
   } catch (error) {
     console.error('[notify] queueMarketplaceSaleInvoices failed:', error?.message || error);
+    return keys;
   }
 }
 
