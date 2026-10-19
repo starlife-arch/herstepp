@@ -54,6 +54,21 @@ export async function productDetail(req, res) {
     if (!product.exists || product.data().status !== 'ACTIVE') return null;
     const data = docData(product);
     if (!(await isPublicSellerListing(adminDb, data))) return null;
+    if (data.sellerUid) {
+      const sellerSnap = await adminDb.collection('sellers').doc(String(data.sellerUid)).get();
+      const seller = sellerSnap.exists ? sellerSnap.data() || {} : {};
+      const badgeExpiry = seller.badgeSubscriptionExpiresAt?.toDate?.()
+        || (seller.badgeSubscriptionExpiresAt ? new Date(seller.badgeSubscriptionExpiresAt) : null);
+      const subscriptionExpiry = seller.subscriptionExpiresAt?.toDate?.()
+        || (seller.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt) : null);
+      const activeSeller = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
+        && Boolean(subscriptionExpiry && Number.isFinite(subscriptionExpiry.getTime()) && subscriptionExpiry.getTime() > Date.now());
+      data.sellerDisplayName = String(seller.displayName || data.sellerDisplayName || '').slice(0, 60);
+      data.sellerBusinessName = String(seller.businessName || data.sellerBusinessName || '').slice(0, 100);
+      data.sellerVerificationBadgeActive = activeSeller && seller.verificationBadge === true
+        && seller.badgeSubscriptionStatus === 'ACTIVE'
+        && Boolean(badgeExpiry && Number.isFinite(badgeExpiry.getTime()) && badgeExpiry.getTime() > Date.now());
+    }
     return data;
   });
   if (!body) return res.status(404).json({ error: 'Product not found.' });
