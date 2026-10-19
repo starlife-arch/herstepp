@@ -84,7 +84,7 @@ export async function sellerPayouts(req, res) {
     throw clientError('An approved, active seller account is required.', 403);
   }
   const amount = req.body?.amount;
-  const phone = normalizeKenyanPhone(req.body?.payoutPhone);
+  const phone = normalizeKenyanPhone(req.body?.payoutPhone || sellerSnap.data()?.defaultPayoutPhone);
   const requestKey = clean(req.body?.idempotencyKey, 80);
   if (!money(amount)) throw clientError('Payout amount must be a positive whole KSh amount.');
   if (!/^[A-Za-z0-9_-]{12,80}$/.test(requestKey)) throw clientError('A valid unique payout request key is required.');

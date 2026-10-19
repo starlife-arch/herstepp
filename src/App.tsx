@@ -31,6 +31,7 @@ import AdminSellerProducts from './pages/AdminSellerProducts';
 import AdminMarketplaceReports from './pages/AdminMarketplaceReports';
 import AdminMarketplacePayouts from './pages/AdminMarketplacePayouts';
 import SellerDashboard from './pages/SellerDashboard';
+import SellerProfile from './pages/SellerProfile';
 import SellerProducts from './pages/SellerProducts';
 import PublicSellerShop from './pages/PublicSellerShop';
 import MarketplaceMessages from './pages/MarketplaceMessages';
@@ -62,6 +63,7 @@ function AppRoutes() {
   <Route path="/messages" element={<Wrap><RequireAuth><MarketplaceMessages /></RequireAuth></Wrap>} />
   <Route path="/seller/apply" element={<Wrap><RequireAuth><SellerApplicationPage /></RequireAuth></Wrap>} />
   <Route path="/seller/dashboard" element={<Wrap><RequireAuth><SellerDashboard /></RequireAuth></Wrap>} />
+  <Route path="/seller/profile" element={<Wrap><RequireAuth><SellerProfile /></RequireAuth></Wrap>} />
   <Route path="/seller/products" element={<Wrap><RequireAuth><SellerProducts /></RequireAuth></Wrap>} />
   <Route path="/register" element={<Wrap><Register /></Wrap>} /><Route path="/verify-email" element={<Wrap><RequireAuth><VerifyEmail /></RequireAuth></Wrap>} />
   <Route path="/wishlist" element={<Wrap><RequireAuth><Wishlist /></RequireAuth></Wrap>} /><Route path="/dashboard" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} /><Route path="/dashboard/*" element={<Wrap><RequireAuth><CustomerDashboard /></RequireAuth></Wrap>} />
