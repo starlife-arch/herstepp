@@ -354,6 +354,8 @@ export function ProductCard({ product }: { product: Product }) {
   const { state } = useApp();
   const categoryName = state.categories.find(c => c.id === product.categoryId)?.name;
   const isSoldOut = product.stockQuantity === 0;
+  const promotionExpiry = (product as any).promotedUntil ? new Date((product as any).promotedUntil).getTime() : 0;
+  const isPromoted = Number.isFinite(promotionExpiry) && promotionExpiry > Date.now();
   const availableSizes = product.inventory.filter(s => s.quantity > 0).map(s => s.size);
 
   return (
@@ -366,6 +368,7 @@ export function ProductCard({ product }: { product: Product }) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
+          {isPromoted && !isSoldOut && <div className="absolute bottom-2 left-2"><span className="bg-amber-300 text-neutral-900 px-2 py-0.5 rounded text-xs font-bold">PROMOTED</span></div>}
           {isSoldOut && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <span className="bg-white text-neutral-900 px-3 py-1 rounded-full text-xs font-bold">SOLD OUT</span>
