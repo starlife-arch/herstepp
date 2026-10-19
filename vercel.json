@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/sellers/profile",
+      "destination": "/api/users?route=sellers/profile"
+    },
+    {
       "source": "/api/sellers/application",
       "destination": "/api/users?route=sellers/application"
     },
@@ -55,6 +59,10 @@
     {
       "source": "/api/admin/sellers/applications",
       "destination": "/api/admin?route=sellers/applications"
+    },
+    {
+      "source": "/api/admin/sellers/profile",
+      "destination": "/api/admin?route=sellers/profile"
     },
     {
       "source": "/api/admin/seller-products",
