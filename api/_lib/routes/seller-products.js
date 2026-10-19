@@ -117,7 +117,7 @@ export default async function sellerProducts(req, res) {
     const publicRef = adminDb.collection('products').doc(id);
     const draftRef = adminDb.collection('sellerProducts').doc(id);
     const duplicateSnap = await adminDb.collection('products').where('sellerUid', '==', user.uid).get();
-    if (duplicateSnap.docs.some(doc => doc.id !== id && String(doc.data()?.status || '').toUpperCase() === 'ACTIVE')) {
+    if (duplicateSnap.docs.some(doc => doc.id !== id && String(doc.data()?.status || '').toUpperCase() === 'ACTIVE' && String(doc.data()?.sku || '').toUpperCase() === product.sku)) {
       throw clientError('Another published product already uses this SKU.');
     }
     await adminDb.runTransaction(async tx => {
