@@ -442,6 +442,38 @@ await test('admin cancel of an unpaid order restores stock (new array) + ORDER_C
   assert.equal(logs.length, 2);
 });
 
+await test('delivering a marketplace order moves earnings from pending to available with immutable idempotent ledger entries', async () => {
+  const db = seedBase({ product: {
+    sellerUid: 'seller-release-1', sellerId: 'seller-release-1',
+    sellerDisplayName: 'Release Seller', sellerBusinessName: 'Release Business', marketplaceSeller: true,
+  } });
+  const d = deps(db);
+  const created = await createOrderCore(db, d, checkoutPayload());
+  db.__seed('payments', 'pay-release', {
+    paymentId: 'pay-release', orderDocumentId: created.order.id, orderId: created.order.orderId,
+    customerId: 'user-1', amount: created.order.total, currency: 'KES', phone: '+254712345678',
+    method: 'MPESA', status: 'PENDING', providerReference: 'CPH-RELEASE', transactionReference: null,
+    receiptNumber: null, failureReason: null, createdAt: d.serverTimestamp(), initiatedAt: d.serverTimestamp(),
+  });
+  await applyVerifiedCallbackCore(db, d, {
+    providerReference: 'CPH-RELEASE', status: 'PAID', amount: created.order.total, eventId: 'evt-release-paid',
+  });
+  for (const status of ['PROCESSING', 'PROCESSED', 'OUT_FOR_DELIVERY', 'DELIVERED']) {
+    await adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: created.order.id, orderStatus: status, note: 'test' });
+  }
+  const rows = db.__list('sellerLedger').map(row => row.data);
+  const pending = rows.filter(row => row.balanceBucket === 'PENDING').reduce((sum, row) => sum + row.amount, 0);
+  const available = rows.filter(row => row.balanceBucket === 'AVAILABLE').reduce((sum, row) => sum + row.amount, 0);
+  assert.equal(pending, 0, 'delivery should clear pending balance for the order');
+  assert.equal(available, created.order.total, 'delivery should release the paid seller amount');
+  assert.equal(rows.filter(row => row.type === 'ORDER_DELIVERY_RELEASE_AVAILABLE').length, 2);
+  await assert.rejects(
+    () => adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: created.order.id, orderStatus: 'DELIVERED', note: 'duplicate' }),
+    err => err.statusCode === 409,
+  );
+  assert.equal(db.__list('sellerLedger').length, 6, 'delivery entries should be immutable and not duplicated');
+});
+
 await test('admin transition accepts DELIVERED (VALID set, not TRANSITIONS keys)', async () => {
   const db = seedBase();
   const d = deps(db);
