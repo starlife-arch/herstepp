@@ -81,11 +81,11 @@ export default async function sellerProducts(req, res) {
     const ref = adminDb.collection('sellerProducts').doc(id);
     const snap = await ref.get();
     if (!snap.exists || snap.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
-    if (String(snap.data()?.status || '').toUpperCase() !== 'DRAFT') throw clientError('Only private drafts can be edited.');
-    await ref.update({ ...product, updatedAt: now });
+    if (!['DRAFT', 'REJECTED'].includes(String(snap.data()?.status || '').toUpperCase())) throw clientError('Only private or rejected drafts can be edited.');
+    await ref.update({ ...product, status: 'DRAFT', moderationReason: null, reviewedBy: null, reviewedAt: null, updatedAt: now });
     return res.status(200).json({
       product: { id, ...product, updatedAt: new Date().toISOString() },
-      message: 'Private draft updated. It is not visible in the public shop.',
+      message: 'Private draft updated and returned to draft status. It is not visible in the public shop.',
     });
   }
 
