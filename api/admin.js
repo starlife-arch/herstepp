@@ -5,6 +5,7 @@ import { dispatchRoute, lazyRoute } from './_lib/route-dispatch.js';
 
 export default (req, res) => dispatchRoute(req, res, {
   'sellers/applications': lazyRoute(() => import('./_lib/routes/admin-seller-applications.js')),
+  'seller-products': lazyRoute(() => import('./_lib/routes/admin-seller-products.js')),
   products: lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.products }))),
   'product-update': lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.productUpdate }))),
   'product-archive': lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.productArchive }))),
