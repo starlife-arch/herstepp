@@ -113,9 +113,11 @@ export default function SellerProducts() {
     if (queue.length > bulkCredits) { setBulkError(`You have ${bulkCredits} credits but selected ${queue.length} images. Purchase another batch or select fewer images.`); return; }
     setBulkBusy(true); setBulkError(''); setBulkMessage('');
     let completed = 0;
+    let attempted = 0;
     try {
       for (const item of queue) {
-        if (completed > 0) { setBulkMessage(`Rate-limit protection: waiting before analysing item ${completed + 1} of ${queue.length}…`); await new Promise(resolve => setTimeout(resolve, 22000)); }
+        if (attempted > 0) { setBulkMessage(`Rate-limit protection: waiting before analysing item ${attempted + 1} of ${queue.length}…`); await new Promise(resolve => setTimeout(resolve, 22000)); }
+        attempted++;
         setBulkImages(old => old.map(row => row.key === item.key ? { ...row, state: 'working', error: undefined } : row));
         try {
           const result: any = await apiFetch('/api/sellers/bulk-upload', { method: 'POST', body: JSON.stringify({ action: 'analyze', imageUrl: item.url, publicId: item.publicId, fileName: item.fileName }) });
@@ -224,7 +226,7 @@ export default function SellerProducts() {
           <div className="w-full md:max-w-sm">
             <label htmlFor="seller-bulk-phone" className="block text-sm font-medium mb-1.5">M-Pesa phone number</label>
             <input id="seller-bulk-phone" className={fieldClass} type="tel" autoComplete="tel" value={bulkPhone} onChange={e => setBulkPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" />
-            <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkBusy}><CreditCard className="w-4 h-4 mr-2" />{bulkBusy ? 'Please wait…' : 'Buy 10 credits · KSh 100'}</Button>
+            <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkBusy || bulkPayment?.status === 'PENDING'}><CreditCard className="w-4 h-4 mr-2" />{bulkBusy ? 'Please wait…' : 'Buy 10 credits · KSh 100'}</Button>
             {bulkPayment && <div className="mt-2 rounded-lg border p-3 text-sm"><p>Payment status: <strong>{bulkPayment.status}</strong></p>{bulkPayment.status === 'PENDING' && <Button variant="outline" className="w-full mt-2" onClick={checkBulkPayment} disabled={bulkBusy}><RefreshCw className="w-4 h-4 mr-2" />Check payment</Button>}</div>}
           </div>
         </div>
