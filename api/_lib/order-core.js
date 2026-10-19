@@ -707,6 +707,40 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       });
     }
 
+    // Marketplace earnings are recorded only after verified payment, in this
+    // same transaction. Each order line gets a deterministic ledger document,
+    // so retries cannot create duplicate earnings. Earnings stay PENDING until
+    // a later delivery/refund workflow explicitly releases or adjusts them.
+    if (status === PAYMENT_STATUS.PAID) {
+      for (const [itemIndex, item] of (order.items || []).entries()) {
+        const sellerId = String(item.sellerId || item.sellerSnapshot?.sellerId || '').trim();
+        if (!sellerId) continue; // First-party HerStep items never enter seller ledgers.
+        const lineAmount = Number(item.lineTotal ?? (Number(item.unitPrice) * Number(item.quantity)));
+        if (!Number.isFinite(lineAmount) || lineAmount <= 0) {
+          throw clientError('Marketplace order line has an invalid earnings amount.', 409);
+        }
+        const entryId = base64url(`marketplace-order:${payment.orderDocumentId}:line:${itemIndex}`);
+        tx.set(db.collection('sellerLedger').doc(entryId), {
+          sellerId,
+          orderDocumentId: payment.orderDocumentId,
+          orderId: order.orderId,
+          paymentId: paymentRef.id,
+          itemIndex,
+          productId: item.productId || null,
+          productName: String(item.name || '').slice(0, 160),
+          sellerSnapshot: item.sellerSnapshot || { sellerId },
+          type: 'ORDER_PAYMENT_PENDING',
+          status: 'PENDING',
+          amount: lineAmount,
+          currency: order.currency || 'KES',
+          platformFee: 0,
+          balanceBucket: 'PENDING',
+          idempotencyKey: entryId,
+          createdAt: deps.serverTimestamp(),
+        });
+      }
+    }
+
     return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys, smsKey };
   }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
 }
