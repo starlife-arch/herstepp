@@ -13,6 +13,10 @@
       "destination": "/api/users?route=sellers/subscription"
     },
     {
+      "source": "/api/sellers/products",
+      "destination": "/api/users?route=sellers/products"
+    },
+    {
       "source": "/api/admin/sellers/applications",
       "destination": "/api/admin?route=sellers/applications"
     },
