@@ -134,7 +134,11 @@ export function orderReceiptEmail(order, status) {
   // PAID receipts now travel WITH a second, separate invoice email (sender
   // invoices@). Tell the customer so they do not think this email is missing
   // its PDF.
-  if (paid) details.push('Your invoice is in a separate email from invoices@ and in your account under My Orders.');
+  if (paid && o.marketplaceSellerInvoices === true) {
+    details.push('This email is your payment receipt. Seller-specific invoices for marketplace items are sent separately by the businesses selling those items. This receipt is not the seller invoice.');
+  } else if (paid) {
+    details.push('Your invoice is in a separate email from invoices@ and in your account under My Orders.');
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Order ${escapeHtml(orderId)}</title></head>
