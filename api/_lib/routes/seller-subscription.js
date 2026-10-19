@@ -44,7 +44,7 @@ export default async function sellerSubscription(req, res) {
       tx.create(paymentRef, data);
       tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), {
         action: 'SELLER_SUBSCRIPTION_PAYMENT_INITIATED', sellerUid: user.uid, actorUid: user.uid,
-        paymentId, planCode, amount: data.amount, phone, createdAt: FieldValue.serverTimestamp(),
+        paymentId, planCode, amount: data.amount, createdAt: FieldValue.serverTimestamp(),
       });
       return { existing: false, data };
     });
