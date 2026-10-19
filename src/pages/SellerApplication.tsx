@@ -142,7 +142,7 @@ export default function SellerApplicationPage() {
             <p className="text-sm text-neutral-600 mt-2">Admin note: {application.adminReason}</p>
           )}
           {application.status === 'PENDING' && <p className="text-sm text-neutral-600 mt-2">HerStep will review your details before activating seller access.</p>}
-          {application.status === 'APPROVED' && <p className="text-sm text-neutral-600 mt-2">Your application is approved. Seller listings and subscription billing will be enabled in a later rollout step.</p>}
+          {application.status === 'APPROVED' && <><p className="text-sm text-neutral-600 mt-2">Your application is approved. Open your seller dashboard to review the planned subscription options and rollout status.</p><Link to="/seller/dashboard" className="inline-flex items-center rounded-lg bg-neutral-900 px-4 py-2.5 text-sm font-medium text-white mt-4">Open seller dashboard</Link></>}
           {application.status === 'SUSPENDED' && <p className="text-sm text-neutral-600 mt-2">Contact HerStep Support if you believe this suspension was made in error.</p>}
           {application.status === 'REJECTED' && <p className="text-sm text-neutral-600 mt-2">You can update your application and submit it again.</p>}
         </Card>
