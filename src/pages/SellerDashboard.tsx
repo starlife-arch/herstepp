@@ -68,6 +68,12 @@ export default function SellerDashboard() {
   const [promotionBusy, setPromotionBusy] = useState(false);
   const [promotionMessage, setPromotionMessage] = useState('');
   const [promotionError, setPromotionError] = useState('');
+  const [payoutData, setPayoutData] = useState<any>(null);
+  const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutPhone, setPayoutPhone] = useState('');
+  const [payoutBusy, setPayoutBusy] = useState(false);
+  const [payoutNotice, setPayoutNotice] = useState('');
+  const [payoutError, setPayoutError] = useState('');
 
   async function refreshDashboard() {
     const result: any = await apiFetch('/api/sellers/dashboard');
@@ -89,6 +95,35 @@ export default function SellerDashboard() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (seller?.status !== 'ACTIVE') return;
+    let active = true;
+    apiFetch('/api/sellers/payouts').then((result: any) => {
+      if (active) setPayoutData(result);
+    }).catch((err: any) => {
+      if (active) setPayoutError(err?.message || 'Could not load seller earnings.');
+    });
+    return () => { active = false; };
+  }, [seller?.status]);
+
+  async function requestPayout() {
+    const amount = Number(payoutAmount);
+    if (!Number.isSafeInteger(amount) || amount < 1) { setPayoutError('Enter a whole KSh amount to request.'); return; }
+    if (!payoutPhone.trim()) { setPayoutError('Enter the Kenyan M-Pesa number to receive the payout.'); return; }
+    setPayoutBusy(true); setPayoutError(''); setPayoutNotice('');
+    try {
+      const result: any = await apiFetch('/api/sellers/payouts', {
+        method: 'POST',
+        body: JSON.stringify({ amount, payoutPhone: payoutPhone.trim(), idempotencyKey: `payout-${crypto.randomUUID()}` }),
+      });
+      setPayoutNotice(result.message || 'Payout request submitted for review.');
+      setPayoutAmount('');
+      const refreshed: any = await apiFetch('/api/sellers/payouts');
+      setPayoutData(refreshed);
+    } catch (err: any) { setPayoutError(err?.message || 'Could not submit payout request.'); }
+    finally { setPayoutBusy(false); }
+  }
 
   async function startSubscription(planCode: string) {
     if (!phone.trim()) {
@@ -208,6 +243,30 @@ export default function SellerDashboard() {
       </div>
 
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-6">{error}</div>}
+
+      {approved && <Card className="p-5 sm:p-6 mb-8">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div><h2 className="text-xl font-semibold text-neutral-900">Marketplace earnings & payouts</h2><p className="text-sm text-neutral-600 mt-1">Only delivered orders can become available. Orders with refund activity are temporarily held for review.</p></div>
+          <Button variant="outline" size="sm" onClick={() => apiFetch('/api/sellers/payouts').then(setPayoutData).catch((err: any) => setPayoutError(err?.message || 'Could not refresh earnings.'))}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
+        </div>
+        {payoutError && <p role="alert" className="mt-3 text-sm text-red-700">{payoutError}</p>}
+        {payoutNotice && <p role="status" className="mt-3 text-sm text-emerald-700">{payoutNotice}</p>}
+        <div className="grid gap-3 sm:grid-cols-3 mt-4">
+          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Available balance</p><p className="text-2xl font-bold mt-1">{formatMoney(Number(payoutData?.availableBalance) || 0)}</p></div>
+          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Pending earnings</p><p className="text-2xl font-bold mt-1">{formatMoney(Number(payoutData?.pendingBalance) || 0)}</p></div>
+          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Payout requests</p><p className="text-2xl font-bold mt-1">{Array.isArray(payoutData?.payouts) ? payoutData.payouts.length : 0}</p></div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] mt-4 items-end">
+          <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-amount">Amount (KSh)</label><input id="seller-payout-amount" type="number" min="1" step="1" max={Number(payoutData?.availableBalance) || undefined} value={payoutAmount} onChange={e => setPayoutAmount(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. 1500" /></div>
+          <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-phone">M-Pesa number</label><input id="seller-payout-phone" value={payoutPhone} onChange={e => setPayoutPhone(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="07… or +254…" autoComplete="tel" /></div>
+          <Button onClick={requestPayout} disabled={payoutBusy || !payoutData || Number(payoutAmount) < 1}><CreditCard className="w-4 h-4 mr-2" />{payoutBusy ? 'Submitting…' : 'Request payout'}</Button>
+        </div>
+        <p className="text-xs text-neutral-500 mt-2">Requests are reviewed by HerStep admin. This form does not send money automatically.</p>
+        <div className="mt-5 space-y-2">
+          {(payoutData?.payouts || []).slice(0, 8).map((payout: any) => <div key={payout.id} className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm"><span className="font-medium">{formatMoney(Number(payout.amount) || 0)} · {payout.payoutPhoneMasked || 'M-Pesa'}</span><span className="text-neutral-600">{String(payout.status || '').replace(/_/g, ' ')}{payout.providerReference ? ` · ${payout.providerReference}` : ''}</span></div>)}
+          {payoutData && !(payoutData.payouts || []).length && <p className="text-sm text-neutral-500">No payout requests yet.</p>}
+        </div>
+      </Card>}
 
       <Card className="p-5 sm:p-6 mb-8">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
