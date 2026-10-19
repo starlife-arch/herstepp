@@ -9,6 +9,10 @@
       "destination": "/api/users?route=sellers/dashboard"
     },
     {
+      "source": "/api/sellers/subscription",
+      "destination": "/api/users?route=sellers/subscription"
+    },
+    {
       "source": "/api/admin/sellers/applications",
       "destination": "/api/admin?route=sellers/applications"
     },

@@ -468,6 +468,14 @@ export async function mpesaCallback(req, res) {
       .catch(() => null);
     let targetKind = paymentsSnap && !paymentsSnap.empty ? 'payment' : null;
     if (!targetKind) {
+      const subscriptionSnap = await adminDb.collection('sellerSubscriptionPayments')
+        .where('providerReference', '==', verified.providerReference)
+        .limit(1)
+        .get()
+        .catch(() => null);
+      if (subscriptionSnap && !subscriptionSnap.empty) targetKind = 'seller-subscription';
+    }
+    if (!targetKind) {
       const tipsMod = await import('./tips.js');
       const knownTip = await tipsMod.findTipByProviderReference(verified.providerReference).catch(() => null);
       if (knownTip) targetKind = 'tip';
@@ -508,6 +516,39 @@ export async function mpesaCallback(req, res) {
         });
       }
       return send({ ok: true, kind: 'tip', applied: applied?.applied !== false, duplicate: applied?.duplicate === true });
+    }
+
+    if (targetKind === 'seller-subscription') {
+      if (verified.status === PAYMENT_STATUS.PENDING) {
+        return send({ ok: true, kind: 'seller-subscription', applied: false, pending: true });
+      }
+      const subscriptionMod = await import('../seller-subscription-core.js');
+      let subscriptionResult = verified;
+      if (verified.status === PAYMENT_STATUS.PAID) {
+        // A callback is only a hint: verify success against PrintPay for the
+        // exact checkout ID before granting subscription entitlements.
+        const provider = getMpesaProvider();
+        const confirmation = await provider.checkStatus(verified.providerReference);
+        if (confirmation.status !== PAYMENT_STATUS.PAID
+          || String(confirmation.providerReference) !== String(verified.providerReference)) {
+          console.error(`mpesa-callback: unconfirmed seller subscription payment for ${verified.providerReference} (provider says ${confirmation.status})`);
+          return send({ ok: true, received: true, applied: false });
+        }
+        subscriptionResult = {
+          ...verified,
+          status: PAYMENT_STATUS.PAID,
+          amount: confirmation.amount ?? verified.amount,
+          transactionReference: confirmation.transactionReference || verified.transactionReference,
+          eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
+          reason: confirmation.reason ?? verified.reason ?? null,
+        };
+      }
+      const appliedSubscription = await subscriptionMod.applySellerSubscriptionPayment(
+        adminDb,
+        { serverTimestamp: () => FieldValue.serverTimestamp() },
+        { ...subscriptionResult, source: 'PRINTPAY' },
+      );
+      return send({ ok: true, kind: 'seller-subscription', applied: appliedSubscription?.duplicate !== true, duplicate: appliedSubscription?.duplicate === true });
     }
 
     if (!targetKind) {
