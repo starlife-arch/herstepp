@@ -319,3 +319,106 @@ export async function buildInvoicePdf({ order, payment }) {
 
   return new Uint8Array(await doc.save());
 }
+
+/**
+ * Seller-issued invoice PDF for a marketplace order. This is deliberately
+ * separate from buildInvoicePdf: the seller invoice contains only that
+ * seller's lines and names the seller as issuer, not HerStep Collection.
+ */
+export async function buildMarketplaceInvoicePdf({ order, seller, items, invoiceNumber, receiptNumber }) {
+  const o = order || {};
+  const s = seller || {};
+  const lines = Array.isArray(items) ? items : [];
+  const sellerName = winansi(s.businessName || s.displayName || 'Marketplace seller', 100);
+  const invoiceNo = winansi(invoiceNumber || '', 48);
+  const orderNo = winansi(o.orderId || '', 48);
+  const buyerName = winansi(o.delivery?.fullName || o.customerName || 'Buyer', 100);
+  const buyerPhone = winansi(o.delivery?.phone || o.customerPhone || '', 48);
+  const buyerEmail = winansi(o.customerEmail || o.email || '', 120);
+  const sellerPhone = winansi(s.phone || s.contactPhone || '', 48);
+  const sellerEmail = winansi(s.email || s.contactEmail || s.applicantEmail || '', 120);
+  const paidReceipt = winansi(receiptNumber || o.paymentReference || '', 64);
+  const subtotal = lines.reduce((sum, item) => sum + (Number(item.lineTotal) || (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)), 0);
+
+  const doc = await PDFDocument.create();
+  doc.setTitle('Marketplace Invoice ' + invoiceNo);
+  doc.setProducer('HerStep Marketplace');
+  const regular = await doc.embedFont(StandardFonts.Helvetica);
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  let page = doc.addPage([PAGE_W, PAGE_H]);
+  let y = PAGE_H - MARGIN;
+  const text = (value, x, yy, size = 10, font = regular, color = TEXT, maxLen = 120) => {
+    page.drawText(winansi(value, maxLen), { x, y: yy, size, font, color });
+  };
+  const rule = (yy) => page.drawLine({ start: { x: MARGIN, y: yy }, end: { x: PAGE_W - MARGIN, y: yy }, thickness: 1, color: LINE });
+  const heading = (label) => text(label.toUpperCase(), MARGIN, y, 9, bold, MUTED, 100);
+
+  text(sellerName, MARGIN, y, 21, bold, NAVY, 100);
+  text('MARKETPLACE SELLER INVOICE', MARGIN, y - 20, 10, bold, MUTED, 80);
+  text('Invoice: ' + invoiceNo, PAGE_W - MARGIN - 190, y, 11, bold, NAVY, 80);
+  text('Order: ' + orderNo, PAGE_W - MARGIN - 190, y - 17, 10, regular, TEXT, 80);
+  text('Status: PAID', PAGE_W - MARGIN - 190, y - 34, 10, bold, GREEN, 40);
+  y -= 62;
+  rule(y); y -= 24;
+
+  heading('Seller');
+  y -= 17;
+  text('Business: ' + sellerName, MARGIN, y, 10, regular, TEXT, 140); y -= 15;
+  if (sellerPhone) { text('Phone: ' + sellerPhone, MARGIN, y, 10, regular, TEXT, 100); y -= 15; }
+  if (sellerEmail) { text('Email: ' + sellerEmail, MARGIN, y, 10, regular, TEXT, 140); y -= 15; }
+  y -= 7;
+
+  heading('Billed to');
+  y -= 17;
+  text('Name: ' + buyerName, MARGIN, y, 10, regular, TEXT, 150); y -= 15;
+  text('Phone: ' + (buyerPhone || 'Not provided'), MARGIN, y, 10, regular, TEXT, 100); y -= 15;
+  text('Email: ' + (buyerEmail || 'Not provided'), MARGIN, y, 10, regular, TEXT, 150); y -= 15;
+  text('Delivery: ' + winansi(o.delivery?.deliveryMethod || 'DELIVERY', 40), MARGIN, y, 10, regular, TEXT, 80); y -= 15;
+  if (o.delivery?.location) { text('Location: ' + o.delivery.location, MARGIN, y, 10, regular, TEXT, 150); y -= 15; }
+  y -= 8;
+
+  heading('Items sold by this business');
+  y -= 18;
+  const cols = { item: MARGIN, variant: MARGIN + 235, qty: MARGIN + 305, unit: MARGIN + 350, total: PAGE_W - MARGIN };
+  const header = () => {
+    rule(y + 12);
+    text('Product', cols.item, y, 9, bold, MUTED, 40);
+    text('Variant', cols.variant, y, 9, bold, MUTED, 18);
+    text('Qty', cols.qty, y, 9, bold, MUTED, 8);
+    text('Unit price', cols.unit, y, 9, bold, MUTED, 20);
+    const label = 'Line total';
+    page.drawText(label, { x: cols.total - bold.widthOfTextAtSize(label, 9), y, size: 9, font: bold, color: MUTED });
+    y -= 18;
+  };
+  header();
+  for (const item of lines) {
+    if (y < MARGIN + 100) {
+      page = doc.addPage([PAGE_W, PAGE_H]); y = PAGE_H - MARGIN;
+      text(sellerName, MARGIN, y, 16, bold, NAVY, 100); y -= 26;
+      header();
+    }
+    const quantity = Math.max(0, Number(item.quantity) || 0);
+    const unitPrice = Math.max(0, Number(item.unitPrice) || 0);
+    const lineTotal = Number(item.lineTotal) || unitPrice * quantity;
+    text(item.name || 'Marketplace item', cols.item, y, 9, regular, TEXT, 40);
+    text(item.size || '-', cols.variant, y, 9, regular, TEXT, 14);
+    text(String(quantity), cols.qty, y, 9, regular, TEXT, 8);
+    text(moneyKsh(unitPrice), cols.unit, y, 9, regular, TEXT, 22);
+    const amountText = moneyKsh(lineTotal);
+    page.drawText(amountText, { x: cols.total - regular.widthOfTextAtSize(amountText, 9), y, size: 9, font: regular, color: TEXT });
+    y -= 19;
+  }
+  y -= 4; rule(y); y -= 22;
+  text('SELLER ITEM TOTAL', PAGE_W - MARGIN - 205, y, 11, bold, NAVY, 40);
+  const totalText = moneyKsh(subtotal);
+  page.drawText(totalText, { x: PAGE_W - MARGIN - regular.widthOfTextAtSize(totalText, 12), y, size: 12, font: bold, color: GREEN });
+  y -= 26;
+  text('Payment method: M-Pesa', MARGIN, y, 9, regular, TEXT, 60); y -= 14;
+  text('M-Pesa receipt/reference: ' + (paidReceipt || 'Not provided'), MARGIN, y, 9, regular, TEXT, 140); y -= 25;
+  rule(y);
+  y -= 18;
+  text('This invoice covers only the seller items listed above.', MARGIN, y, 9, bold, MUTED, 100); y -= 14;
+  text('HerStep Collection operates the marketplace and is not the seller of these items.', MARGIN, y, 9, regular, MUTED, 120);
+  return new Uint8Array(await doc.save());
+}
+
