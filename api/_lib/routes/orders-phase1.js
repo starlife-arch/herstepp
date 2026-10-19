@@ -235,6 +235,7 @@ export async function adminOrders(req, res) {
       },
       items: (Array.isArray(o.items) ? o.items : []).map(i => ({
         productId: i.productId ?? null,
+        sellerId: i.sellerId || i.sellerSnapshot?.sellerId || null,
         name: i.name ?? '',
         size: String(i.size ?? ''),
         quantity: Number(i.quantity) || 0,
@@ -265,6 +266,20 @@ export async function adminOrders(req, res) {
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
   const { orderDocumentId, orderStatus, note } = req.body || {};
+  if (typeof orderDocumentId !== 'string' || !orderDocumentId.trim() || orderDocumentId.includes('/')) {
+    throw clientError('A valid order document reference is required.');
+  }
+  const targetOrderSnap = await adminDb.collection('orders').doc(orderDocumentId).get();
+  if (targetOrderSnap.exists) {
+    const targetOrder = targetOrderSnap.data() || {};
+    const hasMarketplaceItems = (Array.isArray(targetOrder.items) ? targetOrder.items : [])
+      .some(item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim());
+    const cancellingUnpaidOrder = String(orderStatus || '').toUpperCase() === 'CANCELLED'
+      && String(targetOrder.paymentStatus || '').toUpperCase() !== 'PAID';
+    if (hasMarketplaceItems && !cancellingUnpaidOrder) {
+      throw clientError('This order contains marketplace seller items. Sellers manage fulfilment from their Seller Dashboard; use marketplace admin tools for reports, disputes, moderation, and refunds.', 409);
+    }
+  }
   const result = await adminOrderTransitionCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
     actorUid: a.uid,
     orderDocumentId,
