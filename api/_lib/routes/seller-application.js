@@ -74,7 +74,7 @@ export default async function sellerApplication(req, res) {
     tx.set(ref, { ...payload, createdAt: current.exists ? current.data()?.createdAt || now : now });
     tx.set(auditRef, {
       action: 'SELLER_APPLICATION_SUBMITTED', sellerUid: user.uid, actorUid: user.uid,
-      applicantEmail, displayName, businessName, categories, createdAt: now,
+      displayName, businessName, categories, createdAt: now,
     });
   });
   const saved = await ref.get();
