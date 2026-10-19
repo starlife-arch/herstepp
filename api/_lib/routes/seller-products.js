@@ -61,8 +61,16 @@ export default async function sellerProducts(req, res) {
     throw clientError('Only approved, active sellers can manage product drafts.', 403);
   }
   if (req.method === 'GET') {
-    const snapshot = await adminDb.collection('sellerProducts').where('sellerUid', '==', user.uid).get();
-    const products = snapshot.docs.map(doc => serialize({ id: doc.id, ...doc.data() }))
+    const [snapshot, publicSnapshot] = await Promise.all([
+      adminDb.collection('sellerProducts').where('sellerUid', '==', user.uid).get(),
+      adminDb.collection('products').where('sellerUid', '==', user.uid).get(),
+    ]);
+    const draftProducts = snapshot.docs.map(doc => serialize({ id: doc.id, ...doc.data() }));
+    const representedPublicIds = new Set(draftProducts.map(product => String(product.publishedProductId || product.id)));
+    const additionalPublished = publicSnapshot.docs
+      .filter(doc => String(doc.data()?.status || '').toUpperCase() === 'ACTIVE' && !representedPublicIds.has(doc.id))
+      .map(doc => serialize({ id: doc.id, ...doc.data(), status: 'PUBLISHED', publishedProductId: doc.id }));
+    const products = [...draftProducts, ...additionalPublished]
       .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
     const seller = sellerSnap.data() || {};
     const expiry = toDate(seller.subscriptionExpiresAt);
