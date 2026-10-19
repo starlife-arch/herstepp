@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { productPath, slugifyProductName } from '../lib/product-slug';
-import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck, X, ZoomIn, Flag } from 'lucide-react';
+import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck, X, ZoomIn, Flag, MessageCircle } from 'lucide-react';
 import { WishlistButton } from '../components/WishlistButton';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { apiFetch } from '../lib/api';
@@ -38,6 +38,8 @@ export default function ProductDetail() {
   const [reportDetails, setReportDetails] = useState('');
   const [reportBusy, setReportBusy] = useState(false);
   const [reportMessage, setReportMessage] = useState('');
+  const [messageBusy, setMessageBusy] = useState(false);
+  const [messageError, setMessageError] = useState('');
 
   if (catalogError) {
     return (
@@ -94,6 +96,16 @@ export default function ProductDetail() {
     } catch (error: any) {
       setReportMessage(error?.message || 'Could not submit report. Sign in and try again.');
     } finally { setReportBusy(false); }
+  };
+
+  const startSellerConversation = async () => {
+    setMessageBusy(true); setMessageError('');
+    try {
+      const result: any = await apiFetch('/api/marketplace/messages', { method: 'POST', body: JSON.stringify({ action: 'start', productId: product.id }) });
+      navigate('/messages?conversationId=' + encodeURIComponent(result.conversationId));
+    } catch (error: any) {
+      setMessageError(error?.message || 'Could not start a conversation. Please sign in and try again.');
+    } finally { setMessageBusy(false); }
   };
 
   const subscribeRestock = async (size: string) => {
@@ -205,6 +217,9 @@ export default function ProductDetail() {
             <p className="text-sm text-neutral-400">SKU: {product.sku}</p>
             {product.sellerUid && <p className="text-sm text-neutral-600 mt-2">Sold by <Link to={`/seller/shop/${encodeURIComponent(product.sellerUid)}`} className="font-medium underline hover:text-neutral-900">{product.sellerDisplayName || product.sellerBusinessName || "Marketplace seller"}</Link></p>}
             {product.sellerUid && <div className="mt-3">
+              <button type="button" onClick={() => void startSellerConversation()} disabled={messageBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"><MessageCircle className="w-4 h-4" /> {messageBusy ? 'Opening messages…' : 'Message seller'}</button>
+              {messageError && <p role="alert" className="text-sm text-red-700 mt-2">{messageError} <span className="text-neutral-500">You must be signed in to message a seller.</span></p>}
+              <div className="mt-2">
               <button type="button" onClick={() => setReportOpen(open => !open)} className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-red-700 underline"><Flag className="w-3.5 h-3.5" /> Report this listing</button>
               {reportMessage && <p role="status" className="text-sm text-neutral-600 mt-2">{reportMessage}</p>}
               {reportOpen && <div className="mt-3 rounded-xl border border-neutral-200 p-4 space-y-3">
@@ -222,6 +237,7 @@ export default function ProductDetail() {
                 <div className="flex gap-2"><Button onClick={() => void submitListingReport()} disabled={reportBusy || (reportReason === 'OTHER' && reportDetails.trim().length < 10)}>{reportBusy ? 'Submitting…' : 'Submit report'}</Button><Button variant="outline" onClick={() => setReportOpen(false)} disabled={reportBusy}>Cancel</Button></div>
                 <p className="text-xs text-neutral-500">You must be signed in. Reports are reviewed by HerStep admins; submitting a report does not automatically remove the listing.</p>
               </div>}
+              </div>
             </div>}
           </div>
 
