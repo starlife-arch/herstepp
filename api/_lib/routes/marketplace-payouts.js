@@ -42,13 +42,14 @@ async function availableAfterRefundHolds(ledgerDocs, readOrder) {
 }
 
 const iso = value => value?.toDate?.().toISOString?.() ?? null;
-const safePayout = doc => {
+const safePayout = (doc, includeSensitive = false) => {
   const d = doc.data() || {};
   return {
     id: doc.id, sellerId: d.sellerId, sellerName: d.sellerName || '', amount: d.amount, currency: d.currency || 'KES',
     status: d.status, reason: d.reason || '', providerReference: d.providerReference || '',
     requestedAt: iso(d.createdAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
     rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || '',
+    ...(includeSensitive ? { payoutPhone: d.payoutPhone || '' } : {}),
   };
 };
 function normalizeKenyanPhone(value) {
@@ -117,7 +118,7 @@ export async function adminMarketplacePayouts(req, res) {
   const admin = await requireAdmin(req);
   if (req.method === 'GET') {
     const [payoutSnap, refundSnap] = await Promise.all([
-      adminDb.collection('sellerPayouts').orderBy('createdAt', 'desc').limit(200).get(),
+      adminDb.collection('sellerPayouts').limit(500).get(),
       adminDb.collection('refundRecords').where('status', '==', 'CONFIRMED').limit(200).get().catch(() => ({ docs: [] })),
     ]);
     const refundsToReconcile = [];
@@ -140,7 +141,8 @@ export async function adminMarketplacePayouts(req, res) {
         providerReference: refund.providerReference || '', confirmedAt: iso(refund.confirmedAt), sellerLines,
       });
     }
-    return res.json({ payouts: payoutSnap.docs.map(safePayout), refundsToReconcile });
+    const payouts = payoutSnap.docs.map(doc => safePayout(doc, true)).sort((a, b) => String(b.requestedAt || '').localeCompare(String(a.requestedAt || '')));
+    return res.json({ payouts, refundsToReconcile });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const action = clean(req.body?.action, 30).toUpperCase();
