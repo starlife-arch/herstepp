@@ -19,7 +19,7 @@ export default async function adminSellerProducts(req, res) {
   if (req.method === 'GET') {
     const rawStatus = Array.isArray(req.query.status) ? req.query.status[0] : req.query.status;
     const status = clean(rawStatus || 'ALL').toUpperCase();
-    if (!['ALL', 'DRAFT', 'APPROVED', 'REJECTED', 'PUBLISHED'].includes(status)) {
+    if (!['ALL', 'DRAFT', 'PENDING_REVIEW', 'APPROVED', 'REJECTED', 'PUBLISHED'].includes(status)) {
       throw clientError('Invalid seller product status.');
     }
     let query = adminDb.collection('sellerProducts');
@@ -58,7 +58,7 @@ export default async function adminSellerProducts(req, res) {
   }
 
   if (action === 'APPROVE') {
-    if (!['DRAFT', 'REJECTED', 'APPROVED'].includes(String(draft.status || '').toUpperCase())) {
+    if (!['DRAFT', 'PENDING_REVIEW', 'REJECTED', 'APPROVED'].includes(String(draft.status || '').toUpperCase())) {
       throw clientError('Only an unpublished seller draft can be approved.', 409);
     }
     await draftRef.update({
