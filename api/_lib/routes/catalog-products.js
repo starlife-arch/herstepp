@@ -37,7 +37,9 @@ export async function listProducts(req, res) {
     if (typeof category === 'string' && category) query = query.where('categoryId', '==', category);
     const snapshot = await query.orderBy('createdAt', 'desc').get();
     const products = snapshot.docs.map(docData);
-    return filterPublicSellerListings(adminDb, products);
+    const visible = await filterPublicSellerListings(adminDb, products);
+    const activePromotion = product => { const value = product?.promotedUntil; const expiry = value ? new Date(value).getTime() : 0; return Number.isFinite(expiry) && expiry > Date.now(); };
+    return visible.sort((a, b) => Number(activePromotion(b)) - Number(activePromotion(a)) || String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   });
   return res.status(200).json(body);
 }

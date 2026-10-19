@@ -38,6 +38,7 @@ function serializeProduct(doc) {
     })) : [],
     stockQuantity: Math.max(0, Number(product.stockQuantity) || 0),
     createdAt: iso(product.createdAt),
+    promotedUntil: iso(product.promotedUntil),
   };
 }
 
