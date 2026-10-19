@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { productPath, slugifyProductName } from '../lib/product-slug';
-import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck, X, ZoomIn } from 'lucide-react';
+import { ShoppingBag, ChevronRight, Minus, Plus, Check, Truck, X, ZoomIn, Flag } from 'lucide-react';
 import { WishlistButton } from '../components/WishlistButton';
 import { useApp, effectivePrice, hasDiscount } from '../context/AppContext';
 import { apiFetch } from '../lib/api';
@@ -33,6 +33,11 @@ export default function ProductDetail() {
   const [imageZoomOpen, setImageZoomOpen] = useState(false);
   const [restockBusy, setRestockBusy] = useState(false);
   const [restockMessage, setRestockMessage] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('SUSPICIOUS_SELLER');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportBusy, setReportBusy] = useState(false);
+  const [reportMessage, setReportMessage] = useState('');
 
   if (catalogError) {
     return (
@@ -75,6 +80,21 @@ export default function ProductDetail() {
   const selectedSizeData = selectedSize ? product.inventory.find(s => s.size === selectedSize) : undefined;
   const maxQuantity = selectedSizeData?.quantity ?? 0;
   const canAddToCart = Boolean(selectedSize && selectedSizeData && selectedSizeData.quantity >= quantity && quantity >= 1);
+
+  const submitListingReport = async () => {
+    setReportBusy(true); setReportMessage('');
+    try {
+      const result: any = await apiFetch('/api/marketplace/reports', {
+        method: 'POST',
+        body: JSON.stringify({ productId: product.id, reasonCode: reportReason, details: reportDetails }),
+      });
+      setReportMessage(result.message || 'Report submitted for admin review.');
+      setReportOpen(false);
+      setReportDetails('');
+    } catch (error: any) {
+      setReportMessage(error?.message || 'Could not submit report. Sign in and try again.');
+    } finally { setReportBusy(false); }
+  };
 
   const subscribeRestock = async (size: string) => {
     setRestockBusy(true); setRestockMessage('');
@@ -184,6 +204,25 @@ export default function ProductDetail() {
             <div className="flex items-start justify-between gap-3"><h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1><WishlistButton productId={product.id} /></div>
             <p className="text-sm text-neutral-400">SKU: {product.sku}</p>
             {product.sellerUid && <p className="text-sm text-neutral-600 mt-2">Sold by <Link to={`/seller/shop/${encodeURIComponent(product.sellerUid)}`} className="font-medium underline hover:text-neutral-900">{product.sellerDisplayName || product.sellerBusinessName || "Marketplace seller"}</Link></p>}
+            {product.sellerUid && <div className="mt-3">
+              <button type="button" onClick={() => setReportOpen(open => !open)} className="inline-flex items-center gap-1.5 text-xs text-neutral-500 hover:text-red-700 underline"><Flag className="w-3.5 h-3.5" /> Report this listing</button>
+              {reportMessage && <p role="status" className="text-sm text-neutral-600 mt-2">{reportMessage}</p>}
+              {reportOpen && <div className="mt-3 rounded-xl border border-neutral-200 p-4 space-y-3">
+                <p className="text-sm font-semibold text-neutral-900">Tell us what concerns you</p>
+                <label className="block text-xs font-medium text-neutral-700" htmlFor="marketplace-report-reason">Reason</label>
+                <select id="marketplace-report-reason" value={reportReason} onChange={event => setReportReason(event.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm">
+                  <option value="COUNTERFEIT_OR_MISLEADING">Counterfeit or misleading</option>
+                  <option value="SUSPICIOUS_SELLER">Suspicious seller</option>
+                  <option value="PROHIBITED_ITEM">Prohibited item</option>
+                  <option value="WRONG_INFORMATION">Incorrect listing information</option>
+                  <option value="OTHER">Other</option>
+                </select>
+                <label className="block text-xs font-medium text-neutral-700" htmlFor="marketplace-report-details">Additional details {reportReason === 'OTHER' ? '(required)' : '(optional)'}</label>
+                <textarea id="marketplace-report-details" value={reportDetails} onChange={event => setReportDetails(event.target.value)} maxLength={1000} rows={3} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Share details that may help us review this listing…" />
+                <div className="flex gap-2"><Button onClick={() => void submitListingReport()} disabled={reportBusy || (reportReason === 'OTHER' && reportDetails.trim().length < 10)}>{reportBusy ? 'Submitting…' : 'Submit report'}</Button><Button variant="outline" onClick={() => setReportOpen(false)} disabled={reportBusy}>Cancel</Button></div>
+                <p className="text-xs text-neutral-500">You must be signed in. Reports are reviewed by HerStep admins; submitting a report does not automatically remove the listing.</p>
+              </div>}
+            </div>}
           </div>
 
           {/* Price */}
