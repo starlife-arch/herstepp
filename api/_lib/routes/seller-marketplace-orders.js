@@ -135,6 +135,17 @@ export default async function sellerMarketplaceOrders(req, res) {
       orderDocumentId, orderId: order.orderId || orderDocumentId,
       previousStatus: previous, newStatus: requestedStatus, actorUid: user.uid, createdAt: now,
     });
+    if (order.customerId) {
+      const noticeId = base64url(`seller-order-status:${orderDocumentId}:${user.uid}:${requestedStatus}`);
+      const seller = sellerSnap.data() || {};
+      tx.set(adminDb.collection('notifications').doc(noticeId), {
+        customerId: order.customerId, orderDocumentId,
+        event: 'SELLER_FULFILMENT_STATUS_CHANGED',
+        title: 'Marketplace order update',
+        body: `${String(seller.businessName || seller.displayName || 'The seller').slice(0, 100)} updated their items in order ${order.orderId || orderDocumentId} to ${requestedStatus.replace(/_/g, ' ').toLowerCase()}.`,
+        readAt: null, createdAt: now,
+      });
+    }
     for (const row of releaseWrites) {
       tx.create(adminDb.collection('sellerLedger').doc(row.id), {
         sellerId: user.uid, orderDocumentId, orderId: order.orderId || orderDocumentId,
