@@ -1,8 +1,10 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { SELLER_PLANS } from '../seller-subscription-core.js';
 
 const clean = value => String(value ?? '').trim();
+const toDate = value => value?.toDate?.() || (value instanceof Date ? value : (typeof value === 'string' || typeof value === 'number') ? new Date(value) : null);
 const sizes = new Set([...Array.from({ length: 16 }, (_, i) => String(i + 30)), 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size', 'Free Size']);
 
 function validateDraft(input) {
@@ -62,9 +64,44 @@ export default async function sellerProducts(req, res) {
     const snapshot = await adminDb.collection('sellerProducts').where('sellerUid', '==', user.uid).get();
     const products = snapshot.docs.map(doc => serialize({ id: doc.id, ...doc.data() }))
       .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')));
-    return res.status(200).json({ products, publishingEnabled: false });
+    const seller = sellerSnap.data() || {};
+    const expiry = toDate(seller.subscriptionExpiresAt);
+    const planCode = String(seller.planCode || 'STARTER').toUpperCase();
+    const plan = SELLER_PLANS[planCode];
+    const publishingEnabled = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
+      && Boolean(expiry && expiry.getTime() > Date.now()) && Boolean(plan || planCode === 'UNLIMITED');
+    return res.status(200).json({ products, publishingEnabled, planCode, subscriptionExpiresAt: expiry?.toISOString?.() || null });
   }
   if (!['POST', 'PATCH'].includes(req.method)) return methodNotAllowed(res, 'GET, POST, PATCH');
+
+  if (req.method === 'PATCH' && String(req.body?.action || '').toUpperCase() === 'SUBMIT_FOR_REVIEW') {
+    const id = clean(req.body?.id);
+    if (!id || id.length > 150) throw clientError('A valid product draft ID is required.');
+    const ref = adminDb.collection('sellerProducts').doc(id);
+    const [draftSnap, sellerFresh] = await Promise.all([ref.get(), sellerRef.get()]);
+    if (!draftSnap.exists || draftSnap.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
+    const draft = draftSnap.data() || {};
+    if (!['DRAFT', 'REJECTED'].includes(String(draft.status || '').toUpperCase())) {
+      throw clientError('Only a private or rejected draft can be submitted for review.', 409);
+    }
+    const seller = sellerFresh.data() || {};
+    const expiry = toDate(seller.subscriptionExpiresAt);
+    if (seller.status !== 'ACTIVE' || seller.billingStatus !== 'ACTIVE' || !expiry || expiry.getTime() <= Date.now()) {
+      throw clientError('An active paid seller plan is required before submitting products for review.', 403);
+    }
+    const planCode = String(seller.planCode || '').toUpperCase();
+    if (!SELLER_PLANS[planCode] && planCode !== 'UNLIMITED') throw clientError('Your seller plan is invalid. Please contact support.', 409);
+    const now = FieldValue.serverTimestamp();
+    await ref.update({
+      status: 'PENDING_REVIEW', submittedAt: now, moderationReason: null,
+      reviewedBy: null, reviewedAt: null, updatedAt: now,
+    });
+    await adminDb.collection('sellerMarketplaceAudit').add({
+      action: 'SELLER_PRODUCT_SUBMITTED_FOR_REVIEW', sellerUid: user.uid,
+      productDraftId: id, actorUid: user.uid, createdAt: now,
+    });
+    return res.status(200).json({ success: true, product: { id, ...draft, status: 'PENDING_REVIEW' }, message: 'Product submitted for admin review. It will remain private until approved and published.' });
+  }
 
   const product = validateDraft(req.body);
   const category = await adminDb.collection('categories').doc(product.categoryId).get();
