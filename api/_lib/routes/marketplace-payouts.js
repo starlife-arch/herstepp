@@ -170,7 +170,7 @@ export async function adminMarketplacePayouts(req, res) {
     const refundRecordId = clean(req.body?.refundRecordId, 120);
     const allocations = req.body?.allocations;
     const reason = clean(req.body?.reason, 500);
-    if (!refundRecordId || !Array.isArray(allocations) || allocations.length > 20) throw clientError('Choose a confirmed refund and provide valid seller allocations.');
+    if (!/^[A-Za-z0-9_-]{1,120}$/.test(refundRecordId) || !Array.isArray(allocations) || allocations.length > 20) throw clientError('Choose a confirmed refund and provide valid seller allocations.');
     if (!reason) throw clientError('A reconciliation note is required.');
     const normalized = allocations.map(row => ({ sellerId: clean(row?.sellerId, 128), amount: row?.amount }));
     if (normalized.some(row => !row.sellerId || !money(row.amount)) || new Set(normalized.map(row => row.sellerId)).size !== normalized.length) {
