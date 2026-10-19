@@ -183,6 +183,7 @@ export default function ProductDetail() {
             <p className="text-sm text-neutral-500 mb-1">{state.categories.find(c => c.id === product.categoryId)?.name}</p>
             <div className="flex items-start justify-between gap-3"><h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1><WishlistButton productId={product.id} /></div>
             <p className="text-sm text-neutral-400">SKU: {product.sku}</p>
+            {product.sellerUid && <p className="text-sm text-neutral-600 mt-2">Sold by <Link to={`/seller/shop/${encodeURIComponent(product.sellerUid)}`} className="font-medium underline hover:text-neutral-900">{product.sellerDisplayName || product.sellerBusinessName || "Marketplace seller"}</Link></p>}
           </div>
 
           {/* Price */}
