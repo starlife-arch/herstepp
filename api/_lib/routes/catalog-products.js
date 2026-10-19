@@ -10,6 +10,7 @@
 import { adminDb } from '../firebase-admin.js';
 import { methodNotAllowed } from '../http.js';
 import { setPublicCache } from '../route-dispatch.js';
+import { filterPublicSellerListings, isPublicSellerListing } from '../seller-visibility.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 function serialize(value) { if (value?.toDate) return value.toDate().toISOString(); if (Array.isArray(value)) return value.map(serialize); if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k,v]) => [k,serialize(v)])); return value; }
@@ -35,7 +36,8 @@ export async function listProducts(req, res) {
     let query = adminDb.collection('products').where('status', '==', 'ACTIVE');
     if (typeof category === 'string' && category) query = query.where('categoryId', '==', category);
     const snapshot = await query.orderBy('createdAt', 'desc').get();
-    return snapshot.docs.map(docData);
+    const products = snapshot.docs.map(docData);
+    return filterPublicSellerListings(adminDb, products);
   });
   return res.status(200).json(body);
 }
@@ -48,7 +50,9 @@ export async function productDetail(req, res) {
   const body = await cached(`product:${id}`, async () => {
     const product = await adminDb.collection('products').doc(id).get();
     if (!product.exists || product.data().status !== 'ACTIVE') return null;
-    return docData(product);
+    const data = docData(product);
+    if (!(await isPublicSellerListing(adminDb, data))) return null;
+    return data;
   });
   if (!body) return res.status(404).json({ error: 'Product not found.' });
   return res.status(200).json(body);
