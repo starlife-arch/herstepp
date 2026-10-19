@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, BadgeCheck, Clock3, CreditCard, Store } from 'lucide-react';
+import { ArrowRight, BadgeCheck, Clock3, CreditCard, PackagePlus, Store } from 'lucide-react';
 import { Badge, Button, Card } from '../components/ui';
 import { apiFetch } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -65,7 +65,7 @@ export default function SellerDashboard() {
           <h1 className="text-3xl font-bold text-neutral-900">Seller dashboard</h1>
           <p className="text-neutral-600 mt-2">Your seller account, subscription options, and next steps in one place.</p>
         </div>
-        <Link to="/seller/apply"><Button variant="outline"><Store className="w-4 h-4 mr-2" /> Application details</Button></Link>
+        <div className="flex flex-wrap gap-2"><Link to="/seller/products"><Button><PackagePlus className="w-4 h-4 mr-2" /> My products</Button></Link><Link to="/seller/apply"><Button variant="outline"><Store className="w-4 h-4 mr-2" /> Application details</Button></Link></div>
       </div>
 
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-6">{error}</div>}
