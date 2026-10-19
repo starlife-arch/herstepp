@@ -38,6 +38,7 @@ Turn HerStep Collection into a multi-vendor marketplace without disrupting the e
 - Existing checkout currently serves the existing shop. Do not redirect or alter live payment flow until the marketplace payment and order ownership model is tested.
 - Customer payments are to land in the HerStep account first. Maintain a ledger per seller: gross order, platform fee, refunds/chargebacks, adjustments, available balance, pending balance, and payout records.
 - Do not label balances “paid” until payout is actually confirmed. Add admin-controlled payout approval, immutable audit logs, idempotency, reconciliation, and clear payout status.
+- Verified paid marketplace order lines are written to `sellerLedger` as deterministic `ORDER_PAYMENT_PENDING` entries with a 0% platform fee. These entries are not withdrawable: a separate delivery/refund lifecycle must release or adjust them before payout management is enabled.
 - Seller order views must show only their own order line items and only the customer information needed to fulfill them.
 
 ## Suggested data collections

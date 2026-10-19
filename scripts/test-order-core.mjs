@@ -172,6 +172,48 @@ await test('marketplace order lines snapshot seller ownership while first-party 
   assert.equal('sellerSnapshot' in firstPartyOrder.items[0], false);
 });
 
+await test('verified marketplace payment creates one pending seller ledger entry per line and retries do not duplicate it', async () => {
+  const db = seedBase({ product: {
+    sellerUid: 'seller-ledger-1', sellerId: 'seller-ledger-1',
+    sellerDisplayName: 'Ledger Seller', sellerBusinessName: 'Ledger Business', marketplaceSeller: true,
+  } });
+  const d = deps(db);
+  const created = await createOrderCore(db, d, checkoutPayload());
+  db.__seed('payments', 'pay-market-ledger', {
+    paymentId: 'pay-market-ledger', orderDocumentId: created.order.id, orderId: created.order.orderId,
+    customerId: 'user-1', amount: created.order.total, currency: 'KES', phone: '+254712345678',
+    method: 'MPESA', status: 'PENDING', providerReference: 'CPH-LEDGER', transactionReference: null,
+    receiptNumber: null, failureReason: null, createdAt: d.serverTimestamp(), initiatedAt: d.serverTimestamp(),
+  });
+  const callback = {
+    providerReference: 'CPH-LEDGER', status: 'PAID', amount: created.order.total,
+    transactionReference: 'QNL-LEDGER', eventId: 'evt-market-ledger',
+  };
+  await applyVerifiedCallbackCore(db, d, callback);
+  const entries = db.__list('sellerLedger').map(row => row.data);
+  assert.equal(entries.length, 2, 'two order lines should create two deterministic ledger entries');
+  assert.equal(entries.reduce((sum, entry) => sum + entry.amount, 0), created.order.total);
+  assert.ok(entries.every(entry => entry.sellerId === 'seller-ledger-1'));
+  assert.ok(entries.every(entry => entry.status === 'PENDING' && entry.balanceBucket === 'PENDING'));
+  assert.ok(entries.every(entry => entry.platformFee === 0 && entry.currency === 'KES'));
+  await applyVerifiedCallbackCore(db, d, { ...callback, eventId: 'evt-market-ledger-replay' });
+  assert.equal(db.__list('sellerLedger').length, 2, 'a replay must not duplicate seller earnings');
+
+  const firstPartyDb = seedBase();
+  const firstPartyDeps = deps(firstPartyDb);
+  const firstPartyOrder = await createOrderCore(firstPartyDb, firstPartyDeps, checkoutPayload());
+  firstPartyDb.__seed('payments', 'pay-first-party', {
+    paymentId: 'pay-first-party', orderDocumentId: firstPartyOrder.order.id, orderId: firstPartyOrder.order.orderId,
+    customerId: 'user-1', amount: firstPartyOrder.order.total, currency: 'KES', phone: '+254712345678',
+    method: 'MPESA', status: 'PENDING', providerReference: 'CPH-FIRST-PARTY', transactionReference: null,
+    receiptNumber: null, failureReason: null, createdAt: firstPartyDeps.serverTimestamp(), initiatedAt: firstPartyDeps.serverTimestamp(),
+  });
+  await applyVerifiedCallbackCore(firstPartyDb, firstPartyDeps, {
+    providerReference: 'CPH-FIRST-PARTY', status: 'PAID', amount: firstPartyOrder.order.total, eventId: 'evt-first-party',
+  });
+  assert.equal(firstPartyDb.__list('sellerLedger').length, 0, 'first-party sales must not create seller ledger entries');
+});
+
 await test('created order contains delivery.fullName, delivery.phone (+254 normalised) and delivery.instructions', async () => {
   const db = seedBase();
   const res = await createOrderCore(db, deps(db), checkoutPayload());
