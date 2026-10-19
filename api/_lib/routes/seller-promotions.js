@@ -30,7 +30,8 @@ export async function applyPromotionPayment(db, deps, input) {
     const snap = await tx.get(paymentRef);
     if (!snap.exists) return { applied: false, unknown: true };
     const payment = snap.data();
-    if (TERMINAL.has(payment.status)) return { applied: false, duplicate: true };
+    if (payment.status === 'PAID') return { applied: false, duplicate: true };
+    if (TERMINAL.has(payment.status) && status !== 'PAID') return { applied: false, duplicate: true };
     if (status === 'PAID' && (Number(input.amount) !== PROMOTION_PRICE || Number(payment.amount) !== PROMOTION_PRICE)) throw clientError('Promotion payment amount does not match the required KSh 100.', 409);
     const patch = { status, transactionReference: input.transactionReference || null,
       failureReason: status === 'PAID' ? null : (input.reason || status), updatedAt: deps.serverTimestamp(),
@@ -38,8 +39,8 @@ export async function applyPromotionPayment(db, deps, input) {
     if (status === 'PAID') {
       const productRef = db.collection('products').doc(payment.productId);
       const productSnap = await tx.get(productRef);
-      if (!productSnap.exists || productSnap.data()?.sellerUid !== payment.sellerId || String(productSnap.data()?.status || '').toUpperCase() !== 'ACTIVE') {
-        patch.status = 'FAILED'; patch.failureReason = 'Product is no longer eligible for promotion.';
+      if (!productSnap.exists || productSnap.data()?.sellerUid !== payment.sellerId) {
+        patch.status = 'PAID'; patch.promotionIssue = 'Product no longer exists or seller ownership changed; contact support.';
       } else {
         const until = new Date(Date.now() + PROMOTION_DAYS * 24 * 60 * 60 * 1000);
         patch.promotedUntil = until.toISOString();
@@ -57,7 +58,6 @@ export default async function sellerPromotions(req, res) {
   if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== user.uid || sellerSnap.data()?.status !== 'ACTIVE') throw clientError('An approved, active seller account is required.', 403);
   const seller = sellerSnap.data();
   const expiry = dateValue(seller.subscriptionExpiresAt);
-  if (seller.billingStatus !== 'ACTIVE' || !expiry || expiry.getTime() <= Date.now()) throw clientError('An active seller subscription is required to promote products.', 403);
   if (req.method === 'GET') {
     const paymentId = Array.isArray(req.query.paymentId) ? req.query.paymentId[0] : req.query.paymentId;
     if (paymentId) {
@@ -80,6 +80,7 @@ export default async function sellerPromotions(req, res) {
       }
       return res.json({ payment: publicPayment(paymentId, data) });
     }
+    if (seller.billingStatus !== 'ACTIVE' || !expiry || expiry.getTime() <= Date.now()) throw clientError('An active seller subscription is required to promote products.', 403);
     const products = await adminDb.collection('products').where('sellerUid', '==', user.uid).limit(200).get();
     return res.json({ products: products.docs.filter(d => String(d.data()?.status || '').toUpperCase() === 'ACTIVE').map(d => {
       const p = d.data(); const until = dateValue(p.promotedUntil);
@@ -87,6 +88,7 @@ export default async function sellerPromotions(req, res) {
     }) });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, 'GET, POST');
+  if (seller.billingStatus !== 'ACTIVE' || !expiry || expiry.getTime() <= Date.now()) throw clientError('An active seller subscription is required to promote products.', 403);
   const productId = String(req.body?.productId || '').trim();
   const phone = String(req.body?.phone || '').trim();
   const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
