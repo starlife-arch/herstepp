@@ -2,6 +2,7 @@ import { dispatchRoute, lazyRoute } from './_lib/route-dispatch.js';
 
 export default (req, res) => dispatchRoute(req, res, {
   'sellers/application': lazyRoute(() => import('./_lib/routes/seller-application.js')),
+  'sellers/profile': lazyRoute(() => import('./_lib/routes/seller-profile.js')),
   'sellers/dashboard': lazyRoute(() => import('./_lib/routes/seller-dashboard.js')),
   'sellers/payouts': lazyRoute(() => import('./_lib/routes/marketplace-payouts.js').then(m => ({ default: m.sellerPayouts }))),
   'sellers/shop': lazyRoute(() => import('./_lib/routes/public-seller-shop.js')),
