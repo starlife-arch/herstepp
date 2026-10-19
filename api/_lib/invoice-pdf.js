@@ -353,7 +353,7 @@ export async function buildMarketplaceInvoicePdf({ order, seller, items, invoice
   const rule = (yy) => page.drawLine({ start: { x: MARGIN, y: yy }, end: { x: PAGE_W - MARGIN, y: yy }, thickness: 1, color: LINE });
   const heading = (label) => text(label.toUpperCase(), MARGIN, y, 9, bold, MUTED, 100);
 
-  text(sellerName, MARGIN, y, 21, bold, NAVY, 100);
+  text(sellerName, MARGIN, y, 18, bold, NAVY, 32);
   text('MARKETPLACE SELLER INVOICE', MARGIN, y - 20, 10, bold, MUTED, 80);
   text('Invoice: ' + invoiceNo, PAGE_W - MARGIN - 190, y, 11, bold, NAVY, 80);
   text('Order: ' + orderNo, PAGE_W - MARGIN - 190, y - 17, 10, regular, TEXT, 80);
