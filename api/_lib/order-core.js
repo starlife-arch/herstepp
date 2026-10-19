@@ -814,6 +814,28 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
     if (!orderSnap.exists) throw clientError('Order not found.', 404);
     const order = orderSnap.data();
 
+    // Load marketplace ledger rows before any writes. Delivery releases are
+    // represented by immutable signed entries rather than editing the original
+    // payment entries, so audit history is preserved.
+    let deliveryLedgerPlan = [];
+    if (orderStatus === 'DELIVERED') {
+      const ledgerSnap = await tx.get(db.collection('sellerLedger').where('orderDocumentId', '==', orderDocumentId));
+      const originals = ledgerSnap.docs.filter(doc => doc.data()?.type === 'ORDER_PAYMENT_PENDING');
+      const releaseRefs = originals.map(doc => ({
+        original: doc,
+        pendingRef: db.collection('sellerLedger').doc(base64url(`${doc.id}:delivery-pending`)),
+        availableRef: db.collection('sellerLedger').doc(base64url(`${doc.id}:delivery-available`)),
+      }));
+      const releaseSnaps = releaseRefs.length
+        ? await tx.getAll(...releaseRefs.flatMap(row => [row.pendingRef, row.availableRef]))
+        : [];
+      for (let index = 0; index < releaseRefs.length; index += 1) {
+        const row = releaseRefs[index];
+        if (releaseSnaps[index * 2].exists || releaseSnaps[index * 2 + 1].exists) continue;
+        deliveryLedgerPlan.push({ ...row, data: row.original.data() });
+      }
+    }
+
     const allowed = ALLOWED_ORDER_TRANSITIONS[order.orderStatus] || [];
     if (!allowed.includes(orderStatus)) {
       throw clientError(
@@ -908,6 +930,32 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
       }
     }
     if (restorePlan.length) tx.update(orderRef, { inventoryReserved: false });
+
+    for (const row of deliveryLedgerPlan) {
+      const amount = Number(row.data.amount);
+      if (!Number.isFinite(amount) || amount <= 0) throw clientError('Marketplace ledger entry has an invalid amount.', 409);
+      const common = {
+        sellerId: row.data.sellerId,
+        orderDocumentId,
+        orderId: order.orderId,
+        paymentId: row.data.paymentId || null,
+        itemIndex: row.data.itemIndex,
+        productId: row.data.productId || null,
+        productName: row.data.productName || '',
+        sellerSnapshot: row.data.sellerSnapshot || { sellerId: row.data.sellerId },
+        currency: row.data.currency || order.currency || 'KES',
+        sourceLedgerEntryId: row.original.id,
+        createdAt: deps.serverTimestamp(),
+      };
+      tx.set(row.pendingRef, {
+        ...common, type: 'ORDER_DELIVERY_RELEASE_PENDING', status: 'POSTED',
+        amount: -amount, balanceBucket: 'PENDING', idempotencyKey: row.pendingRef.id,
+      });
+      tx.set(row.availableRef, {
+        ...common, type: 'ORDER_DELIVERY_RELEASE_AVAILABLE', status: 'POSTED',
+        amount, balanceBucket: 'AVAILABLE', idempotencyKey: row.availableRef.id,
+      });
+    }
 
     tx.set(db.collection('orderStatusHistory').doc(), {
       orderId: order.orderId,
