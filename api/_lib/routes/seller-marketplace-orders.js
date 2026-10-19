@@ -62,7 +62,7 @@ export default async function sellerMarketplaceOrders(req, res) {
 
   if (req.method === 'GET') {
     const snapshot = await adminDb.collection('orders').orderBy('createdAt', 'desc').limit(250).get();
-    const orders = snapshot.docs.map(doc => serializeOrder(doc, user.uid)).filter(Boolean);
+    const orders = snapshot.docs.map(doc => serializeOrder(doc, user.uid)).filter(order => order && order.paymentStatus === 'PAID');
     return res.status(200).json({ orders });
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
