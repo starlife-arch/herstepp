@@ -16,6 +16,10 @@ export interface Product {
   newArrival: boolean;
   stockQuantity: number;      // derived, server-written
   availableSizes: string[];   // derived, server-written (sizes with quantity > 0)
+  sellerUid?: string;
+  sellerDisplayName?: string;
+  sellerBusinessName?: string;
+  marketplaceSeller?: boolean;
   createdAt: string;
   updatedAt: string;
 }
