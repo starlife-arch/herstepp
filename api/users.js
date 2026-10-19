@@ -5,6 +5,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'sellers/dashboard': lazyRoute(() => import('./_lib/routes/seller-dashboard.js')),
   'sellers/subscription': lazyRoute(() => import('./_lib/routes/seller-subscription.js')),
   'sellers/products': lazyRoute(() => import('./_lib/routes/seller-products.js')),
+  'sellers/products/sign-upload': lazyRoute(() => import('./_lib/routes/seller-product-sign-upload.js')),
   'auth/sync-profile': lazyRoute(() => import('./_lib/routes/sync-profile.js')),
   'marketing/unsubscribe': lazyRoute(() => import('./_lib/routes/admin-email-campaigns.js').then(m => ({ default: m.marketingUnsubscribe }))),
   'marketing/sms-unsubscribe': lazyRoute(() => import('./_lib/routes/admin-sms-campaigns.js').then(m => ({ default: m.smsMarketingUnsubscribe }))),
