@@ -89,7 +89,7 @@ export default function AdminSellers() {
             <h1 className="text-3xl font-bold text-neutral-900">Seller applications</h1>
             <p className="text-sm text-neutral-600 mt-2">Review applicants before enabling their seller accounts.</p>
           </div>
-          <div className="flex flex-wrap gap-2"><Link to="/admin/seller-products"><Button variant="secondary"><ClipboardCheck className="w-4 h-4 mr-2" /> Product moderation</Button></Link><Button variant="outline" onClick={load} loading={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div>
+          <div className="flex flex-wrap gap-2"><Link to="/admin/seller-products"><Button variant="secondary"><ClipboardCheck className="w-4 h-4 mr-2" /> Product moderation</Button></Link><Link to="/admin/marketplace-reports"><Button variant="outline"><ShieldCheck className="w-4 h-4 mr-2" /> Listing reports</Button></Link><Button variant="outline" onClick={load} loading={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div>
         </div>
 
         <Card className="p-4 mb-6">
