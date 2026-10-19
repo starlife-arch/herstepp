@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { emailId, queueEmail, deliverQueuedEmail, deliverQueuedEmailInline } from '../api/_lib/email-service.js';
 import { emailHtml, orderReceiptEmail, marketplaceInvoiceEmail } from '../api/_lib/email-templates.js';
-import { queueMarketplaceSaleInvoices } from '../api/_lib/notify.js';
+import { queueMarketplaceSaleInvoices, queuePaymentEmail } from '../api/_lib/notify.js';
 import { sendTelegramMessage } from '../api/_lib/telegram.js';
 
 let passed = 0;
@@ -56,6 +56,22 @@ await test('marketplace invoices identify buyer and seller and contain only sell
   assert(!first.htmlContent.includes('Gold Necklace'));
   assert(first.htmlContent.includes('HerStep Collection provides the marketplace'));
   assert(!first.htmlContent.includes('<script>'));
+});
+await test('marketplace payment receipt does not promise a HerStep seller invoice', () => {
+  const db = fakeDb();
+  const keys = [];
+  const tx = { set: (ref, value) => db.records.set(ref.id, value) };
+  const order = {
+    orderId: 'HS-2026-000124', customerEmail: 'buyer@example.com', customerName: 'Buyer',
+    subtotal: 1200, deliveryFee: 0, discount: 0, total: 1200,
+    items: [{ sellerId: 'seller-one', name: 'Blue Bag', size: 'One Size', quantity: 1, unitPrice: 1200, lineTotal: 1200 }],
+  };
+  keys.push(...queuePaymentEmail(tx, db, { orderDocumentId: 'order-marketplace-123', order, status: 'PAID', receiptNumber: 'QWE123' }));
+  assert.equal(keys.length, 1);
+  assert(!keys.some(key => key.endsWith('-INVOICE')));
+  const receipt = [...db.records.values()][0];
+  assert(receipt.htmlContent.includes('Seller-specific invoices for marketplace items are sent separately'));
+  assert(!receipt.htmlContent.includes('Your invoice is in a separate email from invoices@'));
 });
 await test('marketplace sale queues one buyer and one seller invoice per seller, without SMS', () => {
   const db = fakeDb();
