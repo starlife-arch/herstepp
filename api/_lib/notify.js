@@ -341,7 +341,9 @@ export function queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatu
     const key = `${orderDocumentId}-${firstParty ? 'FIRST-PARTY-ORDER' : 'ORDER'}-${st}-SMS`;
     queueSms(tx, db, {
       key, to: phone,
-      message: `HerStep order ${order.orderId}: ${line} Details: ${siteUrl()}/dashboard`,
+      message: firstParty
+        ? `HerStep items in order ${order.orderId} are now ${st.replace(/_/g, ' ').toLowerCase()}. Details: ${siteUrl()}/dashboard`
+        : `HerStep order ${order.orderId}: ${line} Details: ${siteUrl()}/dashboard`,
     });
     return key;
   } catch (error) {
