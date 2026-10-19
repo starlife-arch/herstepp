@@ -8,6 +8,8 @@ assert.equal(classifyAdminQuestion('How many support tickets are open?'), 'suppo
 assert.equal(classifyAdminQuestion('Summarise paid tips'), 'tips');
 assert.equal(classifyAdminQuestion('How much did we spend on rent?'), 'expenses');
 assert.equal(classifyAdminQuestion('Give me an overview'), 'sales');
+assert.equal(classifyAdminQuestion('Show our best-selling products'), 'bestsellers');
+assert.equal(classifyAdminQuestion('Summarise refunds and returns'), 'refunds');
 
 const report = summarizeAdminData({
   now: new Date('2026-10-12T12:00:00Z'),
@@ -22,6 +24,7 @@ const report = summarizeAdminData({
   tickets: [{ status: 'OPEN' }, { status: 'RESOLVED' }],
   tips: [{ status: 'PAID', amount: 300 }, { status: 'PENDING', amount: 500 }],
   expenses: [{ amount: 500, expenseDate: '2026-10-01' }, { amount: 200, expenseDate: '2026-09-20' }],
+  refunds: [{ status: 'COMPLETED', amount: 350 }, { status: 'PENDING', amount: 150 }],
 });
 
 assert.equal(report.sales.paidOrderCount, 1);
@@ -38,6 +41,12 @@ assert.equal(report.tips.paidTipCount, 1);
 assert.equal(report.tips.paidTipValue, 300);
 assert.equal(report.expenses.recordedValue, 700);
 assert.equal(report.expenses.thisMonthValue, 500);
+assert.equal(report.bestSellers[0].unitsSold, 2);
+assert.equal(report.refunds.recordCount, 2);
+assert.equal(report.refunds.completedCount, 1);
+assert.equal(report.refunds.completedAmount, 350);
+assert.match(buildAdminFallbackAnswer('refunds', report), /KSh 350/);
+assert.match(buildAdminFallbackAnswer('bestsellers', report), /2 units/);
 assert.match(buildAdminFallbackAnswer('expenses', report), /KSh 700/);
 assert.equal(report.profit.knownGrossProfit, 1100);
 assert.equal(report.profit.knownCostPaidOrderCount, 1);

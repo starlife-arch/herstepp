@@ -19,6 +19,8 @@ function nairobiDateParts(value) {
 
 export function classifyAdminQuestion(message) {
   const text = String(message || '').toLowerCase();
+  if (/\b(refund|refunds|returned|returns|credit note)\b/.test(text)) return 'refunds';
+  if (/\b(best.?sell|top.?sell|popular products|most sold)\b/.test(text)) return 'bestsellers';
   if (/\b(expense|expenses|overheads|rent|advertising spend|delivery spend)\b/.test(text)) return 'expenses';
   if (/\b(profit|margin|cost of goods|cost price)\b/.test(text)) return 'profit';
   if (/\b(stock|inventory|out of stock|low stock|products?)\b/.test(text)) return 'stock';
@@ -30,8 +32,25 @@ export function classifyAdminQuestion(message) {
   return 'overview';
 }
 
-export function summarizeAdminData({ orders = [], products = [], tickets = [], tips = [], expenses = [], now = new Date() } = {}) {
+export function summarizeAdminData({ orders = [], products = [], tickets = [], tips = [], expenses = [], refunds = [], now = new Date() } = {}) {
   const paidOrders = orders.filter(order => upper(order.paymentStatus) === 'PAID');
+  const sold = new Map();
+  for (const order of paidOrders) {
+    for (const item of Array.isArray(order.items) ? order.items : []) {
+      const name = String(item.productName || item.name || item.title || 'Unnamed product').trim().slice(0, 120);
+      const key = String(item.productId || name);
+      const previous = sold.get(key) || { productId: String(item.productId || ''), name, unitsSold: 0, orderCount: 0, salesValue: 0 };
+      const quantity = Math.max(0, number(item.quantity || 1));
+      previous.unitsSold += quantity;
+      previous.orderCount += 1;
+      previous.salesValue += Math.max(0, number(item.price || item.unitPrice || item.subtotal)) * quantity;
+      sold.set(key, previous);
+    }
+  }
+  const refundRows = refunds.map(row => ({ ...row, status: upper(row.status || row.refundStatus || 'UNKNOWN'), amount: Math.max(0, number(row.amount || row.refundAmount || row.total)) }));
+  const refundStatuses = {};
+  for (const refund of refundRows) refundStatuses[refund.status] = (refundStatuses[refund.status] || 0) + 1;
+  const completedRefunds = refundRows.filter(row => ['COMPLETED', 'REFUNDED', 'PAID', 'SUCCESS', 'SUCCEEDED'].includes(row.status));
   const pendingOrders = orders.filter(order => ['PENDING', 'PROCESSING', ''].includes(upper(order.orderStatus)));
   const paymentPending = orders.filter(order => ['PENDING', 'PROCESSING', 'TIMEOUT'].includes(upper(order.paymentStatus)));
   const sales = paidOrders.reduce((sum, order) => sum + number(order.total), 0);
@@ -107,6 +126,8 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
       orderStatuses: statuses,
     },
     stock: { activeProducts, unitsInStock: totalStock, lowStockVariants, outOfStockVariants, lowStockItems: lowStockItems.sort((a, b) => a.quantity - b.quantity).slice(0, 30) },
+    bestSellers: [...sold.values()].sort((a, b) => b.unitsSold - a.unitsSold).slice(0, 10),
+    refunds: { recordCount: refundRows.length, statuses: refundStatuses, completedCount: completedRefunds.length, completedAmount: completedRefunds.reduce((sum, row) => sum + row.amount, 0), sampleWindow: 'Up to 100 most recent refund records; not guaranteed to be a lifetime total.' },
     support: { ticketCount: tickets.length, statuses: ticketStatuses },
     tips: { paidTipCount: paidTips.length, paidTipValue: tipTotal },
     expenses: { recordedCount: expenseRows.length, recordedValue: expenseRows.reduce((sum, expense) => sum + number(expense.amount), 0), thisMonthCount: expensesThisMonth.length, thisMonthValue: expensesThisMonth.reduce((sum, expense) => sum + number(expense.amount), 0), sampleWindow: 'Up to 300 most recent recorded expenses; this is not guaranteed to be a lifetime total.' },
@@ -123,6 +144,13 @@ export function summarizeAdminData({ orders = [], products = [], tickets = [], t
 
 export function buildAdminFallbackAnswer(intent, report) {
   const currency = amount => 'KSh ' + Math.round(number(amount)).toLocaleString('en-KE');
+  if (intent === 'refunds') {
+    return 'Refund snapshot: ' + report.refunds.recordCount + ' refund records in the fetched sample; statuses: ' + (Object.entries(report.refunds.statuses).map(([k, v]) => k + ': ' + v).join(', ') || 'no refund records found') + '. Completed/paid refund records: ' + report.refunds.completedCount + ', recorded amount ' + currency(report.refunds.completedAmount) + '. ' + report.refunds.sampleWindow;
+  }
+  if (intent === 'bestsellers') {
+    const items = (report.bestSellers || []).slice(0, 5).map((item, index) => (index + 1) + '. ' + item.name + ' — ' + item.unitsSold + ' units');
+    return 'Best sellers among the paid orders in the fetched sample: ' + (items.join('; ') || 'no sold product items found') + '. This is based on item quantities in the newest fetched orders, not guaranteed lifetime sales.';
+  }
   if (intent === 'profit') {
     if (report.profit.knownGrossProfit === null || report.profit.knownCostPaidOrderCount !== report.profit.paidOrderCount) {
       return 'I can’t calculate a reliable profit figure yet because cost data is missing for some or all paid orders in this report. The system must record item cost prices, and net profit also requires operating expenses. I won’t guess those figures.';
@@ -139,5 +167,5 @@ export function buildAdminFallbackAnswer(intent, report) {
   if (intent === 'payments') return 'Payment snapshot: ' + report.sales.paidOrderCount + ' paid orders totalling ' + currency(report.sales.paidOrderValue) + '; ' + report.sales.pendingPaymentCount + ' orders have pending/processing/timed-out payment status. This uses the newest order records fetched for the report.';
   if (intent === 'orders') return 'Order snapshot: ' + report.sampleWindow.orders + ' recent orders fetched. Statuses: ' + (Object.entries(report.sales.orderStatuses).map(([k, v]) => k + ': ' + v).join(', ') || 'no orders found') + '. ' + report.sales.pendingOrderCount + ' are pending/processing orders.';
   if (intent === 'sales') return 'Sales snapshot from the newest order records fetched: ' + report.sales.paidOrderCount + ' paid orders totalling ' + currency(report.sales.paidOrderValue) + '. In that fetched sample, today (Kenya time) has ' + report.sales.paidTodayCount + ' paid orders totalling ' + currency(report.sales.paidTodayValue) + ', and this month has ' + report.sales.paidThisMonthCount + ' paid orders totalling ' + currency(report.sales.paidThisMonthValue) + '. This is not guaranteed to be a lifetime total.';
-  return 'I’m your read-only Admin AI. I can summarise sales, order statuses, payment states, stock levels, support tickets, paid tips, and explain whether recorded cost data is sufficient to estimate gross profit. The report uses real records and clearly labels its sample window. Try asking “Summarise sales”, “Which stock is low?”, “How are payments?”, or “Can we calculate profit?”.';
+  return 'I’m your read-only Admin AI. I can summarise sales, order statuses, payment states, stock levels, best-selling products, refund records, support tickets, paid tips, and explain whether recorded cost data is sufficient to estimate gross profit. The report uses real records and clearly labels its sample window. Try asking “Summarise sales”, “Which stock is low?”, “How are payments?”, or “Can we calculate profit?”.';
 }
