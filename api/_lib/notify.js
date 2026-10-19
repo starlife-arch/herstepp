@@ -73,9 +73,12 @@ export function queuePaymentEmail(tx, db, { orderDocumentId, order, paymentId, s
   try {
     if (!order?.customerEmail) return keys;
     const st = String(status).toUpperCase();
+    const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : [])
+      .some(item => Boolean(String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim()));
     const emailOrder = {
       ...order,
       id: orderDocumentId,
+      marketplaceSellerInvoices: hasMarketplaceItems,
       failureReason: failureReason ?? order.failureReason ?? null,
       receiptNumber: receiptNumber ?? order.receiptNumber ?? null,
     };
@@ -91,18 +94,21 @@ export function queuePaymentEmail(tx, db, { orderDocumentId, order, paymentId, s
         htmlContent: receipt.htmlContent,
       });
       keys.push(receiptKey);
-      // (b) Invoice email with the PDF generated AT SEND TIME.
-      const invoice = invoiceEmail(emailOrder);
-      const invoiceKey = `${orderDocumentId}-INVOICE`;
-      queueEmail(tx, db, {
-        key: invoiceKey,
-        purpose: 'invoices',
-        to: order.customerEmail,
-        subject: invoice.subject,
-        htmlContent: invoice.htmlContent,
-        attachInvoiceFor: orderDocumentId,
-      });
-      keys.push(invoiceKey);
+      // A marketplace order is invoiced by each actual seller. Do not send
+      // the whole mixed/marketplace basket as a HerStep seller invoice.
+      if (!hasMarketplaceItems) {
+        const invoice = invoiceEmail(emailOrder);
+        const invoiceKey = `${orderDocumentId}-INVOICE`;
+        queueEmail(tx, db, {
+          key: invoiceKey,
+          purpose: 'invoices',
+          to: order.customerEmail,
+          subject: invoice.subject,
+          htmlContent: invoice.htmlContent,
+          attachInvoiceFor: orderDocumentId,
+        });
+        keys.push(invoiceKey);
+      }
       return keys;
     }
     // Failed / cancelled / timeout notices keep the plain receipt template.
