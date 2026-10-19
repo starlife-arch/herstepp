@@ -128,14 +128,17 @@ export async function sellerPayouts(req, res) {
 export async function adminMarketplacePayouts(req, res) {
   const admin = await requireAdmin(req);
   if (req.method === 'GET') {
-    const [payoutSnap, refundSnap] = await Promise.all([
-      // Avoid orderBy(createdAt): legacy/partial records without that field are excluded by Firestore.
-      adminDb.collection('sellerPayouts').limit(500).get(),
+    const [payoutSnapshots, refundSnap] = await Promise.all([
+      // Query each operational status independently and avoid orderBy(createdAt):
+      // Firestore orderBy silently excludes older/partial records missing that field.
+      Promise.all(['REQUESTED', 'APPROVED', 'REJECTED', 'PAID'].map(status =>
+        adminDb.collection('sellerPayouts').where('status', '==', status).limit(500).get()
+      )),
       adminDb.collection('refundRecords').where('status', '==', 'CONFIRMED').limit(200).get().catch(() => ({ docs: [] })),
     ]);
-    const payoutDocs = [...payoutSnap.docs].sort((a, b) =>
-      timeValue(b.data()?.createdAt || b.data()?.requestedAt) - timeValue(a.data()?.createdAt || a.data()?.requestedAt)
-    );
+    const payoutDocs = payoutSnapshots.flatMap(snapshot => snapshot.docs)
+      .filter((doc, index, all) => all.findIndex(other => other.id === doc.id) === index)
+      .sort((a, b) => timeValue(b.data()?.createdAt || b.data()?.requestedAt) - timeValue(a.data()?.createdAt || a.data()?.requestedAt));
     const refundsToReconcile = [];
     for (const doc of refundSnap.docs) {
       const refund = doc.data() || {};
