@@ -298,7 +298,8 @@ export async function adminOrders(req, res) {
           const order = snap.data() || {};
           const current = String(order.firstPartyFulfilment?.status || 'PENDING').toUpperCase();
           if (String(order.paymentStatus || '').toUpperCase() !== 'PAID') throw clientError('Payment must be confirmed before fulfilment.', 409);
-          if (!(ALLOWED_ORDER_TRANSITIONS[current] || []).includes(requested)) {
+          const allowedFirstPartyStatuses = (ALLOWED_ORDER_TRANSITIONS[current] || []).filter(status => status !== 'CANCELLED');
+          if (!allowedFirstPartyStatuses.includes(requested)) {
             throw clientError(`Cannot move HerStep-owned items from ${current.replace(/_/g, ' ').toLowerCase()} to ${requested.replace(/_/g, ' ').toLowerCase()}.`, 409);
           }
           const now = FieldValue.serverTimestamp();
