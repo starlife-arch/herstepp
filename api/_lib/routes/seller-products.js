@@ -70,14 +70,29 @@ export default async function sellerProducts(req, res) {
   const category = await adminDb.collection('categories').doc(product.categoryId).get();
   if (!category.exists) throw clientError('The selected category does not exist.');
   const duplicate = await adminDb.collection('sellerProducts')
-    .where('sellerUid', '==', user.uid).where('sku', '==', product.sku).limit(1).get();
-  if (!duplicate.empty) throw clientError('You already have a product draft with this SKU.');
+    .where('sellerUid', '==', user.uid).where('sku', '==', product.sku).get();
+  const existingDuplicate = duplicate.docs.find(doc => doc.id !== String(req.body?.id || ''));
+  if (existingDuplicate) throw clientError('You already have a product draft with this SKU.');
 
   const now = FieldValue.serverTimestamp();
+  if (req.method === 'PATCH') {
+    const id = clean(req.body?.id);
+    if (!id || id.length > 150) throw clientError('A valid draft ID is required.');
+    const ref = adminDb.collection('sellerProducts').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
+    if (String(snap.data()?.status || '').toUpperCase() !== 'DRAFT') throw clientError('Only private drafts can be edited.');
+    await ref.update({ ...product, updatedAt: now });
+    return res.status(200).json({
+      product: { id, ...product, updatedAt: new Date().toISOString() },
+      message: 'Private draft updated. It is not visible in the public shop.',
+    });
+  }
+
   const ref = await adminDb.collection('sellerProducts').add({
     ...product,
     sellerUid: user.uid,
-    sellerDisplayName: clean(sellerSnap.data()?.displayName).slice(0, 60),
+    sellerDisplayName: clean(sellerSnap.data()?.displayName || sellerSnap.data()?.businessName).slice(0, 60),
     createdAt: now,
     updatedAt: now,
   });
