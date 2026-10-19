@@ -242,6 +242,7 @@ export async function adminOrders(req, res) {
       items: (Array.isArray(o.items) ? o.items : []).map(i => ({
         productId: i.productId ?? null,
         sellerId: i.sellerId || i.sellerSnapshot?.sellerId || null,
+        sellerBusinessName: i.sellerSnapshot?.businessName || i.sellerSnapshot?.displayName || '',
         name: i.name ?? '',
         size: String(i.size ?? ''),
         quantity: Number(i.quantity) || 0,
