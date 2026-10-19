@@ -5,6 +5,19 @@ import { clientError, methodNotAllowed } from '../http.js';
 const clean = (value, max = 180) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const money = value => Number.isSafeInteger(value) && value > 0 && value <= 10_000_000;
 const RESERVED = new Set(['REQUESTED', 'APPROVED']);
+const REFUND_HOLD = new Set(['REQUESTED', 'APPROVED', 'CONFIRMED', 'PARTIALLY_REFUNDED']);
+async function availableAfterRefundHolds(ledgerDocs, readOrder) {
+  const rows = ledgerDocs.map(doc => ({ id: doc.id, data: doc.data() || {} }));
+  const orderIds = [...new Set(rows.filter(row => row.data.balanceBucket === 'AVAILABLE' && row.data.orderDocumentId).map(row => row.data.orderDocumentId))];
+  const orderStatuses = new Map();
+  for (const orderId of orderIds) {
+    const snap = await readOrder(orderId);
+    orderStatuses.set(orderId, snap.exists ? String(snap.data()?.refundStatus || (snap.data()?.paymentStatus === 'REFUNDED' ? 'CONFIRMED' : 'NONE')).toUpperCase() : 'UNKNOWN');
+  }
+  return rows.filter(row => row.data.balanceBucket === 'AVAILABLE' && (!row.data.orderDocumentId || !REFUND_HOLD.has(orderStatuses.get(row.data.orderDocumentId))))
+    .reduce((sum, row) => sum + Number(row.data.amount || 0), 0);
+}
+
 const iso = value => value?.toDate?.().toISOString?.() ?? null;
 const safePayout = doc => {
   const d = doc.data() || {};
@@ -37,9 +50,8 @@ export async function sellerPayouts(req, res) {
     if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== user.uid || sellerSnap.data()?.status !== 'ACTIVE') {
       throw clientError('An approved, active seller account is required.', 403);
     }
-    const ledger = ledgerSnap.docs.map(doc => doc.data());
     const payouts = payoutsSnap.docs.map(safePayout);
-    const available = ledger.filter(row => row.balanceBucket === 'AVAILABLE').reduce((sum, row) => sum + Number(row.amount || 0), 0);
+    const available = await availableAfterRefundHolds(ledgerSnap.docs, orderId => adminDb.collection('orders').doc(orderId).get());
     const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(doc.data()?.status)).reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
     return res.json({ currency: 'KES', availableBalance: Math.max(0, available - reserved), pendingBalance: ledger.filter(row => row.balanceBucket === 'PENDING').reduce((sum, row) => sum + Number(row.amount || 0), 0), payouts });
   }
@@ -60,8 +72,12 @@ export async function sellerPayouts(req, res) {
       tx.get(adminDb.collection('sellerLedger').where('sellerId', '==', user.uid)),
       tx.get(adminDb.collection('sellerPayouts').where('sellerId', '==', user.uid)),
     ]);
-    if (existing.exists) return; // idempotent retry of same request
-    const available = ledgerSnap.docs.filter(doc => doc.data()?.balanceBucket === 'AVAILABLE').reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
+    if (existing.exists) {
+      const prior = existing.data();
+      if (prior.sellerId !== user.uid || Number(prior.amount) !== amount || prior.payoutPhone !== phone) throw clientError('This payout request key was already used for different details.', 409);
+      return; // exact idempotent retry
+    }
+    const available = await availableAfterRefundHolds(ledgerSnap.docs, orderId => tx.get(adminDb.collection('orders').doc(orderId)));
     const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(doc.data()?.status)).reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
     if (amount > available - reserved) throw clientError('Payout amount exceeds your available balance.', 409);
     tx.create(payoutRef, {
