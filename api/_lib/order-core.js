@@ -947,11 +947,11 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
         sourceLedgerEntryId: row.original.id,
         createdAt: deps.serverTimestamp(),
       };
-      tx.create(row.pendingRef, {
+      tx.set(row.pendingRef, {
         ...common, type: 'ORDER_DELIVERY_RELEASE_PENDING', status: 'POSTED',
         amount: -amount, balanceBucket: 'PENDING', idempotencyKey: row.pendingRef.id,
       });
-      tx.create(row.availableRef, {
+      tx.set(row.availableRef, {
         ...common, type: 'ORDER_DELIVERY_RELEASE_AVAILABLE', status: 'POSTED',
         amount, balanceBucket: 'AVAILABLE', idempotencyKey: row.availableRef.id,
       });
