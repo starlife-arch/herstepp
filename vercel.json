@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/sellers/application",
+      "destination": "/api/users?route=sellers/application"
+    },
+    {
+      "source": "/api/admin/sellers/applications",
+      "destination": "/api/admin?route=sellers/applications"
+    },
+    {
       "source": "/api/refunds/sign-upload",
       "destination": "/api/users?route=refunds/sign-upload"
     },
