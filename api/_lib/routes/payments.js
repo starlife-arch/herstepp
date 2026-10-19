@@ -476,12 +476,36 @@ export async function mpesaCallback(req, res) {
       if (subscriptionSnap && !subscriptionSnap.empty) targetKind = 'seller-subscription';
     }
     if (!targetKind) {
+      const promotionSnap = await adminDb.collection('sellerPromotionPayments')
+        .where('providerReference', '==', verified.providerReference).limit(1).get().catch(() => null);
+      if (promotionSnap && !promotionSnap.empty) targetKind = 'seller-promotion';
+    }
+    if (!targetKind) {
       const tipsMod = await import('./tips.js');
       const knownTip = await tipsMod.findTipByProviderReference(verified.providerReference).catch(() => null);
       if (knownTip) targetKind = 'tip';
     }
 
     let applied;
+    if (targetKind === 'seller-promotion') {
+      if (verified.status === PAYMENT_STATUS.PENDING) return send({ ok: true, kind: 'seller-promotion', applied: false, pending: true });
+      let promotionResult = verified;
+      if (verified.status === PAYMENT_STATUS.PAID) {
+        const confirmation = await getMpesaProvider().checkStatus(verified.providerReference);
+        if (confirmation.status !== PAYMENT_STATUS.PAID || String(confirmation.providerReference) !== String(verified.providerReference)) {
+          console.error(`mpesa-callback: unconfirmed seller promotion payment for ${verified.providerReference} (provider says ${confirmation.status})`);
+          return send({ ok: true, received: true, applied: false });
+        }
+        promotionResult = { ...verified, status: PAYMENT_STATUS.PAID, amount: confirmation.amount ?? verified.amount,
+          transactionReference: confirmation.transactionReference || verified.transactionReference,
+          eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
+          reason: confirmation.reason ?? verified.reason ?? null };
+      }
+      const promotionMod = await import('./seller-promotions.js');
+      const promotionApplied = await promotionMod.applyPromotionPayment(adminDb,
+        { serverTimestamp: () => FieldValue.serverTimestamp() }, { ...promotionResult, source: 'PRINTPAY' });
+      return send({ ok: true, kind: 'seller-promotion', applied: promotionApplied?.applied !== false, duplicate: promotionApplied?.duplicate === true });
+    }
     if (targetKind === 'tip') {
       // Tips branch — same rules as payments, own transaction in tip-core.
       const tipsMod = await import('./tips.js');
