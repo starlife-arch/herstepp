@@ -134,7 +134,7 @@ export async function adminMarketplacePayouts(req, res) {
   const reason = clean(req.body?.reason, 500);
   if (!payoutId && action !== 'RECONCILE_REFUND') throw clientError('Payout request ID is required.');
   if (['REJECT', 'APPROVE'].includes(action) && !reason) throw clientError('A reason or review note is required.');
-  const ref = adminDb.collection('sellerPayouts').doc(payoutId);
+  const ref = payoutId ? adminDb.collection('sellerPayouts').doc(payoutId) : null;
   if (action === 'APPROVE' || action === 'REJECT') {
     await adminDb.runTransaction(async tx => {
       const snap = await tx.get(ref);
