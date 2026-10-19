@@ -5,6 +5,7 @@
 import { adminDb } from '../firebase-admin.js';
 import { methodNotAllowed } from '../http.js';
 import { siteUrl } from '../site-url.js';
+import { filterPublicSellerListings, isPublicSellerListing } from '../seller-visibility.js';
 
 // Firestore Timestamps expose toDate(); the fake DB returns ISO strings and
 // real Dates can arrive through test seeding. Accept all three shapes.
@@ -45,7 +46,8 @@ export function invalidateSeoCache() {
 async function loadActiveProducts() {
   return cached(`seo:products@${siteUrl()}`, async () => {
     const snapshot = await adminDb.collection('products').where('status', '==', 'ACTIVE').limit(5000).get();
-    return snapshot.docs.map(doc => ({ id: doc.id, ...serialize(doc.data()) }));
+    const products = snapshot.docs.map(doc => ({ id: doc.id, ...serialize(doc.data()) }));
+    return filterPublicSellerListings(adminDb, products);
   });
 }
 
@@ -60,7 +62,9 @@ async function loadProduct(id) {
   return cached(`seo:product:${id}@${siteUrl()}`, async () => {
     const doc = await adminDb.collection('products').doc(id).get();
     if (!doc.exists) return null;
-    return { id: doc.id, ...serialize(doc.data()) };
+    const product = { id: doc.id, ...serialize(doc.data()) };
+    if (product.status !== 'ACTIVE' || !(await isPublicSellerListing(adminDb, product))) return null;
+    return product;
   });
 }
 
@@ -116,7 +120,7 @@ export async function sitemap(req, res) {
     res.setHeader('Cache-Control', 'public, s-maxage=300');
     return res.status(200).type('application/xml').send(fallbackXml);
   }
-  res.setHeader('Cache-Control', 'public, s-maxage=3600');
+  res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
   return res.status(200).type('application/xml').send(xml);
 }
 
@@ -135,7 +139,7 @@ export async function productSitemap(req, res) {
       return `  <url><loc>${xmlEscape(loc)}</loc>${lastmod ? `<lastmod>${xmlEscape(lastmod)}</lastmod>` : ''}</url>`;
     });
     const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls.join('\n')}\n</urlset>\n`;
-    res.setHeader('Cache-Control', 'public, s-maxage=3600, stale-while-revalidate=86400');
+    res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
     return res.status(200).type('application/xml').send(xml);
   } catch (error) {
     console.error('[seo] product sitemap failed:', error?.message || error);
@@ -310,6 +314,6 @@ export async function productPage(req, res) {
     }
     status = 200;
   }
-  res.setHeader('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+  res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
   return res.status(status).type('html').send(html);
 }
