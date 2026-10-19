@@ -9,7 +9,7 @@ type Report = {
   sampleWindow?: { orders: number; note: string };
   sales?: { paidOrderCount: number; paidOrderValue: number; pendingPaymentCount: number; pendingOrderCount: number };
   stock?: { activeProducts: number; unitsInStock: number; lowStockVariants: number; outOfStockVariants: number; lowStockItems?: Array<{ name: string; size: string; quantity: number }> };
-  bestSellers?: Array<{ name: string; unitsSold: number; orderCount: number; salesValue: number }>;
+  bestSellers?: Array<{ productId?: string; name: string; unitsSold: number; orderCount: number; salesValue: number }>;
   refunds?: { recordCount: number; statuses: Record<string, number>; completedCount: number; completedAmount: number; sampleWindow: string };
   support?: { ticketCount: number };
   tips?: { paidTipCount: number; paidTipValue: number };
