@@ -4,6 +4,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'sellers/application': lazyRoute(() => import('./_lib/routes/seller-application.js')),
   'sellers/dashboard': lazyRoute(() => import('./_lib/routes/seller-dashboard.js')),
   'sellers/subscription': lazyRoute(() => import('./_lib/routes/seller-subscription.js')),
+  'sellers/entitlements': lazyRoute(() => import('./_lib/routes/seller-entitlements.js')),
   'sellers/products': lazyRoute(() => import('./_lib/routes/seller-products.js')),
   'sellers/products/sign-upload': lazyRoute(() => import('./_lib/routes/seller-product-sign-upload.js')),
   'auth/sync-profile': lazyRoute(() => import('./_lib/routes/sync-profile.js')),
