@@ -110,6 +110,7 @@ export async function track(req, res) {
       orderId: d.orderId,
       orderStatus: d.orderStatus,
       paymentStatus: d.paymentStatus,
+      sellerFulfilment: d.sellerFulfilment || {},
       // Invoice number exists as soon as the payment is PAID (set in the same
       // transaction). Derive defensively for legacy paid orders.
       invoiceNumber: d.invoiceNumber
@@ -133,8 +134,11 @@ export async function track(req, res) {
         location: d.delivery?.location ?? '',
         instructions: d.delivery?.notes ?? d.delivery?.instructions ?? '',
       },
-      items: (Array.isArray(d.items) ? d.items : []).map(({ productId, name, size, quantity, unitPrice, lineTotal, imageUrl }) => ({
-        productId, name, size, quantity, unitPrice, lineTotal, imageUrl: imageUrl ?? null,
+      items: (Array.isArray(d.items) ? d.items : []).map(item => ({
+        productId: item.productId, name: item.name, size: item.size, quantity: item.quantity,
+        unitPrice: item.unitPrice, lineTotal: item.lineTotal, imageUrl: item.imageUrl ?? null,
+        sellerId: item.sellerId || item.sellerSnapshot?.sellerId || null,
+        sellerBusinessName: item.sellerSnapshot?.businessName || item.sellerSnapshot?.displayName || '',
       })),
       history: historyRows,
     },
