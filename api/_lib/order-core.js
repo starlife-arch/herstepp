@@ -848,11 +848,24 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists) throw clientError('Order not found.', 404);
     const order = orderSnap.data();
+    const orderItems = Array.isArray(order.items) ? order.items : [];
+    const hasMarketplaceItems = orderItems.some(item => Boolean(String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim()));
+    const hasFirstPartyItems = orderItems.some(item => !String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim());
+    if (hasMarketplaceItems && !hasFirstPartyItems) {
+      throw clientError('This is a marketplace seller order. The seller manages fulfilment; admins should use marketplace refund and dispute controls instead.', 403);
+    }
+    const mixedBasket = hasMarketplaceItems && hasFirstPartyItems;
+    if (mixedBasket && orderStatus === 'CANCELLED') {
+      throw clientError('A mixed basket cannot be cancelled as one order because that would affect the seller’s items too. Handle the relevant items through the refund/dispute workflow.', 409);
+    }
+    const currentStatus = mixedBasket
+      ? String(order.firstPartyFulfilment?.status || 'PENDING').toUpperCase()
+      : String(order.orderStatus || 'PENDING').toUpperCase();
 
-    const allowed = ALLOWED_ORDER_TRANSITIONS[order.orderStatus] || [];
+    const allowed = ALLOWED_ORDER_TRANSITIONS[currentStatus] || [];
     if (!allowed.includes(orderStatus)) {
       throw clientError(
-        `Cannot move an order from ${humanStatus(order.orderStatus)} to ${humanStatus(orderStatus)}.`,
+        `Cannot move ${mixedBasket ? 'HerStep fulfilment' : 'an order'} from ${humanStatus(currentStatus)} to ${humanStatus(orderStatus)}.`,
         409,
       );
     }
@@ -894,18 +907,29 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
     }
 
     if (orderStatus === 'CANCELLED') await releasePromoUsage(tx, db, order, deps);
-    tx.update(orderRef, {
-      orderStatus,
-      ...(orderStatus === 'CANCELLED'
-        ? {
-            promoReleased: order.promoReleased === true ? true : true,
-            activePaymentId: null,
-            // Never leave "Cancelled order + Pending payment" on screen.
-            ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.CANCELLED } : {}),
-          }
-        : {}),
-      updatedAt: deps.serverTimestamp(),
-    });
+    if (mixedBasket) {
+      tx.update(orderRef, {
+        firstPartyFulfilment: {
+          ...(order.firstPartyFulfilment && typeof order.firstPartyFulfilment === 'object' ? order.firstPartyFulfilment : {}),
+          status: orderStatus, note: typeof note === 'string' ? note : '',
+          updatedBy: actorUid, updatedAt: deps.serverTimestamp(),
+        },
+        updatedAt: deps.serverTimestamp(),
+      });
+    } else {
+      tx.update(orderRef, {
+        orderStatus,
+        ...(orderStatus === 'CANCELLED'
+          ? {
+              promoReleased: true,
+              activePaymentId: null,
+              // Never leave "Cancelled order + Pending payment" on screen.
+              ...(order.paymentStatus === PAYMENT_STATUS.PENDING ? { paymentStatus: PAYMENT_STATUS.CANCELLED } : {}),
+            }
+          : {}),
+        updatedAt: deps.serverTimestamp(),
+      });
+    }
 
     // Cancel an unpaid order -> its still-PENDING payment attempt dies too,
     // in the SAME transaction.
@@ -948,8 +972,8 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
       orderId: order.orderId,
       orderDocumentId,
       customerId: order.customerId,
-      eventType: 'ORDER_STATUS_CHANGED',
-      previousStatus: order.orderStatus,
+      eventType: mixedBasket ? 'FIRST_PARTY_FULFILMENT_STATUS_CHANGED' : 'ORDER_STATUS_CHANGED',
+      previousStatus: currentStatus,
       newStatus: orderStatus,
       paymentStatus: order.paymentStatus,
       note: typeof note === 'string' ? note : '',
@@ -958,12 +982,14 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
       createdAt: deps.serverTimestamp(),
     });
 
-    tx.set(db.collection('notifications').doc(`${orderDocumentId}-ORDER_${orderStatus}`), {
+    tx.set(db.collection('notifications').doc(`${orderDocumentId}-${mixedBasket ? 'FIRST_PARTY_' : ''}ORDER_${orderStatus}`), {
       customerId: order.customerId,
       orderDocumentId,
       event: 'ORDER_STATUS_CHANGED',
       title: 'Order update',
-      body: `Your order is now ${orderStatus.replace(/_/g, ' ').toLowerCase()}.`,
+      body: mixedBasket
+        ? `Your HerStep Collection items in order ${order.orderId} are now ${orderStatus.replace(/_/g, ' ').toLowerCase()}.`
+        : `Your order is now ${orderStatus.replace(/_/g, ' ').toLowerCase()}.`,
       readAt: null,
       createdAt: deps.serverTimestamp(),
     });
@@ -971,10 +997,11 @@ export async function adminOrderTransitionCore(db, deps, { actorUid, orderDocume
     // Status email queued in the SAME transaction (deterministic key per
     // status; PROCESSING/PROCESSED/OUT_FOR_DELIVERY/DELIVERED/CANCELLED only —
     // queueOrderStatusEmail ignores anything else).
-    queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderStatus });
-    const smsKey = queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatus });
+    const noticeOrder = mixedBasket ? { ...order, items: orderItems.filter(item => !String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim()) } : order;
+    queueOrderStatusEmail(tx, db, { orderDocumentId, order: noticeOrder, orderStatus, scope: mixedBasket ? 'FIRST_PARTY' : 'ORDER' });
+    const smsKey = queueOrderStatusSms(tx, db, { orderDocumentId, order: noticeOrder, orderStatus, scope: mixedBasket ? 'FIRST_PARTY' : 'ORDER' });
 
-    return { ok: true, emailKey: `${orderDocumentId}-ORDER-${orderStatus}`, smsKey };
+    return { ok: true, emailKey: `${orderDocumentId}-${mixedBasket ? 'FIRST-PARTY-ORDER-' : 'ORDER-'}${orderStatus}`, smsKey };
   }).then(result => {
     // After commit: deliver the status email and SMS best-effort. Never throws.
     deliverEmailAfterCommit(db, result.emailKey);
