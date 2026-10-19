@@ -63,7 +63,7 @@ async function analyzeImage(imageUrl) {
   const model = String(process.env.GROQ_VISION_MODEL || 'qwen/qwen3.8-27b').trim();
   const snapshot = await adminDb.collection('categories').orderBy('name').limit(100).get();
   const categories = [...new Set([...snapshot.docs.map(d => String(d.data().name || '').trim()).filter(Boolean), ...DEFAULT_CATEGORIES])];
-  const prompt = `You are preparing product listings for a Kenyan marketplace selling shoes, dresses, clothing, watches, necklaces, handbags and bags. Inspect the product and visible text, not the background. Return JSON only with keys name, description, price, sizes, category, currency, priceConfidence, sizeConfidence. Name: concise and accurate based on visible type, colour and design. Description: 2-4 customer-facing sentences about visible details and suitable occasions. Never invent materials, brand, comfort or durability. Price: whole number only if clearly printed, otherwise null. For a clearly printed price, return the final suggested selling price after adding KSh 100; if currency/price is unclear, return null. Sizes: every clearly printed size; paired shoe size 35/36 becomes ["35","36"]; accessories may use ["One Size"] when appropriate. Category must exactly match one of: ${categories.join(', ')}. Never guess unclear text.`;
+  const prompt = `You are preparing product listings for a Kenyan marketplace selling shoes, dresses, clothing, watches, necklaces, handbags and bags. Inspect the product and visible text, not the background. Return JSON only with keys name, description, price, sizes, category, currency, priceConfidence, sizeConfidence. Name: concise and accurate based on visible type, colour and design. Description: 2-4 customer-facing sentences about visible details and suitable occasions. Never invent materials, brand, comfort or durability. Price: whole number printed on the image before any adjustment, otherwise null. The server will add KSh 100 to a clearly printed price; if currency/price is unclear, return null. Sizes: every clearly printed size; paired shoe size 35/36 becomes ["35","36"]; accessories may use ["One Size"] when appropriate. Category must exactly match one of: ${categories.join(', ')}. Never guess unclear text.`;
   let response;
   try {
     response = await fetch('https://api.groq.com/openai/v1/chat/completions', { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model, temperature: 0.1, max_tokens: 700, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: imageUrl } }] }] }), signal: AbortSignal.timeout(25000) });
@@ -77,7 +77,8 @@ async function analyzeImage(imageUrl) {
   if (typeof raw !== 'string') throw clientError('AI returned no product details. No credit was used.', 502);
   let item;
   try { item = JSON.parse(raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); } catch { throw clientError('AI returned unreadable product details. No credit was used.', 502); }
-  const price = Number.isInteger(item.price) && item.price >= 0 && item.price <= 10000000 ? item.price : null;
+  const originalPrice = Number.isInteger(item.price) && item.price >= 0 && item.price <= 10000000 ? item.price : null;
+  const price = originalPrice === null ? null : originalPrice + 100;
   const rawSizes = Array.isArray(item.sizes) ? item.sizes : item.size == null ? [] : String(item.size).replace(/[,;&+]/g, '/').split('/');
   const sizes = [...new Set(rawSizes.map(v => String(v).trim()).filter(v => ALLOWED_SIZES.has(v)))];
   const categoryName = categories.includes(item.category) ? item.category : DEFAULT_CATEGORIES.includes(item.category) ? item.category : 'Sandals';
@@ -153,6 +154,10 @@ export default async function sellerBulkUpload(req, res) {
     const publicId = String(req.body?.publicId || '').trim();
     const fileName = String(req.body?.fileName || 'product-image').trim().slice(0, 180);
     if (!imageUrl || imageUrl.length > 2048 || !publicId || publicId.length > 500) throw clientError('Upload one product image first.');
+    let image;
+    try { image = new URL(imageUrl); } catch { throw clientError('The uploaded image URL is invalid.'); }
+    const publicIdBase = publicId.split('/').pop() || '';
+    if (!/^res\\.cloudinary\\.com$/i.test(image.hostname) || !publicIdBase.startsWith(user.uid.slice(0, 10) + '-') || !image.pathname.split('/').pop().startsWith(publicIdBase)) throw clientError('Use an image uploaded through your seller product uploader.', 403);
     const analysed = await analyzeImage(imageUrl);
     const draftId = randomUUID().replace(/-/g, '');
     const sku = `AI-${draftId.slice(0,18).toUpperCase()}`;
