@@ -14,6 +14,7 @@ type TrackOrder = {
   orderId: string;
   orderStatus: string;
   paymentStatus: string;
+  sellerFulfilment?: Record<string, { status?: string; note?: string }>;
   customerName?: string;
   receiptNumber?: string | null;
   invoiceNumber?: string | null;
@@ -23,7 +24,7 @@ type TrackOrder = {
   total: number;
   createdAt: string | null;
   delivery: { fullName: string; phone: string; deliveryMethod: string; location: string; instructions: string };
-  items: { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number; imageUrl: string | null }[];
+  items: { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number; imageUrl: string | null; sellerId?: string | null; sellerBusinessName?: string }[];
   history: { newStatus?: string; previousStatus?: string | null; note?: string; createdAt: string | null }[];
   updatedAt?: string | null;
 };
@@ -305,6 +306,9 @@ export default function OrderTracking() {
                   <div className="flex-1">
                     <p className="font-medium text-sm text-neutral-900">{item.name}</p>
                     <p className="text-xs text-neutral-500">Size {item.size} | Qty {item.quantity}</p>
+                    {item.sellerId
+                      ? <p className="text-xs text-blue-700 mt-1">{item.sellerBusinessName || 'Marketplace seller'} · Fulfilment: {String(order.sellerFulfilment?.[item.sellerId]?.status || 'PENDING').replace(/_/g, ' ')}</p>
+                      : order.firstPartyFulfilment && <p className="text-xs text-neutral-600 mt-1">HerStep Collection · Fulfilment: {String(order.firstPartyFulfilment.status || 'PENDING').replace(/_/g, ' ')}</p>}
                   </div>
                   <span className="font-medium text-sm">{formatCurrency(num(item.lineTotal))}</span>
                 </div>

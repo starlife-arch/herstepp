@@ -7,7 +7,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { waitUntil } from '@vercel/functions';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
+import { ALLOWED_ORDER_TRANSITIONS, adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
 import { deliverEmailAfterCommit } from '../notify.js';
 import { retryPendingEmails } from '../email-service.js';
 import { retryPendingSms } from '../sms-service.js';
@@ -110,6 +110,8 @@ export async function track(req, res) {
       orderId: d.orderId,
       orderStatus: d.orderStatus,
       paymentStatus: d.paymentStatus,
+      sellerFulfilment: d.sellerFulfilment || {},
+      firstPartyFulfilment: d.firstPartyFulfilment || null,
       // Invoice number exists as soon as the payment is PAID (set in the same
       // transaction). Derive defensively for legacy paid orders.
       invoiceNumber: d.invoiceNumber
@@ -133,8 +135,11 @@ export async function track(req, res) {
         location: d.delivery?.location ?? '',
         instructions: d.delivery?.notes ?? d.delivery?.instructions ?? '',
       },
-      items: (Array.isArray(d.items) ? d.items : []).map(({ productId, name, size, quantity, unitPrice, lineTotal, imageUrl }) => ({
-        productId, name, size, quantity, unitPrice, lineTotal, imageUrl: imageUrl ?? null,
+      items: (Array.isArray(d.items) ? d.items : []).map(item => ({
+        productId: item.productId, name: item.name, size: item.size, quantity: item.quantity,
+        unitPrice: item.unitPrice, lineTotal: item.lineTotal, imageUrl: item.imageUrl ?? null,
+        sellerId: item.sellerId || item.sellerSnapshot?.sellerId || null,
+        sellerBusinessName: item.sellerSnapshot?.businessName || item.sellerSnapshot?.displayName || '',
       })),
       history: historyRows,
     },
@@ -226,6 +231,8 @@ export async function adminOrders(req, res) {
       customerName: o.customerName ?? '',
       customerPhone: o.customerPhone ?? o.delivery?.phone ?? '',
       customerEmail: o.customerEmail ?? '',
+      firstPartyFulfilment: o.firstPartyFulfilment || null,
+       sellerFulfilment: o.sellerFulfilment || {},
       delivery: {
         fullName: o.delivery?.fullName ?? '',
         phone: o.delivery?.phone ?? '',
@@ -235,6 +242,8 @@ export async function adminOrders(req, res) {
       },
       items: (Array.isArray(o.items) ? o.items : []).map(i => ({
         productId: i.productId ?? null,
+        sellerId: i.sellerId || i.sellerSnapshot?.sellerId || null,
+        sellerBusinessName: i.sellerSnapshot?.businessName || i.sellerSnapshot?.displayName || '',
         name: i.name ?? '',
         size: String(i.size ?? ''),
         quantity: Number(i.quantity) || 0,
@@ -265,6 +274,55 @@ export async function adminOrders(req, res) {
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
   const { orderDocumentId, orderStatus, note } = req.body || {};
+  if (typeof orderDocumentId !== 'string' || !orderDocumentId.trim() || orderDocumentId.includes('/')) {
+    throw clientError('A valid order document reference is required.');
+  }
+  const targetOrderSnap = await adminDb.collection('orders').doc(orderDocumentId).get();
+  if (targetOrderSnap.exists) {
+    const targetOrder = targetOrderSnap.data() || {};
+    const hasMarketplaceItems = (Array.isArray(targetOrder.items) ? targetOrder.items : [])
+      .some(item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim());
+    const targetPaymentStatus = String(targetOrder.paymentStatus || '').toUpperCase();
+    const cancellingUnpaidOrder = String(orderStatus || '').toUpperCase() === 'CANCELLED'
+      && !['PAID', 'REFUNDED'].includes(targetPaymentStatus);
+    if (hasMarketplaceItems && !cancellingUnpaidOrder) {
+      const hasFirstPartyItems = (Array.isArray(targetOrder.items) ? targetOrder.items : [])
+        .some(item => !String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim());
+      if (hasFirstPartyItems && targetPaymentStatus === 'PAID') {
+        const orderRef = adminDb.collection('orders').doc(orderDocumentId);
+        const requested = String(orderStatus || '').toUpperCase();
+        const noteText = typeof note === 'string' ? note.trim().slice(0, 500) : '';
+        await adminDb.runTransaction(async tx => {
+          const snap = await tx.get(orderRef);
+          if (!snap.exists) throw clientError('Order not found.', 404);
+          const order = snap.data() || {};
+          const current = String(order.firstPartyFulfilment?.status || 'PENDING').toUpperCase();
+          if (String(order.paymentStatus || '').toUpperCase() !== 'PAID') throw clientError('Payment must be confirmed before fulfilment.', 409);
+          const allowedFirstPartyStatuses = (ALLOWED_ORDER_TRANSITIONS[current] || []).filter(status => status !== 'CANCELLED');
+          if (!allowedFirstPartyStatuses.includes(requested)) {
+            throw clientError(`Cannot move HerStep-owned items from ${current.replace(/_/g, ' ').toLowerCase()} to ${requested.replace(/_/g, ' ').toLowerCase()}.`, 409);
+          }
+          const now = FieldValue.serverTimestamp();
+          tx.update(orderRef, {
+            firstPartyFulfilment: { status: requested, note: noteText, updatedAt: now, updatedBy: a.uid },
+            updatedAt: now,
+          });
+          tx.set(adminDb.collection('orderStatusHistory').doc(), {
+            orderId: order.orderId || orderDocumentId, orderDocumentId, customerId: order.customerId || null,
+            eventType: 'FIRST_PARTY_FULFILMENT_STATUS_CHANGED', previousStatus: current, newStatus: requested,
+            paymentStatus: order.paymentStatus, note: noteText, source: 'ADMIN', adminUid: a.uid, createdAt: now,
+          });
+          tx.set(adminDb.collection('notifications').doc(`${orderDocumentId}-FIRST_PARTY_${requested}`), {
+            customerId: order.customerId, orderDocumentId, event: 'FIRST_PARTY_FULFILMENT_STATUS_CHANGED',
+            title: 'HerStep item update', body: `The HerStep Collection items in your order are now ${requested.replace(/_/g, ' ').toLowerCase()}.`,
+            readAt: null, createdAt: now,
+          });
+        });
+        return res.json({ ok: true, message: 'Updated fulfilment for HerStep-owned items only. Marketplace sellers manage their own items separately.' });
+      }
+      throw clientError('This is a marketplace seller order. Sellers manage fulfilment from their Seller Dashboard; use marketplace admin tools for reports, disputes, moderation, and refunds.', 409);
+    }
+  }
   const result = await adminOrderTransitionCore(adminDb, { serverTimestamp: () => FieldValue.serverTimestamp() }, {
     actorUid: a.uid,
     orderDocumentId,

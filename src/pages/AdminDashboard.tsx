@@ -1129,9 +1129,17 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
     return () => clearTimeout(t);
   }, [toast]);
 
+  const statusForAdmin = (order: any) => {
+    const items = Array.isArray(order.items) ? order.items : [];
+    const hasMarketplaceItems = items.some((item: any) => Boolean(item.sellerId));
+    const hasFirstPartyItems = items.some((item: any) => !item.sellerId);
+    return hasMarketplaceItems && hasFirstPartyItems
+      ? (order.firstPartyFulfilment?.status || 'PENDING')
+      : order.orderStatus;
+  };
   const filtered = orders.filter(o => {
     const text = `${o.orderId} ${o.invoiceNumber || ''} ${o.customerName || ''} ${o.customerEmail || ''}`.toLowerCase();
-    return (!search || text.includes(search.toLowerCase())) && (!statusFilter || o.orderStatus === statusFilter);
+    return (!search || text.includes(search.toLowerCase())) && (!statusFilter || statusForAdmin(o) === statusFilter);
   });
   const detail = detailId ? orders.find(o => o.id === detailId) ?? null : null;
 
@@ -1143,7 +1151,9 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
         method: 'PATCH',
         body: JSON.stringify({ orderDocumentId: order.id, orderStatus, note: '' }),
       });
-      setToast(`Order ${order.orderId} moved to ${humanStatus(orderStatus)}.`);
+      const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => Boolean(item.sellerId));
+      const hasFirstPartyItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => !item.sellerId);
+      setToast(`${hasMarketplaceItems && hasFirstPartyItems ? 'HerStep items in order ' : 'Order '}${order.orderId} moved to ${humanStatus(orderStatus)}.`);
       res.reload();
     } catch (err: any) {
       setActionError(err?.message || 'Could not update the order.');
@@ -1185,7 +1195,11 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
                   {filtered.map(order => {
-                    const next = nextOrderStatuses(order.orderStatus);
+                    const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => Boolean(item.sellerId));
+                    const hasFirstPartyItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => !item.sellerId);
+                    const mixedBasket = hasMarketplaceItems && hasFirstPartyItems;
+                    const adminFulfilmentStatus = mixedBasket ? (order.firstPartyFulfilment?.status || 'PENDING') : order.orderStatus;
+                    const next = nextOrderStatuses(adminFulfilmentStatus);
                     return (
                       <tr key={order.id} className="hover:bg-neutral-50 cursor-pointer" onClick={() => setDetailId(order.id)}>
                         <td className="px-4 py-3 font-medium">{order.orderId}
@@ -1206,20 +1220,20 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                         <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{day(order.createdAt)}</td>
                         <td className="px-4 py-3 font-medium">{money(order.total)}</td>
                         <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
-                        <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
+                        <td className="px-4 py-3"><Badge variant={getStatusBadge(adminFulfilmentStatus).variant}>{getStatusBadge(adminFulfilmentStatus).label}</Badge>{mixedBasket && <p className="text-[10px] text-neutral-500 mt-1">HerStep items</p>}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                          <select
-                            value=""
-                            disabled={busyId === order.id || next.length === 0}
-                            title={next.length === 0 ? 'No further status changes allowed' : undefined}
-                            onChange={e => e.target.value && changeStatus(order, e.target.value)}
-                            className="border border-neutral-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50"
-                          >
-                            <option value="">{busyId === order.id ? 'Saving…' : next.length === 0 ? 'Final' : 'Update status'}</option>
-                            {next.map(s => (
-                              <option key={s} value={s}>{humanStatus(s)}</option>
-                            ))}
-                          </select>
+                          {hasMarketplaceItems && !hasFirstPartyItems
+                            ? <span className="text-xs font-medium text-neutral-500" title="Seller fulfilment is managed by the seller">Seller-managed</span>
+                            : <select
+                                value=""
+                                disabled={busyId === order.id || next.length === 0}
+                                title={next.length === 0 ? 'No further status changes allowed' : undefined}
+                                onChange={e => e.target.value && changeStatus(order, e.target.value)}
+                                className="border border-neutral-200 rounded-lg px-2 py-1.5 text-xs bg-white disabled:opacity-50"
+                              >
+                                <option value="">{busyId === order.id ? 'Saving…' : next.length === 0 ? 'Final' : 'Update status'}</option>
+                                {next.map(s => <option key={s} value={s}>{humanStatus(s)}</option>)}
+                              </select>}
                         </td>
                       </tr>
                     );
@@ -1315,6 +1329,8 @@ function AdminInvoiceActions({ order }: { order: any }) {
 function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void }) {
   const history = Array.isArray(order.history) ? order.history : [];
   const items = Array.isArray(order.items) ? order.items : [];
+  const mixedBasket = items.some((item: any) => Boolean(item.sellerId)) && items.some((item: any) => !item.sellerId);
+  const displayedOrderStatus = mixedBasket ? (order.firstPartyFulfilment?.status || 'PENDING') : order.orderStatus;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -1328,7 +1344,7 @@ function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void 
         </div>
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><p className="text-neutral-500">Order status</p><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></div>
+            <div><p className="text-neutral-500">{mixedBasket ? 'HerStep items status' : 'Order status'}</p><Badge variant={getStatusBadge(displayedOrderStatus).variant}>{getStatusBadge(displayedOrderStatus).label}</Badge></div>
             <div><p className="text-neutral-500">Payment status</p><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></div>
             {order.needsReview === true && (
               <div className="col-span-2 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg px-3 py-2 text-xs font-semibold">
@@ -1349,6 +1365,7 @@ function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void 
                   <div className="flex-1 min-w-0">
                     <p className="truncate font-medium text-neutral-900">{i.name}</p>
                     <p className="text-xs text-neutral-500">Size {i.size} · Qty {i.quantity} × {money(i.unitPrice)}</p>
+                    {(i.sellerId || order.firstPartyFulfilment) && <p className="text-xs text-neutral-600 mt-1">{i.sellerId ? (i.sellerBusinessName || 'Marketplace seller') : 'HerStep Collection'} fulfilment: {String(i.sellerId ? (order.sellerFulfilment?.[i.sellerId]?.status || 'PENDING') : (order.firstPartyFulfilment?.status || 'PENDING')).replace(/_/g, ' ')}</p>}
                   </div>
                   <p className="font-medium">{money(i.lineTotal)}</p>
                 </div>
