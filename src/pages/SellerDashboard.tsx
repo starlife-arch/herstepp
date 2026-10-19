@@ -61,6 +61,13 @@ export default function SellerDashboard() {
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [payment, setPayment] = useState<SellerPayment>(null);
   const [idempotencyKeys, setIdempotencyKeys] = useState<Record<string, string>>({});
+  const [promotionProducts, setPromotionProducts] = useState<{ id: string; name: string; promotedUntil: string | null }[]>([]);
+  const [promotionProductId, setPromotionProductId] = useState('');
+  const [promotionPhone, setPromotionPhone] = useState('');
+  const [promotionPayment, setPromotionPayment] = useState<any>(null);
+  const [promotionBusy, setPromotionBusy] = useState(false);
+  const [promotionMessage, setPromotionMessage] = useState('');
+  const [promotionError, setPromotionError] = useState('');
 
   async function refreshDashboard() {
     const result: any = await apiFetch('/api/sellers/dashboard');
@@ -141,6 +148,47 @@ export default function SellerDashboard() {
     }
   }
 
+  useEffect(() => {
+    const expires = seller?.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt).getTime() : 0;
+    const active = seller?.status === 'ACTIVE' && seller?.billingStatus === 'ACTIVE' && Number.isFinite(expires) && expires > Date.now();
+    if (!active) return;
+    apiFetch('/api/sellers/promotions').then((result: any) => {
+      const items = Array.isArray(result.products) ? result.products : [];
+      setPromotionProducts(items);
+      setPromotionProductId(current => current || items.find((p: any) => !p.promotedUntil)?.id || items[0]?.id || '');
+    }).catch(() => {});
+  }, [seller?.status, seller?.billingStatus, seller?.subscriptionExpiresAt]);
+
+  async function startPromotion() {
+    if (!promotionProductId) { setPromotionError('Choose an active product first.'); return; }
+    if (!promotionPhone.trim()) { setPromotionError('Enter the M-Pesa number that should receive the KSh 100 prompt.'); return; }
+    setPromotionBusy(true); setPromotionError(''); setPromotionMessage('');
+    try {
+      const key = `promote-${crypto.randomUUID()}`;
+      const result: any = await apiFetch('/api/sellers/promotions', { method: 'POST', body: JSON.stringify({ productId: promotionProductId, phone: promotionPhone.trim(), idempotencyKey: key }) });
+      setPromotionPayment(result.payment);
+      setPromotionMessage('Approve the KSh 100 M-Pesa prompt. Your listing will be promoted only after payment is verified.');
+    } catch (err: any) { setPromotionError(err?.message || 'Could not start promotion payment.'); }
+    finally { setPromotionBusy(false); }
+  }
+
+  async function checkPromotionPayment() {
+    if (!promotionPayment?.paymentId) return;
+    setPromotionBusy(true); setPromotionError('');
+    try {
+      const result: any = await apiFetch(`/api/sellers/promotions?paymentId=${encodeURIComponent(promotionPayment.paymentId)}`);
+      setPromotionPayment(result.payment);
+      if (result.payment?.status === 'PAID') {
+        setPromotionMessage('Payment verified. This listing is promoted for 7 days.');
+        const refreshed: any = await apiFetch('/api/sellers/promotions');
+        setPromotionProducts(Array.isArray(refreshed.products) ? refreshed.products : []);
+      } else if (['FAILED', 'CANCELLED', 'TIMEOUT'].includes(result.payment?.status)) {
+        setPromotionMessage(result.payment.failureReason || `Payment status: ${result.payment.status}. You can try again.`);
+      } else setPromotionMessage('Payment is still pending. Approve the prompt, then check again.');
+    } catch (err: any) { setPromotionError(err?.message || 'Could not check promotion payment.'); }
+    finally { setPromotionBusy(false); }
+  }
+
   if (loading) return <div className="max-w-6xl mx-auto px-4 py-12"><Card className="p-8 text-center text-sm text-neutral-500">Loading seller dashboard…</Card></div>;
 
   const approved = seller?.status === 'ACTIVE';
@@ -215,6 +263,34 @@ export default function SellerDashboard() {
           </Card>
         ))}
       </div>
+
+      {subscriptionActive && approved && !suspended && <Card className="p-5 mt-6">
+        <div className="flex items-start gap-3">
+          <BadgeCheck className="w-5 h-5 text-neutral-600 mt-0.5" />
+          <div className="w-full">
+            <h2 className="text-xl font-semibold text-neutral-900">Promote a marketplace listing</h2>
+            <p className="text-sm text-neutral-600 mt-1">KSh 100 per product for 7 days. Promotion starts only after PrintPay confirms the exact payment.</p>
+            <label htmlFor="promotion-product" className="block text-sm font-medium text-neutral-800 mt-4 mb-2">Active product</label>
+            <select id="promotion-product" value={promotionProductId} onChange={event => setPromotionProductId(event.target.value)} className="w-full max-w-xl rounded-lg border border-neutral-300 px-3 py-2 text-sm" disabled={!promotionProducts.length || promotionBusy}>
+              <option value="">Choose a product</option>
+              {promotionProducts.map(product => <option key={product.id} value={product.id}>{product.name}{product.promotedUntil ? ` — promoted until ${formatDate(product.promotedUntil)}` : ''}</option>)}
+            </select>
+            {!promotionProducts.length && <p className="text-xs text-neutral-500 mt-2">No active products are available to promote yet.</p>}
+            <label htmlFor="promotion-phone" className="block text-sm font-medium text-neutral-800 mt-4 mb-2">M-Pesa phone number</label>
+            <input id="promotion-phone" type="tel" autoComplete="tel" value={promotionPhone} onChange={event => setPromotionPhone(event.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" className="w-full max-w-md rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
+            {promotionError && <p role="alert" className="text-sm text-red-700 mt-3">{promotionError}</p>}
+            {promotionMessage && <p role="status" className="text-sm text-neutral-700 mt-3">{promotionMessage}</p>}
+            {promotionPayment && <div className="mt-3 rounded-lg border border-neutral-200 p-3 text-sm">
+              <p className="font-semibold text-neutral-900">Promotion payment: {promotionPayment.status}</p>
+              <p className="text-neutral-600 mt-1">KSh 100 · Payment reference {String(promotionPayment.paymentId || '').slice(0, 12)}…</p>
+              {promotionPayment.status === 'PENDING' && <Button className="mt-3" variant="outline" onClick={checkPromotionPayment} disabled={promotionBusy}><RefreshCw className="w-4 h-4 mr-2" />{promotionBusy ? 'Checking…' : 'Check payment status'}</Button>}
+            </div>}
+            <Button className="mt-4" onClick={startPromotion} disabled={!promotionProducts.length || !promotionProductId || promotionBusy || promotionPayment?.status === 'PENDING'}>
+              <CreditCard className="w-4 h-4 mr-2" />{promotionBusy ? 'Please wait…' : 'Pay KSh 100 and promote'}
+            </Button>
+          </div>
+        </div>
+      </Card>}
 
       <Card className="p-5 mt-6">
         <div className="flex items-start gap-3">
