@@ -103,6 +103,60 @@ export default async function sellerProducts(req, res) {
     return res.status(200).json({ success: true, product: { id, ...draft, status: 'PENDING_REVIEW' }, message: 'Product submitted for admin review. It will remain private until approved and published.' });
   }
 
+  if (req.method === 'PATCH' && String(req.body?.action || '').toUpperCase() === 'UPDATE_PUBLISHED') {
+    const id = clean(req.body?.id);
+    if (!id || id.length > 150) throw clientError('A valid published product ID is required.');
+    const product = validateDraft(req.body);
+    const category = await adminDb.collection('categories').doc(product.categoryId).get();
+    if (!category.exists) throw clientError('The selected category does not exist.');
+    const seller = sellerSnap.data() || {};
+    const expiry = toDate(seller.subscriptionExpiresAt);
+    if (seller.status !== 'ACTIVE' || seller.billingStatus !== 'ACTIVE' || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+      throw clientError('An active paid seller plan is required to edit a published listing.', 403);
+    }
+    const publicRef = adminDb.collection('products').doc(id);
+    const draftRef = adminDb.collection('sellerProducts').doc(id);
+    const duplicateSnap = await adminDb.collection('products').where('sellerUid', '==', user.uid).get();
+    if (duplicateSnap.docs.some(doc => doc.id !== id && String(doc.data()?.status || '').toUpperCase() === 'ACTIVE' && String(doc.data()?.sku || '').toUpperCase() === product.sku)) {
+      throw clientError('Another published product already uses this SKU.');
+    }
+    await adminDb.runTransaction(async tx => {
+      const [publicSnap, draftSnap] = await Promise.all([tx.get(publicRef), tx.get(draftRef)]);
+      if (!publicSnap.exists || publicSnap.data()?.sellerUid !== user.uid || String(publicSnap.data()?.status || '').toUpperCase() !== 'ACTIVE') {
+        throw clientError('Published product not found or no longer editable.', 404);
+      }
+      const current = publicSnap.data() || {};
+      const updated = {
+        ...product,
+        status: 'ACTIVE',
+        sellerUid: user.uid,
+        sellerId: user.uid,
+        sellerDisplayName: clean(seller.displayName || seller.businessName).slice(0, 60),
+        sellerBusinessName: clean(seller.businessName).slice(0, 100),
+        marketplaceSeller: true,
+        moderationStatus: current.moderationStatus || 'APPROVED',
+        promotedUntil: current.promotedUntil || null,
+        promotedPaymentId: current.promotedPaymentId || null,
+        promotedAt: current.promotedAt || null,
+        createdAt: current.createdAt || FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      tx.update(publicRef, updated);
+      if (draftSnap.exists && draftSnap.data()?.sellerUid === user.uid) {
+        tx.update(draftRef, { ...product, status: 'PUBLISHED', publishedProductId: id, sellerUid: user.uid, updatedAt: FieldValue.serverTimestamp() });
+      }
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), {
+        action: 'SELLER_PUBLISHED_PRODUCT_EDITED', sellerUid: user.uid, productId: id,
+        actorUid: user.uid, updatedFields: ['name', 'description', 'categoryId', 'sku', 'price', 'salePrice', 'inventory', 'images'],
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    });
+    return res.status(200).json({
+      product: { id, ...product, status: 'PUBLISHED', sellerUid: user.uid, sellerBusinessName: seller.businessName || '' },
+      message: 'Published listing updated successfully.',
+    });
+  }
+
   const product = validateDraft(req.body);
   const category = await adminDb.collection('categories').doc(product.categoryId).get();
   if (!category.exists) throw clientError('The selected category does not exist.');
@@ -118,36 +172,11 @@ export default async function sellerProducts(req, res) {
     const ref = adminDb.collection('sellerProducts').doc(id);
     const snap = await ref.get();
     if (!snap.exists || snap.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
-    const current = snap.data() || {};
-    const currentStatus = String(current.status || '').toUpperCase();
-    if (currentStatus === 'PUBLISHED') {
-      const publicRef = adminDb.collection('products').doc(String(current.publishedProductId || id));
-      const publicSnap = await publicRef.get();
-      if (!publicSnap.exists || publicSnap.data()?.sellerUid !== user.uid) {
-        throw clientError('The published marketplace listing could not be verified. Contact support before editing it.', 409);
-      }
-      const revision = { ...product, status: 'ACTIVE' };
-      await ref.update({
-        status: 'PENDING_REVIEW',
-        pendingRevision: revision,
-        pendingRevisionSubmittedAt: now,
-        moderationReason: null,
-        updatedAt: now,
-      });
-      await adminDb.collection('sellerMarketplaceAudit').add({
-        action: 'SELLER_PRODUCT_UPDATE_SUBMITTED_FOR_REVIEW', sellerUid: user.uid,
-        productDraftId: id, publicProductId: publicRef.id, actorUid: user.uid, createdAt: now,
-      });
-      return res.status(200).json({
-        product: { id, ...current, status: 'PENDING_REVIEW', pendingRevision: revision, updatedAt: new Date().toISOString() },
-        message: 'Product changes submitted for review. Your current published listing stays live until an admin approves the update.',
-      });
-    }
-    if (!['DRAFT', 'REJECTED'].includes(currentStatus)) throw clientError('This listing cannot be edited while it is awaiting review.');
+    if (!['DRAFT', 'REJECTED'].includes(String(snap.data()?.status || '').toUpperCase())) throw clientError('Only private or rejected drafts can be edited.');
     await ref.update({ ...product, status: 'DRAFT', moderationReason: null, reviewedBy: null, reviewedAt: null, updatedAt: now });
     return res.status(200).json({
       product: { id, ...product, updatedAt: new Date().toISOString() },
-      message: 'Private draft updated. It is not visible in the public shop until approved and published.',
+      message: 'Private draft updated and returned to draft status. It is not visible in the public shop.',
     });
   }
 
