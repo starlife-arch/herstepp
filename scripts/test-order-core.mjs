@@ -148,6 +148,30 @@ await test('checkout payload without email creates the order (no "Email address 
   assert.ok(res.order.total > 0);
 });
 
+await test('marketplace order lines snapshot seller ownership while first-party lines remain unchanged', async () => {
+  const db = seedBase({ product: {
+    sellerUid: 'seller-123',
+    sellerId: 'seller-123',
+    sellerDisplayName: 'Example Seller',
+    sellerBusinessName: 'Example Business',
+    marketplaceSeller: true,
+  } });
+  const result = await createOrderCore(db, deps(db), checkoutPayload());
+  const order = db.__doc('orders', result.order.id).data;
+  assert.equal(order.items[0].sellerId, 'seller-123');
+  assert.deepEqual(order.items[0].sellerSnapshot, {
+    sellerId: 'seller-123',
+    displayName: 'Example Seller',
+    businessName: 'Example Business',
+  });
+
+  const firstPartyDb = seedBase();
+  const firstPartyResult = await createOrderCore(firstPartyDb, deps(firstPartyDb), checkoutPayload());
+  const firstPartyOrder = firstPartyDb.__doc('orders', firstPartyResult.order.id).data;
+  assert.equal('sellerId' in firstPartyOrder.items[0], false);
+  assert.equal('sellerSnapshot' in firstPartyOrder.items[0], false);
+});
+
 await test('created order contains delivery.fullName, delivery.phone (+254 normalised) and delivery.instructions', async () => {
   const db = seedBase();
   const res = await createOrderCore(db, deps(db), checkoutPayload());

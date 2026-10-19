@@ -229,6 +229,18 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
           unitCost: Number.isInteger(variantCost) && variantCost >= 0 ? variantCost : null,
           lineTotal: price * line.quantity,
           imageUrl: Array.isArray(data.images) ? data.images[0]?.url ?? null : null,
+          // Snapshot marketplace ownership at purchase time so later seller
+          // profile changes cannot rewrite historical order attribution.
+          ...((data.marketplaceSeller === true || Boolean(data.sellerUid || data.sellerId))
+            ? {
+                sellerId: String(data.sellerUid || data.sellerId),
+                sellerSnapshot: {
+                  sellerId: String(data.sellerUid || data.sellerId),
+                  displayName: String(data.sellerDisplayName || data.sellerBusinessName || 'Marketplace seller').slice(0, 60),
+                  businessName: String(data.sellerBusinessName || '').slice(0, 100),
+                },
+              }
+            : {}),
         });
       }
       plan.push({ ref: snap.ref, data, inventory, changes });
