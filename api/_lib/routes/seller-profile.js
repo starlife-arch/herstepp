@@ -11,6 +11,12 @@ const toDate = value => value?.toDate?.() || (value instanceof Date ? value : (t
 const iso = value => { const date = toDate(value); return date && Number.isFinite(date.getTime()) ? date.toISOString() : null; };
 const paymentIdFor = (uid, key) => createHash('sha256').update('seller-business-name:' + uid + ':' + key).digest('hex');
 const addFiveMonths = date => { const next = new Date(date); next.setMonth(next.getMonth() + 5); return next; };
+const normalizePaymentStatus = value => {
+  const status = String(value || 'PENDING').toUpperCase();
+  if (['PAID', 'SUCCESS', 'SUCCEEDED', 'COMPLETED'].includes(status)) return 'PAID';
+  if (['FAILED', 'CANCELLED', 'CANCELED', 'TIMEOUT', 'EXPIRED'].includes(status)) return status === 'CANCELED' ? 'CANCELLED' : status === 'EXPIRED' ? 'TIMEOUT' : status;
+  return 'PENDING';
+};
 
 function serializeProfile(seller, application, uid) {
   return {
@@ -26,7 +32,7 @@ function serializeProfile(seller, application, uid) {
     planCode: String(seller.planCode || ''),
     subscriptionExpiresAt: iso(seller.subscriptionExpiresAt),
     businessNameChangedAt: iso(seller.businessNameChangedAt),
-    nextBusinessNameChangeAt: seller.businessNameChangedAt ? addFiveMonths(toDate(seller.businessNameChangedAt)).toISOString() : null,
+    nextBusinessNameChangeAt: (() => { const changedAt = toDate(seller.businessNameChangedAt); return changedAt && Number.isFinite(changedAt.getTime()) ? addFiveMonths(changedAt).toISOString() : null; })(),
   };
 }
 
@@ -90,8 +96,9 @@ export default async function sellerProfile(req, res) {
       if (data.status === 'PENDING' && data.providerReference) {
         try {
           const result = await getMpesaProvider().checkStatus(data.providerReference);
-          if (result.status && result.status !== 'PENDING') {
-            await applyNameChangePayment(user, paymentRef, String(result.status).toUpperCase(), result);
+          const normalizedStatus = normalizePaymentStatus(result.status);
+          if (normalizedStatus !== 'PENDING') {
+            await applyNameChangePayment(user, paymentRef, normalizedStatus, result);
           }
         } catch (error) {
           console.error('seller business name payment reconciliation failed:', error?.message || error);
