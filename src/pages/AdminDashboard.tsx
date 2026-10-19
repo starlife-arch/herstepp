@@ -1329,6 +1329,8 @@ function AdminInvoiceActions({ order }: { order: any }) {
 function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void }) {
   const history = Array.isArray(order.history) ? order.history : [];
   const items = Array.isArray(order.items) ? order.items : [];
+  const mixedBasket = items.some((item: any) => Boolean(item.sellerId)) && items.some((item: any) => !item.sellerId);
+  const displayedOrderStatus = mixedBasket ? (order.firstPartyFulfilment?.status || 'PENDING') : order.orderStatus;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-6" role="dialog" aria-modal="true">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -1342,7 +1344,7 @@ function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void 
         </div>
         <div className="p-6 space-y-6">
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div><p className="text-neutral-500">Order status</p><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></div>
+            <div><p className="text-neutral-500">{mixedBasket ? 'HerStep items status' : 'Order status'}</p><Badge variant={getStatusBadge(displayedOrderStatus).variant}>{getStatusBadge(displayedOrderStatus).label}</Badge></div>
             <div><p className="text-neutral-500">Payment status</p><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></div>
             {order.needsReview === true && (
               <div className="col-span-2 bg-amber-50 border border-amber-300 text-amber-800 rounded-lg px-3 py-2 text-xs font-semibold">
@@ -1363,6 +1365,7 @@ function OrderDetailPanel({ order, onClose }: { order: any; onClose: () => void 
                   <div className="flex-1 min-w-0">
                     <p className="truncate font-medium text-neutral-900">{i.name}</p>
                     <p className="text-xs text-neutral-500">Size {i.size} · Qty {i.quantity} × {money(i.unitPrice)}</p>
+                    {(i.sellerId || order.firstPartyFulfilment) && <p className="text-xs text-neutral-600 mt-1">{i.sellerId ? (i.sellerBusinessName || 'Marketplace seller') : 'HerStep Collection'} fulfilment: {String(i.sellerId ? (order.sellerFulfilment?.[i.sellerId]?.status || 'PENDING') : (order.firstPartyFulfilment?.status || 'PENDING')).replace(/_/g, ' ')}</p>}
                   </div>
                   <p className="font-medium">{money(i.lineTotal)}</p>
                 </div>
