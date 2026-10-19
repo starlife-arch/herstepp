@@ -126,8 +126,20 @@ export default async function sellerProducts(req, res) {
         throw clientError('Published product not found or no longer editable.', 404);
       }
       const current = publicSnap.data() || {};
+      // The current seller form edits one variant at a time. Merge those
+      // variant changes into existing inventory so editing a published shoe
+      // does not accidentally delete every other size from the public listing.
+      const currentInventory = Array.isArray(current.inventory) ? current.inventory : [];
+      const editedBySize = new Map(product.inventory.map(item => [item.size, item]));
+      const mergedInventory = [
+        ...currentInventory.filter(item => !editedBySize.has(item.size)),
+        ...product.inventory,
+      ];
       const updated = {
         ...product,
+        inventory: mergedInventory,
+        stockQuantity: mergedInventory.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
+        availableSizes: mergedInventory.filter(item => Number(item.quantity) > 0).map(item => item.size),
         status: 'ACTIVE',
         sellerUid: user.uid,
         sellerId: user.uid,
