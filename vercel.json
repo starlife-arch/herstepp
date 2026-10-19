@@ -13,6 +13,10 @@
       "destination": "/api/users?route=sellers/dashboard"
     },
     {
+      "source": "/api/sellers/orders/",
+      "destination": "/api/users?route=sellers/orders"
+    },
+    {
       "source": "/api/sellers/payouts",
       "destination": "/api/users?route=sellers/payouts"
     },
