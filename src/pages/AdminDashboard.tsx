@@ -1151,8 +1151,8 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
         method: 'PATCH',
         body: JSON.stringify({ orderDocumentId: order.id, orderStatus, note: '' }),
       });
-      const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => Boolean(item.sellerId));
-      const hasFirstPartyItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => !item.sellerId);
+      const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => Boolean(item.sellerId || item.sellerSnapshot?.sellerId));
+      const hasFirstPartyItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => !String(item.sellerId || item.sellerSnapshot?.sellerId || '').trim());
       setToast(`${hasMarketplaceItems && hasFirstPartyItems ? 'HerStep items in order ' : 'Order '}${order.orderId} moved to ${humanStatus(orderStatus)}.`);
       res.reload();
     } catch (err: any) {
