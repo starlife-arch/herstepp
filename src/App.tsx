@@ -30,6 +30,7 @@ import AdminSellers from './pages/AdminSellers';
 import AdminSellerProducts from './pages/AdminSellerProducts';
 import SellerDashboard from './pages/SellerDashboard';
 import SellerProducts from './pages/SellerProducts';
+import PublicSellerShop from './pages/PublicSellerShop';
 
 function ScrollToTop() { const { pathname } = useLocation(); useEffect(() => { window.scrollTo(0, 0); }, [pathname]); return null; }
 function ToastContainer() { const { state, dispatch } = useApp(); if (!state.toast) return null; return <Toast message={state.toast.message} type={state.toast.type} onClose={() => dispatch({ type: 'SET_TOAST', payload: null })} />; }
@@ -52,6 +53,7 @@ function AppRoutes() {
   <Route path="/" element={<Wrap><Home /></Wrap>} /><Route path="/shop" element={<Wrap><Shop /></Wrap>} />
   <Route path="/product/:id" element={<Wrap><ProductDetail /></Wrap>} /><Route path="/cart" element={<Wrap><Cart /></Wrap>} />
   <Route path="/checkout" element={<Wrap><Checkout /></Wrap>} /><Route path="/login" element={<Wrap><Login /></Wrap>} />
+  <Route path="/seller/shop/:sellerId" element={<Wrap><PublicSellerShop /></Wrap>} />
   <Route path="/seller/apply" element={<Wrap><RequireAuth><SellerApplicationPage /></RequireAuth></Wrap>} />
   <Route path="/seller/dashboard" element={<Wrap><RequireAuth><SellerDashboard /></RequireAuth></Wrap>} />
   <Route path="/seller/products" element={<Wrap><RequireAuth><SellerProducts /></RequireAuth></Wrap>} />
