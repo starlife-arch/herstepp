@@ -1129,9 +1129,17 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
     return () => clearTimeout(t);
   }, [toast]);
 
+  const statusForAdmin = (order: any) => {
+    const items = Array.isArray(order.items) ? order.items : [];
+    const hasMarketplaceItems = items.some((item: any) => Boolean(item.sellerId));
+    const hasFirstPartyItems = items.some((item: any) => !item.sellerId);
+    return hasMarketplaceItems && hasFirstPartyItems
+      ? (order.firstPartyFulfilment?.status || 'PENDING')
+      : order.orderStatus;
+  };
   const filtered = orders.filter(o => {
     const text = `${o.orderId} ${o.invoiceNumber || ''} ${o.customerName || ''} ${o.customerEmail || ''}`.toLowerCase();
-    return (!search || text.includes(search.toLowerCase())) && (!statusFilter || o.orderStatus === statusFilter);
+    return (!search || text.includes(search.toLowerCase())) && (!statusFilter || statusForAdmin(o) === statusFilter);
   });
   const detail = detailId ? orders.find(o => o.id === detailId) ?? null : null;
 
@@ -1143,7 +1151,9 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
         method: 'PATCH',
         body: JSON.stringify({ orderDocumentId: order.id, orderStatus, note: '' }),
       });
-      setToast(`Order ${order.orderId} moved to ${humanStatus(orderStatus)}.`);
+      const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => Boolean(item.sellerId));
+      const hasFirstPartyItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => !item.sellerId);
+      setToast(`${hasMarketplaceItems && hasFirstPartyItems ? 'HerStep items in order ' : 'Order '}${order.orderId} moved to ${humanStatus(orderStatus)}.`);
       res.reload();
     } catch (err: any) {
       setActionError(err?.message || 'Could not update the order.');
@@ -1185,8 +1195,11 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
                   {filtered.map(order => {
-                    const next = nextOrderStatuses(order.orderStatus);
                     const hasMarketplaceItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => Boolean(item.sellerId));
+                    const hasFirstPartyItems = (Array.isArray(order.items) ? order.items : []).some((item: any) => !item.sellerId);
+                    const mixedBasket = hasMarketplaceItems && hasFirstPartyItems;
+                    const adminFulfilmentStatus = mixedBasket ? (order.firstPartyFulfilment?.status || 'PENDING') : order.orderStatus;
+                    const next = nextOrderStatuses(adminFulfilmentStatus);
                     return (
                       <tr key={order.id} className="hover:bg-neutral-50 cursor-pointer" onClick={() => setDetailId(order.id)}>
                         <td className="px-4 py-3 font-medium">{order.orderId}
@@ -1207,9 +1220,9 @@ function AdminOrders({ res, orders }: { res: ReturnType<typeof useAdminData<any>
                         <td className="px-4 py-3 text-neutral-500 hidden md:table-cell">{day(order.createdAt)}</td>
                         <td className="px-4 py-3 font-medium">{money(order.total)}</td>
                         <td className="px-4 py-3"><Badge variant={getStatusBadge(order.paymentStatus).variant}>{getStatusBadge(order.paymentStatus).label}</Badge></td>
-                        <td className="px-4 py-3"><Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge></td>
+                        <td className="px-4 py-3"><Badge variant={getStatusBadge(adminFulfilmentStatus).variant}>{getStatusBadge(adminFulfilmentStatus).label}</Badge>{mixedBasket && <p className="text-[10px] text-neutral-500 mt-1">HerStep items</p>}</td>
                         <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                          {hasMarketplaceItems
+                          {hasMarketplaceItems && !hasFirstPartyItems
                             ? <span className="text-xs font-medium text-neutral-500" title="Seller fulfilment is managed by the seller">Seller-managed</span>
                             : <select
                                 value=""
