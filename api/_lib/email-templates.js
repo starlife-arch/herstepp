@@ -219,8 +219,8 @@ export function marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, r
       <tr><th align="left" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Product</th><th align="center" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Variant</th><th align="center" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Qty</th><th align="right" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Unit price</th><th align="right" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Line total</th></tr>
       ${itemRows}
     </table>
-    <p style="text-align:right;font-size:16px;font-weight:bold;color:#1f6a53;margin:18px 0;">TOTAL PAID: ${escapeHtml(money(total))}</p>
-    <p style="font-size:11px;line-height:1.6;color:#8a93a2;">Keep this invoice for your records. Delivery, returns, and product questions should be coordinated with the seller, with HerStep marketplace support available for disputes.</p>`;
+    <p style="text-align:right;font-size:16px;font-weight:bold;color:#1f6a53;margin:18px 0;">SELLER ITEM TOTAL: ${escapeHtml(money(total))}</p>
+    <p style="font-size:11px;line-height:1.6;color:#8a93a2;">Keep this invoice for your records. The total above covers this seller's product lines; checkout-wide discounts or delivery charges may be reflected separately on the platform payment receipt. Delivery, returns, and product questions should be coordinated with the seller, with HerStep marketplace support available for disputes.</p>`;
   return {
     subject: `Marketplace invoice ${invoiceNumber} — ${sellerName}`,
     htmlContent: emailHtml(`Marketplace invoice ${invoiceNumber}`, body, { ctaLabel: 'View HerStep marketplace', ctaUrl: `${siteUrl()}/shop`, rawBody: true }),
