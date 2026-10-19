@@ -85,6 +85,8 @@ export async function applySellerSubscriptionPayment(db, deps, callback) {
       }, { merge: true });
       tx.update(sellerRef, {
         planCode: payment.planCode,
+        productLimit: plan.productLimit,
+        planAmount: plan.amount,
         billingStatus: 'ACTIVE',
         subscriptionId: paymentRef.id,
         subscriptionExpiresAt: periodEnd,
