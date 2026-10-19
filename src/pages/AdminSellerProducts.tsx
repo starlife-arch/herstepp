@@ -10,7 +10,7 @@ type SellerProduct = {
   categoryId: string; sku: string; price: number; salePrice?: number | null; status: string;
   inventory?: { size: string; quantity: number; costPrice?: number | null }[];
   images?: { url: string; publicId: string; resourceType: string }[];
-  stockQuantity?: number; updatedAt?: string; moderationReason?: string; publishedProductId?: string;
+  stockQuantity?: number; updatedAt?: string; moderationReason?: string; publishedProductId?: string; pendingRevision?: { name: string; description?: string; categoryId: string; sku: string; price: number; salePrice?: number | null; inventory?: { size: string; quantity: number; costPrice?: number | null }[]; images?: { url: string; publicId: string; resourceType: string }[]; stockQuantity?: number };
 };
 const money = (amount: number) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(amount);
 const filters = [
@@ -73,13 +73,14 @@ export default function AdminSellerProducts() {
       <div className="space-y-4">{products.map(product => {
         const badge = getStatusBadge(product.status);
         const busy = busyId === product.id;
+        const reviewProduct = product.pendingRevision || product;
         return <Card key={product.id} className="p-5 sm:p-6"><div className="flex flex-col lg:flex-row gap-5">
-          {product.images?.[0]?.url && <img src={product.images[0].url} alt={product.name} className="w-full lg:w-40 h-40 object-cover rounded-lg bg-neutral-100" loading="lazy" />}
-          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Store className="w-4 h-4 text-neutral-500" /><h2 className="text-lg font-semibold text-neutral-900">{product.name}</h2><Badge variant={badge.variant}>{badge.label}</Badge></div>
+          {reviewProduct.images?.[0]?.url && <img src={reviewProduct.images[0].url} alt={reviewProduct.name} className="w-full lg:w-40 h-40 object-cover rounded-lg bg-neutral-100" loading="lazy" />}
+          <div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><Store className="w-4 h-4 text-neutral-500" /><h2 className="text-lg font-semibold text-neutral-900">{reviewProduct.name}</h2><Badge variant={badge.variant}>{badge.label}</Badge></div>
             <p className="text-sm text-neutral-600 mt-1">Seller: {product.sellerDisplayName || product.sellerUid}</p>
-            <p className="text-sm text-neutral-700 mt-2">{product.description || 'No description provided.'}</p>
-            <p className="text-sm font-semibold mt-2">{money(product.salePrice ?? product.price)}{product.salePrice != null && <span className="ml-2 line-through text-neutral-400 font-normal">{money(product.price)}</span>}</p>
-            <p className="text-xs text-neutral-500 mt-1">SKU: {product.sku} · Stock: {product.stockQuantity ?? (product.inventory || []).reduce((n, i) => n + i.quantity, 0)} · Updated {product.updatedAt ? formatDateTime(product.updatedAt) : 'recently'}</p>
+            {product.pendingRevision && <p className="text-xs font-semibold text-amber-700 mt-2">Proposed update — the existing published listing remains live until approval.</p>}<p className="text-sm text-neutral-700 mt-2">{reviewProduct.description || 'No description provided.'}</p>
+            <p className="text-sm font-semibold mt-2">{money(reviewProduct.salePrice ?? reviewProduct.price)}{reviewProduct.salePrice != null && <span className="ml-2 line-through text-neutral-400 font-normal">{money(reviewProduct.price)}</span>}</p>
+            <p className="text-xs text-neutral-500 mt-1">SKU: {reviewProduct.sku} · Stock: {reviewProduct.stockQuantity ?? (reviewProduct.inventory || []).reduce((n, i) => n + i.quantity, 0)} · Updated {product.updatedAt ? formatDateTime(product.updatedAt) : 'recently'}</p>
             {product.moderationReason && <p className="text-sm text-rose-700 mt-2">Reason: {product.moderationReason}</p>}
             <div className="mt-4 max-w-xl"><Input label="Decision reason / note" value={reasons[product.id] ?? product.moderationReason ?? ''} onChange={e => setReasons(old => ({ ...old, [product.id]: e.target.value }))} maxLength={500} placeholder="Required when rejecting" /></div>
             <div className="flex flex-wrap gap-2 mt-3">

@@ -44,6 +44,69 @@ export default async function adminSellerProducts(req, res) {
   const draft = draftSnap.data() || {};
   if (!draft.sellerUid) throw clientError('This draft has no seller owner and cannot be published.', 409);
 
+  // Published listings stay live while edits are reviewed. Approving a revision
+  // updates the public product and its seller record atomically; rejecting it
+  // discards only the proposed revision and preserves the current live listing.
+  if (draft.pendingRevision && draft.publishedProductId && ['APPROVE', 'REJECT'].includes(action)) {
+    if (action === 'REJECT') {
+      await draftRef.update({
+        status: 'PUBLISHED', pendingRevision: FieldValue.delete(),
+        moderationReason: reason, revisionRejectedAt: FieldValue.serverTimestamp(),
+        reviewedBy: admin.uid, reviewedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      });
+      await adminDb.collection('sellerMarketplaceAudit').add({
+        action: 'SELLER_PRODUCT_UPDATE_REJECTED', sellerUid: draft.sellerUid,
+        productDraftId: id, publicProductId: draft.publishedProductId, actorUid: admin.uid,
+        reason, createdAt: FieldValue.serverTimestamp(),
+      });
+      return res.status(200).json({ success: true, status: 'PUBLISHED', message: 'Update rejected. The existing published listing remains unchanged and live.' });
+    }
+
+    const revision = draft.pendingRevision;
+    const categoryRef = adminDb.collection('categories').doc(clean(revision.categoryId));
+    if (!(await categoryRef.get()).exists) throw clientError('The revised product category no longer exists.', 409);
+    const sellerRef = adminDb.collection('sellers').doc(draft.sellerUid);
+    const publicRef = adminDb.collection('products').doc(String(draft.publishedProductId));
+    const now = FieldValue.serverTimestamp();
+    await adminDb.runTransaction(async tx => {
+      const [sellerSnap, currentDraftSnap, publicSnap] = await Promise.all([
+        tx.get(sellerRef), tx.get(draftRef), tx.get(publicRef),
+      ]);
+      if (!sellerSnap.exists || sellerSnap.data()?.status !== 'ACTIVE') throw clientError('Seller is not active. Updating this listing is blocked.', 403);
+      if (!currentDraftSnap.exists || currentDraftSnap.data()?.status !== 'PENDING_REVIEW' || !currentDraftSnap.data()?.pendingRevision) {
+        throw clientError('This product update is no longer awaiting review.', 409);
+      }
+      if (!publicSnap.exists || publicSnap.data()?.sellerUid !== draft.sellerUid) throw clientError('The public listing no longer belongs to this seller.', 409);
+      const seller = sellerSnap.data() || {};
+      const expiry = toDate(seller.subscriptionExpiresAt);
+      if (seller.billingStatus !== 'ACTIVE' || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+        throw clientError('The seller subscription is inactive or expired. Renew it before applying product changes.', 409);
+      }
+      const publicProductPatch = {
+        name: clean(revision.name), description: String(revision.description || ''),
+        categoryId: clean(revision.categoryId), sku: clean(revision.sku).toUpperCase(),
+        price: revision.price, salePrice: revision.salePrice ?? null,
+        inventory: Array.isArray(revision.inventory) ? revision.inventory : [],
+        images: Array.isArray(revision.images) ? revision.images : [], video: revision.video || null,
+        stockQuantity: Number.isInteger(revision.stockQuantity) ? revision.stockQuantity : 0,
+        availableSizes: Array.isArray(revision.availableSizes) ? revision.availableSizes : [],
+        sellerDisplayName: clean(seller.displayName || draft.sellerDisplayName).slice(0, 60),
+        sellerBusinessName: clean(seller.businessName).slice(0, 100),
+        status: 'ACTIVE', moderationStatus: 'APPROVED', updatedAt: now,
+      };
+      tx.update(publicRef, publicProductPatch);
+      tx.update(draftRef, {
+        ...revision, status: 'PUBLISHED', pendingRevision: FieldValue.delete(),
+        moderationReason: '', reviewedBy: admin.uid, reviewedAt: now, updatedAt: now,
+      });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), {
+        action: 'SELLER_PRODUCT_UPDATE_APPROVED', sellerUid: draft.sellerUid,
+        productDraftId: id, publicProductId: publicRef.id, actorUid: admin.uid, createdAt: now,
+      });
+    });
+    return res.status(200).json({ success: true, status: 'PUBLISHED', message: 'Product update approved and applied to the live listing.' });
+  }
+
   if (action === 'REJECT') {
     if (['PUBLISHED'].includes(String(draft.status || '').toUpperCase())) throw clientError('Unpublish this listing through the seller moderation controls before rejecting it.', 409);
     await draftRef.update({
