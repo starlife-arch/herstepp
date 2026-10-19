@@ -62,6 +62,7 @@ export default async function sellerApplication(req, res) {
     updatedAt: now,
   };
 
+  const auditRef = adminDb.collection('sellerMarketplaceAudit').doc();
   await adminDb.runTransaction(async tx => {
     const current = await tx.get(ref);
     if (current.exists && ['PENDING', 'APPROVED'].includes(current.data()?.status)) {
@@ -71,6 +72,10 @@ export default async function sellerApplication(req, res) {
       throw clientError('Your seller account is suspended. Contact HerStep support.');
     }
     tx.set(ref, { ...payload, createdAt: current.exists ? current.data()?.createdAt || now : now });
+    tx.set(auditRef, {
+      action: 'SELLER_APPLICATION_SUBMITTED', sellerUid: user.uid, actorUid: user.uid,
+      applicantEmail, displayName, businessName, categories, createdAt: now,
+    });
   });
   const saved = await ref.get();
   return res.status(201).json({ application: serialize(saved), message: 'Seller application submitted for admin review.' });
