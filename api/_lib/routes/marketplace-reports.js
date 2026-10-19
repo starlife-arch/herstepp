@@ -28,9 +28,13 @@ export async function create(req, res) {
   }
   const product = productSnap.data() || {};
   if (product.sellerUid === user.uid) throw clientError('You cannot report your own listing.');
-  const duplicate = await adminDb.collection('sellerMarketplaceReports')
-    .where('reporterUid', '==', user.uid).where('productId', '==', productId).where('status', '==', 'OPEN').limit(1).get();
-  if (!duplicate.empty) throw clientError('You already have an open report for this listing.', 409);
+  const priorReports = await adminDb.collection('sellerMarketplaceReports')
+    .where('reporterUid', '==', user.uid).limit(200).get();
+  const hasOpenDuplicate = priorReports.docs.some(doc => {
+    const report = doc.data() || {};
+    return report.productId === productId && report.status === 'OPEN';
+  });
+  if (hasOpenDuplicate) throw clientError('You already have an open report for this listing.', 409);
   const ref = await adminDb.collection('sellerMarketplaceReports').add({
     productId, productName: clean(product.name).slice(0, 160),
     sellerUid: product.sellerUid, sellerDisplayName: clean(product.sellerDisplayName || product.sellerBusinessName).slice(0, 100),
