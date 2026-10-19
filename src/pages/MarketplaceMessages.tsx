@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { MessageCircle, Send, RefreshCw } from 'lucide-react';
 import { Button, Card, EmptyState, Skeleton } from '../components/ui';
 import { apiFetch } from '../lib/api';
+import { useApp } from '../context/AppContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 
 type Conversation = {
@@ -17,6 +18,7 @@ const when = (value?: string) => value ? new Date(value).toLocaleString('en-KE',
 export default function MarketplaceMessages() {
   usePageMeta('Marketplace Messages | HerStep Collection', 'Message sellers and customers on the HerStep marketplace.');
   const [params, setParams] = useSearchParams();
+  const { state } = useApp();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selected, setSelected] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -117,7 +119,7 @@ export default function MarketplaceMessages() {
         <Card className="p-4 sm:p-5 min-h-[480px] flex flex-col">
           {selected ? <>
             <div className="border-b border-neutral-100 pb-4 mb-4 flex items-center gap-3">{selected.productImage && <img src={selected.productImage} alt="" className="w-12 h-12 rounded-lg object-cover bg-neutral-100" />}<div><h2 className="font-semibold text-neutral-900">{selected.productName || 'Marketplace conversation'}</h2><p className="text-xs text-neutral-500 mt-1">{selected.status === 'OPEN' ? 'Conversation open' : 'Conversation closed'}</p></div></div>
-            <div className="flex-1 space-y-3 overflow-y-auto max-h-[480px] pr-1">{messages.map(message => <div key={message.id} className={'flex ' + (message.senderUid === selected.customerUid ? 'justify-start' : 'justify-end')}><div className={'max-w-[85%] rounded-2xl px-4 py-3 ' + (message.senderUid === selected.customerUid ? 'bg-neutral-100 text-neutral-900' : 'bg-neutral-900 text-white')}><p className="text-sm whitespace-pre-wrap break-words">{message.text}</p><p className={'text-[10px] mt-2 ' + (message.senderUid === selected.customerUid ? 'text-neutral-500' : 'text-neutral-300')}>{message.senderRole} · {when(message.createdAt)}</p></div></div>)}
+            <div className="flex-1 space-y-3 overflow-y-auto max-h-[480px] pr-1">{messages.map(message => <div key={message.id} className={'flex ' + (message.senderUid === state.user?.uid ? 'justify-end' : 'justify-start')}><div className={'max-w-[85%] rounded-2xl px-4 py-3 ' + (message.senderUid === state.user?.uid ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-900')}><p className="text-sm whitespace-pre-wrap break-words">{message.text}</p><p className={'text-[10px] mt-2 ' + (message.senderUid === state.user?.uid ? 'text-neutral-300' : 'text-neutral-500')}>{message.senderRole} · {when(message.createdAt)}</p></div></div>)}
               {messages.length === 0 && <p className="text-sm text-neutral-500 text-center py-8">No messages yet. Send the first message below.</p>}</div>
             {selected.status === 'OPEN' ? <form onSubmit={sendMessage} className="border-t border-neutral-100 pt-4 mt-4"><label htmlFor="marketplace-message" className="text-sm font-medium text-neutral-700">Your message</label><textarea id="marketplace-message" value={draft} onChange={event => setDraft(event.target.value)} maxLength={2000} rows={3} placeholder="Ask a question about this listing…" className="w-full mt-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500" /><div className="flex justify-between items-center gap-3 mt-2"><span className="text-xs text-neutral-500">{draft.length}/2000</span><Button type="submit" disabled={busy || !draft.trim()}><Send className="w-4 h-4 mr-2" />{busy ? 'Sending…' : 'Send message'}</Button></div></form> : <p className="text-sm text-neutral-500 mt-4">This conversation is closed and cannot receive new messages.</p>}
           </> : <div className="flex-1 flex items-center justify-center text-center text-sm text-neutral-500">Choose a conversation to view messages.</div>}
