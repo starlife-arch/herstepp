@@ -147,12 +147,12 @@ export function queueMarketplaceSaleInvoices(tx, db, { orderDocumentId, order, s
       const invoice = marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, receiptNumber });
       if (buyerEmail) {
         const key = `${orderDocumentId}-MARKETPLACE-${sellerId}-BUYER-INVOICE`;
-        queueEmail(tx, db, { key, purpose: 'invoices', to: buyerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent });
+        queueEmail(tx, db, { key, purpose: 'invoices', to: buyerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent, attachMarketplaceInvoice: { orderDocumentId, sellerId, invoiceNumber, receiptNumber } });
         keys.push(key);
       }
       if (sellerEmail && sellerEmail.includes('@')) {
         const key = `${orderDocumentId}-MARKETPLACE-${sellerId}-SELLER-INVOICE`;
-        queueEmail(tx, db, { key, purpose: 'invoices', to: sellerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent });
+        queueEmail(tx, db, { key, purpose: 'invoices', to: sellerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent, attachMarketplaceInvoice: { orderDocumentId, sellerId, invoiceNumber, receiptNumber } });
         keys.push(key);
       } else {
         const auditId = Buffer.from(`marketplace-invoice-missing-email:${orderDocumentId}:${sellerId}`).toString('base64url');
