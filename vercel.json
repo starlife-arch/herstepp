@@ -5,6 +5,10 @@
       "destination": "/api/users?route=sellers/application"
     },
     {
+      "source": "/api/sellers/dashboard",
+      "destination": "/api/users?route=sellers/dashboard"
+    },
+    {
       "source": "/api/admin/sellers/applications",
       "destination": "/api/admin?route=sellers/applications"
     },
