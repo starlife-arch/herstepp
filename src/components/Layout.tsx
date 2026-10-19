@@ -18,6 +18,7 @@ export function Header() {
     { to: '/track', label: 'Track Order' },
     { to: '/support', label: 'Support' },
     { to: '/contact', label: 'Contact' },
+    { to: '/seller/apply', label: 'Sell on HerStep' },
   ];
 
   return (
