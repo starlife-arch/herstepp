@@ -5,7 +5,7 @@ import { usePageMeta } from '../hooks/usePageMeta';
 import { Card, Button } from '../components/ui';
 
 const money = (value: unknown) => new Intl.NumberFormat('en-KE', { style: 'currency', currency: 'KES', maximumFractionDigits: 0 }).format(Number(value) || 0);
-type Payout = { id: string; sellerId: string; amount: number; currency: string; status: string; sellerName?: string; payoutPhoneMasked?: string; reason?: string; providerReference?: string; requestedAt?: string; };
+type Payout = { id: string; sellerId: string; amount: number; currency: string; status: string; sellerName?: string; payoutPhone?: string; payoutPhoneMasked?: string; reason?: string; providerReference?: string; requestedAt?: string; };
 type SellerLine = { sellerId: string; sellerName: string; productName: string; lineTotal: number; itemIndex: number; };
 type Refund = { id: string; orderDocumentId: string; orderId: string; amount: number; currency: string; reason?: string; providerReference?: string; sellerLines: SellerLine[]; };
 const uniqueSellers = (refund: Refund) => Array.from(new Map<string, SellerLine>(refund.sellerLines.map(line => [line.sellerId, line] as [string, SellerLine])).values());
@@ -73,7 +73,7 @@ export default function AdminMarketplacePayouts() {
       </Card>)}
     </section>}
     {loading ? <Card className="p-8 text-center text-sm text-neutral-500">Loading payout requests…</Card> : payouts.length === 0 ? <Card className="p-8 text-center"><Wallet className="w-8 h-8 mx-auto text-neutral-400 mb-2" /><p className="font-medium">No payout requests yet</p></Card> : <div className="space-y-4">{payouts.map(payout => <Card key={payout.id} className="p-5">
-      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold text-lg">{payout.sellerName || 'Marketplace seller'}</h2><p className="text-xs text-neutral-500 mt-1">Request: {payout.id}</p><p className="text-sm text-neutral-600 mt-1">Seller UID: {payout.sellerId} · M-Pesa: {payout.payoutPhoneMasked || 'Not available'}</p></div><div className="text-right"><p className="text-2xl font-bold">{money(payout.amount)}</p><p className="text-xs font-semibold mt-1">{payout.status}</p></div></div>
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><h2 className="font-semibold text-lg">{payout.sellerName || 'Marketplace seller'}</h2><p className="text-xs text-neutral-500 mt-1">Request: {payout.id}</p><p className="text-sm text-neutral-600 mt-1">Seller UID: {payout.sellerId} · M-Pesa destination: {payout.payoutPhone || payout.payoutPhoneMasked || 'Not available'}</p></div><div className="text-right"><p className="text-2xl font-bold">{money(payout.amount)}</p><p className="text-xs font-semibold mt-1">{payout.status}</p></div></div>
       {payout.providerReference && <p className="text-sm mt-3">Provider reference: <span className="font-mono">{payout.providerReference}</span></p>}
       {['REQUESTED','APPROVED'].includes(payout.status) && <div className="mt-4 grid gap-3">
         <div><label className="block text-xs font-medium mb-1" htmlFor={`payout-note-${payout.id}`}>Review note / reason</label><input id={`payout-note-${payout.id}`} value={notes[payout.id] || ''} onChange={e => setNotes(prev => ({ ...prev, [payout.id]: e.target.value }))} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Reason for approval or rejection" /></div>
