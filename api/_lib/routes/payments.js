@@ -481,12 +481,37 @@ export async function mpesaCallback(req, res) {
       if (promotionSnap && !promotionSnap.empty) targetKind = 'seller-promotion';
     }
     if (!targetKind) {
+      const bulkCreditSnap = await adminDb.collection('sellerBulkCreditPayments')
+        .where('providerReference', '==', verified.providerReference).limit(1).get().catch(() => null);
+      if (bulkCreditSnap && !bulkCreditSnap.empty) targetKind = 'seller-bulk-credits';
+    }
+    if (!targetKind) {
       const tipsMod = await import('./tips.js');
       const knownTip = await tipsMod.findTipByProviderReference(verified.providerReference).catch(() => null);
       if (knownTip) targetKind = 'tip';
     }
 
     let applied;
+    if (targetKind === 'seller-bulk-credits') {
+      if (verified.status === PAYMENT_STATUS.PENDING) return send({ ok: true, kind: 'seller-bulk-credits', applied: false, pending: true });
+      let creditResult = verified;
+      if (verified.status === PAYMENT_STATUS.PAID) {
+        const confirmation = await getMpesaProvider().checkStatus(verified.providerReference);
+        if (confirmation.status !== PAYMENT_STATUS.PAID || String(confirmation.providerReference) !== String(verified.providerReference)) {
+          console.error(`mpesa-callback: unconfirmed seller bulk-credit payment for ${verified.providerReference} (provider says ${confirmation.status})`);
+          return send({ ok: true, received: true, applied: false });
+        }
+        creditResult = { ...verified, status: PAYMENT_STATUS.PAID, amount: confirmation.amount ?? verified.amount,
+          transactionReference: confirmation.transactionReference || verified.transactionReference,
+          eventId: verified.eventId || `callback:${verified.providerReference}:PAID`,
+          reason: confirmation.reason ?? verified.reason ?? null };
+      }
+      const creditMod = await import('./seller-bulk-upload.js');
+      const creditApplied = await creditMod.applyBulkCreditPayment(adminDb,
+        { serverTimestamp: () => FieldValue.serverTimestamp() }, { ...creditResult, source: 'PRINTPAY' });
+      return send({ ok: true, kind: 'seller-bulk-credits', applied: creditApplied?.applied !== false, duplicate: creditApplied?.duplicate === true });
+    }
+
     if (targetKind === 'seller-promotion') {
       if (verified.status === PAYMENT_STATUS.PENDING) return send({ ok: true, kind: 'seller-promotion', applied: false, pending: true });
       let promotionResult = verified;
