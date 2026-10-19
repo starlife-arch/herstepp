@@ -56,6 +56,7 @@ export default function SellerDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [phone, setPhone] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState<string | null>(null);
   const [paymentError, setPaymentError] = useState('');
   const [paymentNotice, setPaymentNotice] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
@@ -141,7 +142,8 @@ export default function SellerDashboard() {
         body: JSON.stringify({ planCode, phone: phone.trim(), idempotencyKey: key }),
       });
       setPayment({ ...result.payment, planCode });
-      setPaymentNotice('Check your phone and approve the M-Pesa prompt. Then check the payment status below.');
+      setSelectedPlan(null);
+      setPaymentNotice('M-Pesa prompt sent. Approve it on your phone; we will check the payment and update your plan.');
     } catch (err: any) {
       setPaymentError(err?.message || 'Could not start the subscription payment. Use the same plan button to safely retry or contact support.');
     } finally {
@@ -275,7 +277,7 @@ export default function SellerDashboard() {
             <div>
               <h2 className="text-xl font-semibold text-neutral-900">{seller?.displayName || application?.displayName || 'Your seller shop'}</h2>
               <p className="text-sm text-neutral-600 mt-1">{seller?.businessName || 'HerStep marketplace seller account'}</p>
-              <p className="text-xs text-neutral-500 mt-2">Seller status: {seller?.status || application?.status || 'APPLICATION NOT STARTED'}</p>
+              <p className="text-xs text-neutral-500 mt-2">Seller status: {suspended ? 'SUSPENDED' : approved && !subscriptionActive ? 'APPROVED — PLAN REQUIRED' : subscriptionActive ? 'ACTIVE SUBSCRIPTION' : application?.status || 'APPLICATION NOT STARTED'}</p>
             </div>
           </div>
           {approved ? <Badge variant="success"><BadgeCheck className="inline w-3.5 h-3.5 mr-1" /> Approved</Badge> : suspended ? <Badge variant="danger">Suspended</Badge> : <Badge variant="warning">{application?.status === 'PENDING' ? 'Under review' : application?.status === 'REJECTED' ? 'Changes required' : 'Application needed'}</Badge>}
@@ -292,19 +294,27 @@ export default function SellerDashboard() {
         <p className="text-sm text-neutral-600 mt-2">Monthly pricing includes the KSh 50 verified-badge subscription add-on. Identity verification is a separate approval.</p>
       </div>
 
-      {approved && !subscriptionActive && <Card className="p-5 mb-5">
-        <label htmlFor="seller-mpesa-phone" className="block text-sm font-medium text-neutral-800 mb-2">M-Pesa phone number</label>
-        <input id="seller-mpesa-phone" type="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" className="w-full max-w-md rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500" />
-        <p className="text-xs text-neutral-500 mt-2">The M-Pesa STK prompt will be sent to this number. Total includes the selected plan and KSh 50 badge add-on.</p>
-        {paymentError && <p role="alert" className="text-sm text-red-700 mt-3">{paymentError}</p>}
-        {paymentNotice && <p role="status" className="text-sm text-neutral-700 mt-3">{paymentNotice}</p>}
-        {payment && <div className="mt-4 rounded-lg border border-neutral-200 p-4">
-          <p className="text-sm font-semibold text-neutral-900">Latest payment: {payment.status}</p>
-          <p className="text-sm text-neutral-600 mt-1">{formatMoney(Number(payment.amount) || 0)} · {payment.planCode} · Reference {payment.paymentId.slice(0, 12)}…</p>
-          {payment.failureReason && <p className="text-sm text-red-700 mt-2">{payment.failureReason}</p>}
-          {payment.status === 'PENDING' && <Button className="mt-3" variant="outline" onClick={checkPaymentStatus} disabled={paymentBusy}><RefreshCw className="w-4 h-4 mr-2" />{paymentBusy ? 'Checking…' : 'Check payment status'}</Button>}
-        </div>}
+      {paymentNotice && <p role="status" className="mb-3 text-sm text-neutral-700">{paymentNotice}</p>}
+      {paymentError && !selectedPlan && <p role="alert" className="mb-3 text-sm text-red-700">{paymentError}</p>}
+      {payment && approved && <Card className="p-4 mb-5">
+        <p className="text-sm font-semibold text-neutral-900">Latest plan payment: {payment.status}</p>
+        <p className="text-sm text-neutral-600 mt-1">{formatMoney(Number(payment.amount) || 0)} · {payment.planCode} · Reference {payment.paymentId.slice(0, 12)}…</p>
+        {payment.failureReason && <p className="text-sm text-red-700 mt-2">{payment.failureReason}</p>}
+        {payment.status === 'PENDING' && <Button className="mt-3" variant="outline" onClick={checkPaymentStatus} disabled={paymentBusy}><RefreshCw className="w-4 h-4 mr-2" />{paymentBusy ? 'Checking…' : 'Check payment status'}</Button>}
       </Card>}
+      {selectedPlan && approved && !suspended && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" role="dialog" aria-modal="true" aria-labelledby="seller-plan-payment-title">
+        <Card className="w-full max-w-md p-6">
+          <h3 id="seller-plan-payment-title" className="text-xl font-semibold">Pay for {plans.find(plan => plan.code === selectedPlan)?.name || 'seller plan'}</h3>
+          <p className="text-sm text-neutral-600 mt-2">Total due now: {formatMoney((plans.find(plan => plan.code === selectedPlan)?.price || 0) + 50)} for one month, including the KSh 50 badge subscription add-on. Identity verification remains separate.</p>
+          <label htmlFor="seller-mpesa-phone" className="block text-sm font-medium text-neutral-800 mt-4 mb-2">M-Pesa phone number</label>
+          <input id="seller-mpesa-phone" type="tel" autoComplete="tel" value={phone} onChange={event => setPhone(event.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500" />
+          {paymentError && <p role="alert" className="text-sm text-red-700 mt-3">{paymentError}</p>}
+          <div className="flex gap-3 mt-5">
+            <Button variant="outline" className="flex-1" disabled={paymentBusy} onClick={() => { setSelectedPlan(null); setPaymentError(''); }}>Cancel</Button>
+            <Button className="flex-1" disabled={paymentBusy || !phone.trim()} onClick={() => startSubscription(selectedPlan)}><CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Starting…' : 'Pay with M-Pesa'}</Button>
+          </div>
+        </Card>
+      </div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {plans.map(plan => (
@@ -316,8 +326,8 @@ export default function SellerDashboard() {
             <div className="border-t border-neutral-100 my-4" />
             <p className="text-sm font-medium text-neutral-800">{plan.limit}</p>
             <p className="text-sm text-neutral-600 mt-3">Verified-badge subscription: {formatMoney(50)}/month</p>
-            <Button variant="outline" className="mt-5 w-full" disabled={!approved || suspended || subscriptionActive || paymentBusy} onClick={() => startSubscription(plan.code)}>
-              <CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Please wait…' : subscriptionActive ? 'Subscription active' : approved ? 'Pay with M-Pesa' : 'Approval required'}
+            <Button variant="outline" className="mt-5 w-full" disabled={!approved || suspended || paymentBusy} onClick={() => { setSelectedPlan(plan.code); setPaymentError(''); }}>
+              <CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Please wait…' : subscriptionActive ? (seller?.planCode === plan.code ? 'Renew this plan' : 'Switch to ' + plan.name) : approved ? 'Pay with M-Pesa' : 'Approval required'}
             </Button>
           </Card>
         ))}
