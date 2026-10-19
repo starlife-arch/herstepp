@@ -134,7 +134,11 @@ export function orderReceiptEmail(order, status) {
   // PAID receipts now travel WITH a second, separate invoice email (sender
   // invoices@). Tell the customer so they do not think this email is missing
   // its PDF.
-  if (paid) details.push('Your invoice is in a separate email from invoices@ and in your account under My Orders.');
+  if (paid && o.marketplaceSellerInvoices === true) {
+    details.push('This email is your payment receipt. Seller-specific invoices for marketplace items are sent separately by the businesses selling those items. This receipt is not the seller invoice.');
+  } else if (paid) {
+    details.push('Your invoice is in a separate email from invoices@ and in your account under My Orders.');
+  }
 
   const html = `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Order ${escapeHtml(orderId)}</title></head>
@@ -185,6 +189,44 @@ export function orderReceiptEmail(order, status) {
 // Deterministic outbox key `${orderDocId}-INVOICE` upstream. The PDF is NOT
 // embedded here — the outbox record carries attachInvoiceFor and the delivery
 // pass generates it at send time (see api/_lib/invoice-pdf.js).
+export function marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, receiptNumber }) {
+  const o = order || {};
+  const s = seller || {};
+  const lines = Array.isArray(items) ? items : [];
+  const total = lines.reduce((sum, item) => sum + (Number(item.lineTotal) || (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)), 0);
+  const itemRows = lines.map(item => `
+    <tr>
+      <td style="padding:9px 8px;border-bottom:1px solid #eceef1;font-size:13px;color:${BRAND_TEXT};">${escapeHtml(item.name || 'Marketplace item')}</td>
+      <td align="center" style="padding:9px 8px;border-bottom:1px solid #eceef1;font-size:13px;color:${BRAND_TEXT};">${escapeHtml(item.size ?? '—')}</td>
+      <td align="center" style="padding:9px 8px;border-bottom:1px solid #eceef1;font-size:13px;color:${BRAND_TEXT};">${Number(item.quantity) || 0}</td>
+      <td align="right" style="padding:9px 8px;border-bottom:1px solid #eceef1;font-size:13px;color:${BRAND_TEXT};">${escapeHtml(money(item.unitPrice))}</td>
+      <td align="right" style="padding:9px 8px;border-bottom:1px solid #eceef1;font-size:13px;color:${BRAND_TEXT};">${escapeHtml(money(Number(item.lineTotal) || (Number(item.unitPrice) || 0) * (Number(item.quantity) || 0)))}</td>
+    </tr>`).join('');
+  const buyerName = o.delivery?.fullName || o.customerName || 'Buyer';
+  const buyerPhone = o.delivery?.phone || o.customerPhone || o.phone || '—';
+  const buyerEmail = o.customerEmail || o.email || '—';
+  const sellerName = s.businessName || s.displayName || 'Marketplace seller';
+  const body = `
+    <p style="font-size:14px;line-height:1.7;color:${BRAND_TEXT};">This is the invoice and payment receipt for a marketplace purchase. The sale is between the buyer and the seller named below; HerStep Collection provides the marketplace and is not the seller of these items.</p>
+    <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">INVOICE DETAILS</h2>
+    <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Invoice:</strong> ${escapeHtml(invoiceNumber)}<br><strong>Order:</strong> ${escapeHtml(o.orderId || '')}<br><strong>Payment status:</strong> PAID<br><strong>M-Pesa receipt:</strong> ${escapeHtml(receiptNumber || o.paymentReference || '—')}</p>
+    <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">SELLER</h2>
+    <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Business name:</strong> ${escapeHtml(sellerName)}<br><strong>Seller contact:</strong> ${escapeHtml(s.email || 'Not provided')}</p>
+    <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">BUYER</h2>
+    <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Name:</strong> ${escapeHtml(buyerName)}<br><strong>Phone:</strong> ${escapeHtml(buyerPhone)}<br><strong>Email:</strong> ${escapeHtml(buyerEmail)}</p>
+    <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">ITEMS PURCHASED</h2>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #eceef1;border-radius:6px;">
+      <tr><th align="left" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Product</th><th align="center" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Variant</th><th align="center" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Qty</th><th align="right" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Unit price</th><th align="right" style="padding:8px;background:#f7f8fa;font-size:11px;color:${BRAND_NAVY};">Line total</th></tr>
+      ${itemRows}
+    </table>
+    <p style="text-align:right;font-size:16px;font-weight:bold;color:#1f6a53;margin:18px 0;">SELLER ITEM TOTAL: ${escapeHtml(money(total))}</p>
+    <p style="font-size:11px;line-height:1.6;color:#8a93a2;">Keep this invoice for your records. The total above covers this seller's product lines; checkout-wide discounts or delivery charges may be reflected separately on the platform payment receipt. Delivery, returns, and product questions should be coordinated with the seller, with HerStep marketplace support available for disputes.</p>`;
+  return {
+    subject: `Marketplace invoice ${invoiceNumber} — ${sellerName}`,
+    htmlContent: emailHtml(`Marketplace invoice ${invoiceNumber}`, body, { ctaLabel: 'View HerStep marketplace', ctaUrl: `${siteUrl()}/shop`, rawBody: true }),
+  };
+}
+
 export function invoiceEmail(order) {
   const o = order || {};
   const orderId = o.orderId || '';

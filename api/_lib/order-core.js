@@ -6,7 +6,7 @@
 // written back as a complete new array — never with dotted paths like
 // `inventory.0.quantity`, which Firestore turns into a map and corrupts the doc.
 import { clientError } from './http.js';
-import { queuePaymentEmail, queueInvoiceReadyNotification, queueOrderStatusEmail, queuePaymentSms, queueOrderStatusSms, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit, deliverSmsAfterCommit } from './notify.js';
+import { queuePaymentEmail, queueMarketplaceSaleInvoices, queueInvoiceReadyNotification, queueOrderStatusEmail, queuePaymentSms, queueOrderStatusSms, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit, deliverSmsAfterCommit } from './notify.js';
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
@@ -498,6 +498,33 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       preloadedRestoreSnaps = preloadedRestoreRefs.length ? await tx.getAll(...preloadedRestoreRefs) : [];
     }
 
+    // Load seller contact records before the first transaction write. These
+    // addresses are private order data and are never copied onto public products.
+    const marketplaceSellerDetails = new Map();
+    if (status === PAYMENT_STATUS.PAID) {
+      const sellerIds = [...new Set((order.items || [])
+        .map(item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim())
+        .filter(Boolean))];
+      if (sellerIds.length) {
+        const sellerRefs = sellerIds.map(id => db.collection('sellers').doc(id));
+        const applicationRefs = sellerIds.map(id => db.collection('sellerApplications').doc(id));
+        const sellerSnaps = await tx.getAll(...sellerRefs);
+        const applicationSnaps = await tx.getAll(...applicationRefs);
+        for (let index = 0; index < sellerIds.length; index++) {
+          const seller = sellerSnaps[index]?.exists ? sellerSnaps[index].data() || {} : {};
+          const application = applicationSnaps[index]?.exists ? applicationSnaps[index].data() || {} : {};
+          marketplaceSellerDetails.set(sellerIds[index], {
+            email: seller.email || seller.contactEmail || seller.applicantEmail || application.applicantEmail || application.email || '',
+            contactEmail: seller.contactEmail || '',
+            applicantEmail: application.applicantEmail || '',
+            businessName: seller.businessName || application.businessName || '',
+            displayName: seller.displayName || application.displayName || '',
+            phone: seller.phone || seller.contactPhone || application.phone || '',
+          });
+        }
+      }
+    }
+
     // ---- WRITES ----
     tx.set(idemRef, {
       paymentId: paymentRef.id,
@@ -587,6 +614,14 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       failureReason: status === PAYMENT_STATUS.PAID ? null : (callback.reason || `M-Pesa ${status.toLowerCase()}`),
       receiptNumber: status === PAYMENT_STATUS.PAID ? receiptNumberFor(paymentRef.id) : null,
     });
+    const marketplaceEmailKeys = status === PAYMENT_STATUS.PAID
+      ? queueMarketplaceSaleInvoices(tx, db, {
+          orderDocumentId: payment.orderDocumentId,
+          order: { ...order, ...orderUpdate },
+          sellerDetails: marketplaceSellerDetails,
+          receiptNumber: receiptNumberFor(paymentRef.id),
+        }) || []
+      : [];
     const smsKey = queuePaymentSms(tx, db, {
       orderDocumentId: payment.orderDocumentId,
       order,
@@ -741,7 +776,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       }
     }
 
-    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: queuedEmailKeys, smsKey };
+    return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: [...queuedEmailKeys, ...marketplaceEmailKeys], smsKey };
   }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
 }
 
