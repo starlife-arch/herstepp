@@ -11,7 +11,9 @@ type Refund = { id: string; orderDocumentId: string; orderId: string; amount: nu
 const uniqueSellers = (refund: Refund) => Array.from(new Map<string, SellerLine>(refund.sellerLines.map(line => [line.sellerId, line] as [string, SellerLine])).values());
 export default function AdminMarketplacePayouts() {
   usePageMeta('Marketplace Payouts | HerStep Admin', 'Review and reconcile marketplace seller payouts.');
-  const [payouts, setPayouts] = useState<Payout[]>([]);\n  const [refunds, setRefunds] = useState<Refund[]>([]);\n  const [allocations, setAllocations] = useState<Record<string, string>>({});
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [refunds, setRefunds] = useState<Refund[]>([]);
+  const [allocations, setAllocations] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
