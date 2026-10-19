@@ -39,9 +39,9 @@ export async function applyBulkCreditPayment(db, deps, input) {
     if (status === 'PAID') {
       const sellerRef = db.collection('sellers').doc(payment.sellerId);
       const sellerSnap = await tx.get(sellerRef);
-      if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== payment.sellerId || sellerSnap.data()?.status !== 'ACTIVE') {
+      if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== payment.sellerId) {
         patch.status = 'PAID';
-        patch.creditGrantIssue = 'Seller account was not active at confirmation; support review required.';
+        patch.creditGrantIssue = 'Seller record missing or owner mismatch; support review required.';
       } else {
         tx.update(sellerRef, { bulkUploadCredits: (Number(sellerSnap.data()?.bulkUploadCredits) || 0) + BATCH_CREDITS, updatedAt: deps.serverTimestamp() });
         const ledgerRef = db.collection('sellerBulkCreditLedger').doc(paymentRef.id);
@@ -157,7 +157,7 @@ export default async function sellerBulkUpload(req, res) {
     let image;
     try { image = new URL(imageUrl); } catch { throw clientError('The uploaded image URL is invalid.'); }
     const publicIdBase = publicId.split('/').pop() || '';
-    if (!/^res\\.cloudinary\\.com$/i.test(image.hostname) || !publicIdBase.startsWith(user.uid.slice(0, 10) + '-') || !image.pathname.split('/').pop().startsWith(publicIdBase)) throw clientError('Use an image uploaded through your seller product uploader.', 403);
+    if (!/^res\.cloudinary\.com$/i.test(image.hostname) || !publicIdBase.startsWith(user.uid.slice(0, 10) + '-') || !image.pathname.split('/').pop().startsWith(publicIdBase)) throw clientError('Use an image uploaded through your seller product uploader.', 403);
     const analysed = await analyzeImage(imageUrl);
     const draftId = randomUUID().replace(/-/g, '');
     const sku = `AI-${draftId.slice(0,18).toUpperCase()}`;
