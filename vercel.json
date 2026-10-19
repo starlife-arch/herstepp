@@ -17,6 +17,10 @@
       "destination": "/api/users?route=marketplace/reports"
     },
     {
+      "source": "/api/marketplace/messages",
+      "destination": "/api/users?route=marketplace/messages"
+    },
+    {
       "source": "/api/admin/marketplace-reports",
       "destination": "/api/admin?route=marketplace-reports"
     },
