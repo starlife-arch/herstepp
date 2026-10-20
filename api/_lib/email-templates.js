@@ -216,7 +216,7 @@ export function marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, r
     return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' }).format(Number.isNaN(date.getTime()) ? new Date() : date);
   })();
   const body = `
-    <p style="font-size:14px;line-height:1.7;color:${BRAND_TEXT};">This is the invoice and payment receipt for a marketplace purchase. The sale is between the buyer and the seller named below; HerStep Collection provides the marketplace and is not the seller of these items.</p>
+    <p style="font-size:14px;line-height:1.7;color:${BRAND_TEXT};">This is the invoice and payment receipt for a marketplace purchase. The sale is between the buyer and the seller named below; HerStep Marketplace provides the platform and is not the seller of these items.</p>
     <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">INVOICE DETAILS</h2>
     <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Invoice:</strong> ${escapeHtml(invoiceNumber)}<br><strong>Invoice date:</strong> ${escapeHtml(invoiceDate)}<br><strong>Order:</strong> ${escapeHtml(o.orderId || '')}<br><strong>Payment status:</strong> PAID<br><strong>M-Pesa receipt:</strong> ${escapeHtml(receiptNumber || o.paymentReference || '—')}</p>
     <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">SELLER</h2>
