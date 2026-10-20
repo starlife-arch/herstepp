@@ -210,10 +210,15 @@ export function marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, r
   const buyerPhone = o.delivery?.phone || o.customerPhone || o.phone || '—';
   const buyerEmail = o.customerEmail || o.email || '—';
   const sellerName = s.businessName || s.displayName || 'Marketplace seller';
+  const invoiceDate = (() => {
+    const value = o.paidAt || o.paymentCompletedAt || o.createdAt;
+    const date = value?.toDate ? value.toDate() : value instanceof Date ? value : value ? new Date(value) : new Date();
+    return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Africa/Nairobi' }).format(Number.isNaN(date.getTime()) ? new Date() : date);
+  })();
   const body = `
     <p style="font-size:14px;line-height:1.7;color:${BRAND_TEXT};">This is the invoice and payment receipt for a marketplace purchase. The sale is between the buyer and the seller named below; HerStep Collection provides the marketplace and is not the seller of these items.</p>
     <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">INVOICE DETAILS</h2>
-    <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Invoice:</strong> ${escapeHtml(invoiceNumber)}<br><strong>Order:</strong> ${escapeHtml(o.orderId || '')}<br><strong>Payment status:</strong> PAID<br><strong>M-Pesa receipt:</strong> ${escapeHtml(receiptNumber || o.paymentReference || '—')}</p>
+    <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Invoice:</strong> ${escapeHtml(invoiceNumber)}<br><strong>Invoice date:</strong> ${escapeHtml(invoiceDate)}<br><strong>Order:</strong> ${escapeHtml(o.orderId || '')}<br><strong>Payment status:</strong> PAID<br><strong>M-Pesa receipt:</strong> ${escapeHtml(receiptNumber || o.paymentReference || '—')}</p>
     <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">SELLER</h2>
     <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Business name:</strong> ${escapeHtml(sellerName)}<br><strong>Seller contact:</strong> ${escapeHtml(s.email || 'Not provided')}</p>
     <p style="font-size:13px;line-height:1.7;color:${BRAND_TEXT};"><strong>Fulfilment:</strong> The seller will coordinate delivery or pickup directly with the buyer. HerStep Collection's Jerry House pickup point and first-party delivery charges do not apply to this marketplace sale.</p>
