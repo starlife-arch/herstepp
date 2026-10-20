@@ -26,6 +26,15 @@ const adminApp = getApps()[0] || initializeApp({
 export const adminAuth = getAuth(adminApp);
 export const adminDb = getFirestore(adminApp);
 
+// Dependency injection for OFFLINE tests (scripts/test-support-core.mjs):
+// tests install a fake Firestore + fake token verifier here; production code
+// paths keep using the real singletons via these getters.
+let injectedDb = null;
+let injectedVerifier = null;
+export function setAdminDbForTests(db) { injectedDb = db || null; }
+export function setTokenVerifierForTests(fn) { injectedVerifier = fn || null; }
+export function currentDb() { return injectedDb || adminDb; }
+
 export async function requireUser(req) {
   const authorization = req.headers.authorization;
   const token = authorization?.match(/^Bearer\s+(.+)$/i)?.[1];
@@ -36,6 +45,7 @@ export async function requireUser(req) {
   try {
     // email_verified / firebase.identities.email come from the verified token
     // itself — order creation reads them instead of trusting any client field.
+    if (injectedVerifier) return await injectedVerifier(token);
     return await adminAuth.verifyIdToken(token, true);
   } catch {
     throw clientError('Authentication is required.', 401);
@@ -44,7 +54,7 @@ export async function requireUser(req) {
 
 export async function requireAdmin(req) {
   const user = await requireUser(req);
-  const userSnapshot = await adminDb.collection('users').doc(user.uid).get();
+  const userSnapshot = await currentDb().collection('users').doc(user.uid).get();
   const role = userSnapshot.data()?.role;
 
   if (role !== 'ADMIN' && role !== 'SUPER_ADMIN') {

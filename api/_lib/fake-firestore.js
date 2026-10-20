@@ -58,8 +58,11 @@ class Query {
 }
 
 // Refs carry their collection name so transaction reads can resolve them.
-function makeDocRef(store, collection, id) {
-  const fullId = `${collection}/${id}`;
+// `pathOverride` lets db.doc('supportTickets/x/messages/y') produce a ref whose
+// collection is the FULL dotted path ("supportTickets/x/messages") while keep-
+// ing the last segment as the doc id — needed for subcollections.
+function makeDocRef(store, collection, id, pathOverride) {
+  const fullId = pathOverride ?? `${collection}/${id}`;
   return {
     id,
     path: fullId,
@@ -135,8 +138,13 @@ export function createFakeDb() {
       };
     },
     doc(path) {
-      const [name, id] = path.split('/');
-      return makeDocRef(store, name, id);
+      const parts = String(path).split('/');
+      if (parts.length === 2) return makeDocRef(store, parts[0], parts[1]);
+      // Subcollection path, e.g. 'supportTickets/abc/messages/def' →
+      // collection 'supportTickets/abc/messages', id 'def'.
+      const id = parts[parts.length - 1];
+      const collection = parts.slice(0, -1).join('/');
+      return makeDocRef(store, collection, id, path);
     },
     // Transaction: buffers writes and applies them atomically at commit.
     // Reads inside the callback see buffered writes (latest-write-wins),

@@ -6,6 +6,7 @@
 // written back as a complete new array — never with dotted paths like
 // `inventory.0.quantity`, which Firestore turns into a map and corrupts the doc.
 import { clientError } from './http.js';
+import { deliveryFee as serverDeliveryFee } from './delivery.js';
 import { queuePaymentEmail, queueOrderStatusEmail, telegramNewOrder, telegramPayment, telegramLowStock, deliverEmailAfterCommit } from './notify.js';
 
 export const ORDER_STATUS = {
@@ -56,14 +57,9 @@ export async function loadCheckoutSettings(db) {
 }
 
 export function computeDeliveryFee(settings, location) {
-  const rates = settings?.deliveryRates || {};
-  const counties = rates.counties || {};
-  const text = typeof location === 'string' ? location.toLowerCase() : '';
-  const match = Object.entries(counties).find(([name]) => name && text.includes(String(name).toLowerCase()));
-  if (match && Number.isInteger(match[1])) return match[1];
-  if (text.includes('juja')) return Number.isInteger(rates.outsideJuja) ? rates.outsideJuja : 100;
-  if (text.includes('kiambu')) return Number.isInteger(rates.kiambu) ? rates.kiambu : 200;
-  return Number.isInteger(rates.defaultCounty) ? rates.defaultCounty : 500;
+  // Single source of truth: api/_lib/delivery.js (shared with the admin
+  // delivery endpoint, /api/checkout/config and the offline tests).
+  return serverDeliveryFee(settings, location);
 }
 
 // ---------------------------------------------------------------------------
