@@ -129,12 +129,6 @@ export default function OrderTracking() {
   );
 
   const getStepIndex = (status: string) => statusSteps.findIndex(s => s.status === status);
-  const marketplaceSellerIds = useMemo(
-    () => Array.from(new Set((order?.items || []).map(item => item.sellerId).filter((id): id is string => Boolean(id)))),
-    [order],
-  );
-  const marketplaceOnlyOrder = Boolean(order?.items?.length) && order!.items.every(item => Boolean(item.sellerId));
-
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900 mb-2">Track Your Order</h1>
