@@ -29,9 +29,13 @@ export async function isPublicSellerListing(db, product, now = new Date()) {
 export async function filterPublicSellerListings(db, products, now = new Date()) {
   const sellerUids = [...new Set(products.map(product => String(product?.sellerUid || '')).filter(Boolean))];
   const sellerEntries = await Promise.all(sellerUids.map(async uid => {
-    const snapshot = await db.collection('sellers').doc(uid).get();
+    const [snapshot, applicationSnapshot] = await Promise.all([
+      db.collection('sellers').doc(uid).get(),
+      db.collection('sellerApplications').doc(uid).get(),
+    ]);
     if (!snapshot.exists) return [uid, null];
     const seller = snapshot.data() || {};
+    const application = applicationSnapshot.exists ? applicationSnapshot.data() || {} : {};
     const expiry = toDate(seller.subscriptionExpiresAt);
     const active = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
       && Boolean(expiry && expiry.getTime() > now.getTime());
@@ -39,8 +43,8 @@ export async function filterPublicSellerListings(db, products, now = new Date())
     const verifiedBadgeActive = active && seller.verificationBadge === true;
     return [uid, {
       active,
-      displayName: String(seller.displayName || '').slice(0, 60),
-      businessName: String(seller.businessName || '').slice(0, 100),
+      displayName: String(seller.displayName || application.displayName || '').slice(0, 60),
+      businessName: String(seller.businessName || application.businessName || '').slice(0, 100),
       verifiedBadgeActive,
     }];
   }));

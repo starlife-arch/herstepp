@@ -17,6 +17,7 @@ export default function ProductDetail() {
   const { products, catalogLoading, catalogError } = state;
   const decodedId = id ? decodeURIComponent(id) : '';
   const product = products.find(p => p.id === decodedId) || products.find(p => slugifyProductName(p.name) === decodedId);
+  const marketplaceSellerId = product?.sellerUid || (product as any)?.sellerId;
   // Hook is called unconditionally, BEFORE any early return below; it uses the
   // real `product` variable (null-safe), never an undefined helper name.
   useEffect(() => { if (product && decodedId !== slugifyProductName(product.name)) navigate(productPath(product), { replace: true }); }, [product, decodedId, navigate]);
@@ -215,8 +216,8 @@ export default function ProductDetail() {
             <p className="text-sm text-neutral-500 mb-1">{state.categories.find(c => c.id === product.categoryId)?.name}</p>
             <div className="flex items-start justify-between gap-3"><div><h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1>{(product as any).promotedUntil && new Date((product as any).promotedUntil).getTime() > Date.now() && <Badge variant="default">Sponsored</Badge>}</div><WishlistButton productId={product.id} /></div>
             <p className="text-sm text-neutral-400">SKU: {product.sku}</p>
-            {product.sellerUid && <p className="text-sm text-neutral-600 mt-2">Sold by <Link to={`/seller/shop/${encodeURIComponent(product.sellerUid)}`} className="font-medium underline hover:text-neutral-900">{product.sellerBusinessName || product.sellerDisplayName || "Marketplace seller"}</Link>{product.sellerVerificationBadgeActive === true && <span className="inline-flex items-center gap-1 text-blue-600" title="Verified seller"><BadgeCheck className="w-4 h-4 fill-blue-50" /><span className="text-xs font-medium">Verified</span></span>}</p>}
-            {product.sellerUid && <div className="mt-3">
+            {marketplaceSellerId && <p className="text-sm text-neutral-600 mt-2">Sold by <Link to={`/seller/shop/${encodeURIComponent(marketplaceSellerId)}`} className="font-medium underline hover:text-neutral-900">{product.sellerBusinessName || product.sellerDisplayName || "Marketplace seller"}</Link>{product.sellerVerificationBadgeActive === true && <span className="inline-flex items-center gap-1 text-blue-600" title="Verified seller"><BadgeCheck className="w-4 h-4 fill-blue-50" /><span className="text-xs font-medium">Verified</span></span>}</p>}
+            {marketplaceSellerId && <div className="mt-3">
               <button type="button" onClick={() => void startSellerConversation()} disabled={messageBusy} className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"><MessageCircle className="w-4 h-4" /> {messageBusy ? 'Opening messages…' : 'Message seller'}</button>
               {messageError && <p role="alert" className="text-sm text-red-700 mt-2">{messageError} <span className="text-neutral-500">You must be signed in to message a seller.</span></p>}
               <div className="mt-2">

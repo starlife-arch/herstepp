@@ -104,6 +104,29 @@ export async function track(req, res) {
     }
   }
 
+  const orderItems = Array.isArray(d.items) ? d.items : [];
+  const sellerIds = [...new Set(orderItems
+    .map(item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim())
+    .filter(Boolean))];
+  const sellerProfiles = await Promise.all(sellerIds.map(async sellerId => {
+    const [sellerSnap, applicationSnap] = await Promise.all([
+      adminDb.collection('sellers').doc(sellerId).get(),
+      adminDb.collection('sellerApplications').doc(sellerId).get(),
+    ]);
+    const seller = sellerSnap.exists ? sellerSnap.data() || {} : {};
+    const application = applicationSnap.exists ? applicationSnap.data() || {} : {};
+    const expiry = seller.subscriptionExpiresAt?.toDate?.()
+      || (seller.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt) : null);
+    const activeSeller = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
+      && Boolean(expiry && Number.isFinite(expiry.getTime()) && expiry.getTime() > Date.now());
+    return [sellerId, {
+      displayName: String(seller.displayName || application.displayName || '').slice(0, 60),
+      businessName: String(seller.businessName || application.businessName || '').slice(0, 100),
+      verificationBadgeActive: activeSeller && seller.verificationBadge === true,
+    }];
+  }));
+  const sellersById = new Map(sellerProfiles);
+
   return res.json({
     order: {
       id: docSnap.id,
@@ -135,12 +158,17 @@ export async function track(req, res) {
         location: d.delivery?.location ?? '',
         instructions: d.delivery?.notes ?? d.delivery?.instructions ?? '',
       },
-      items: (Array.isArray(d.items) ? d.items : []).map(item => ({
-        productId: item.productId, name: item.name, size: item.size, quantity: item.quantity,
-        unitPrice: item.unitPrice, lineTotal: item.lineTotal, imageUrl: item.imageUrl ?? null,
-        sellerId: item.sellerId || item.sellerSnapshot?.sellerId || null,
-        sellerBusinessName: item.sellerSnapshot?.businessName || item.sellerSnapshot?.displayName || '',
-      })),
+      items: orderItems.map(item => {
+        const sellerId = String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim();
+        const seller = sellersById.get(sellerId);
+        return {
+          productId: item.productId, name: item.name, size: item.size, quantity: item.quantity,
+          unitPrice: item.unitPrice, lineTotal: item.lineTotal, imageUrl: item.imageUrl ?? null,
+          sellerId: sellerId || null,
+          sellerBusinessName: seller?.businessName || item.sellerSnapshot?.businessName || seller?.displayName || item.sellerSnapshot?.displayName || '',
+          sellerVerificationBadgeActive: seller?.verificationBadgeActive === true,
+        };
+      }),
       history: historyRows,
     },
   });
