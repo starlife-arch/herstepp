@@ -128,6 +128,7 @@ export default async function sellerProducts(req, res) {
     if (duplicateSnap.docs.some(doc => doc.id !== id && String(doc.data()?.status || '').toUpperCase() === 'ACTIVE' && String(doc.data()?.sku || '').toUpperCase() === product.sku)) {
       throw clientError('Another published product already uses this SKU.');
     }
+    let responseProduct = null;
     await adminDb.runTransaction(async tx => {
       const [publicSnap, draftSnap] = await Promise.all([tx.get(publicRef), tx.get(draftRef)]);
       if (!publicSnap.exists || publicSnap.data()?.sellerUid !== user.uid || String(publicSnap.data()?.status || '').toUpperCase() !== 'ACTIVE') {
@@ -162,6 +163,17 @@ export default async function sellerProducts(req, res) {
         updatedAt: FieldValue.serverTimestamp(),
       };
       tx.update(publicRef, updated);
+      // Return the complete merged inventory to the editor. Returning only the
+      // one edited variant made the UI forget the other sizes until refresh.
+      responseProduct = {
+        id, ...product, inventory: mergedInventory,
+        stockQuantity: updated.stockQuantity,
+        availableSizes: updated.availableSizes,
+        status: 'PUBLISHED', sellerUid: user.uid, sellerId: user.uid,
+        sellerDisplayName: updated.sellerDisplayName,
+        sellerBusinessName: updated.sellerBusinessName,
+        marketplaceSeller: true,
+      };
       if (draftSnap.exists && draftSnap.data()?.sellerUid === user.uid) {
         tx.update(draftRef, { ...product, status: 'PUBLISHED', publishedProductId: id, sellerUid: user.uid, updatedAt: FieldValue.serverTimestamp() });
       }
@@ -172,7 +184,7 @@ export default async function sellerProducts(req, res) {
       });
     });
     return res.status(200).json({
-      product: { id, ...product, status: 'PUBLISHED', sellerUid: user.uid, sellerBusinessName: seller.businessName || '' },
+      product: responseProduct || { id, ...product, status: 'PUBLISHED', sellerUid: user.uid, sellerBusinessName: seller.businessName || '' },
       message: 'Published listing updated successfully.',
     });
   }
