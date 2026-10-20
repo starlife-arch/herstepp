@@ -92,9 +92,14 @@ export async function applySellerSubscriptionPayment(db, deps, callback) {
         subscriptionExpiresAt: periodEnd,
         badgeSubscriptionStatus: 'ACTIVE',
         badgeSubscriptionExpiresAt: periodEnd,
-        // Paying for the add-on does not prove identity. A badge stays hidden
-        // until a separate identity-verification process approves the seller.
-        verificationBadge: sellerSnap.data()?.verificationBadge === true,
+        // The verified-business badge is part of EVERY paid plan (the 50 KES
+        // badge fee is mandatory in the checkout total), so paying turns it on
+        // automatically — no manual admin "Verify business" click needed.
+        // Admins can still revoke the badge explicitly; revocation persists
+        // only while the paid badge subscription lapses, and any new payment
+        // re-grants it.
+        verificationBadge: true,
+        verificationBadgeGrantedBy: 'SUBSCRIPTION_PAYMENT',
         updatedAt: deps.serverTimestamp(),
       });
       tx.set(db.collection('sellerMarketplaceAudit').doc(), {

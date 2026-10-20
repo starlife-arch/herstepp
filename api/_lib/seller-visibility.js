@@ -39,8 +39,11 @@ export async function filterPublicSellerListings(db, products, now = new Date())
     const expiry = toDate(seller.subscriptionExpiresAt);
     const active = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
       && Boolean(expiry && expiry.getTime() > now.getTime());
-    // The blue check means an admin has verified the business; it is not a paid promotion add-on.
-    const verifiedBadgeActive = active && seller.verificationBadge === true;
+    // The blue check marks a verified business. Paying for any plan (whose
+    // total always includes the mandatory badge fee) grants it automatically;
+    // an explicit admin revocation hides it again until the next payment.
+    const badgePaid = seller.badgeSubscriptionStatus === 'ACTIVE';
+    const verifiedBadgeActive = active && (seller.verificationBadge === true || badgePaid);
     return [uid, {
       active,
       displayName: String(seller.displayName || application.displayName || '').slice(0, 60),
@@ -56,6 +59,9 @@ export async function filterPublicSellerListings(db, products, now = new Date())
     const uid = String(product?.sellerUid || '');
     const seller = uid ? sellers.get(uid) : null;
     if (!seller) return product;
+    // Live seller/application names ALWAYS win over the denormalized copy on
+    // the product doc — a paid name change must never leave an old name on the
+    // live shop because a background batch sync failed or was skipped.
     return {
       ...product,
       sellerDisplayName: seller.displayName || product.sellerDisplayName || '',
