@@ -216,6 +216,7 @@ export function marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, r
     <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Invoice:</strong> ${escapeHtml(invoiceNumber)}<br><strong>Order:</strong> ${escapeHtml(o.orderId || '')}<br><strong>Payment status:</strong> PAID<br><strong>M-Pesa receipt:</strong> ${escapeHtml(receiptNumber || o.paymentReference || '—')}</p>
     <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">SELLER</h2>
     <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Business name:</strong> ${escapeHtml(sellerName)}<br><strong>Seller contact:</strong> ${escapeHtml(s.email || 'Not provided')}</p>
+    <p style="font-size:13px;line-height:1.7;color:${BRAND_TEXT};"><strong>Fulfilment:</strong> The seller will coordinate delivery or pickup directly with the buyer. HerStep Collection's Jerry House pickup point and first-party delivery charges do not apply to this marketplace sale.</p>
     <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">BUYER</h2>
     <p style="font-size:13px;line-height:1.8;color:${BRAND_TEXT};"><strong>Name:</strong> ${escapeHtml(buyerName)}<br><strong>Phone:</strong> ${escapeHtml(buyerPhone)}<br><strong>Email:</strong> ${escapeHtml(buyerEmail)}</p>
     <h2 style="font-size:14px;color:${BRAND_NAVY};margin:22px 0 8px;">ITEMS PURCHASED</h2>
