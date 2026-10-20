@@ -205,8 +205,10 @@ export async function adminMarketplacePayouts(req, res) {
     if (!/^[A-Za-z0-9_-]{1,120}$/.test(refundRecordId) || !Array.isArray(allocations) || allocations.length > 20) throw clientError('Choose a confirmed refund and provide valid seller allocations.');
     if (!reason) throw clientError('A reconciliation note is required.');
     const normalized = allocations.map(row => ({ sellerId: clean(row?.sellerId, 128), amount: row?.amount }));
-    if (normalized.some(row => !row.sellerId || !money(row.amount)) || new Set(normalized.map(row => row.sellerId)).size !== normalized.length) {
-      throw clientError('Each seller allocation must have a unique seller and positive whole-KSh amount.');
+    // Do not let an empty/all-zero allocation set mark a refund reconciled:
+    // that would release every seller's refund hold without adjusting earnings.
+    if (!normalized.length || normalized.some(row => !row.sellerId || !money(row.amount)) || new Set(normalized.map(row => row.sellerId)).size !== normalized.length) {
+      throw clientError('Allocate a positive whole-KSh amount to at least one unique seller before reconciling this refund.');
     }
     const refundRef = adminDb.collection('refundRecords').doc(refundRecordId);
     const result = await adminDb.runTransaction(async tx => {
