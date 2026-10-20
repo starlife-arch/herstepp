@@ -226,7 +226,15 @@ export async function adminMarketplacePayouts(req, res) {
       if (!orderSnap.exists) throw clientError('Refund order not found.', 404);
       const order = orderSnap.data() || {};
       const allocationTotal = normalized.reduce((sum, row) => sum + row.amount, 0);
+      const orderItems = Array.isArray(order.items) ? order.items : [];
+      const marketplaceOnlyOrder = orderItems.length > 0 && orderItems.every(item => Boolean(item?.sellerId || item?.sellerSnapshot?.sellerId));
       if (allocationTotal > Number(refund.amount || 0)) throw clientError('Seller allocations cannot exceed the confirmed refund amount.', 409);
+      // Marketplace-only refunds must be fully allocated across their sellers.
+      // Otherwise a partial ledger debit could incorrectly release the entire
+      // order's refund hold and make the unadjusted balance withdrawable.
+      if (marketplaceOnlyOrder && allocationTotal !== Number(refund.amount || 0)) {
+        throw clientError('For a marketplace-only order, seller allocations must equal the confirmed refund amount.', 409);
+      }
       const ledger = ledgerSnap.docs.map(doc => ({ id: doc.id, data: doc.data() || {} }));
       const writes = [];
       for (const allocation of normalized) {
