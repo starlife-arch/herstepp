@@ -163,9 +163,9 @@ export async function adminMarketplacePayouts(req, res) {
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const action = clean(req.body?.action, 30).toUpperCase();
   const payoutId = clean(req.body?.payoutId, 180);
-  const reason = clean(req.body?.reason, 500);
+  const suppliedReason = clean(req.body?.reason, 500);
+  const reason = suppliedReason || (action === 'APPROVE' ? 'Approved by admin' : action === 'REJECT' ? 'Rejected by admin' : '');
   if (!payoutId && action !== 'RECONCILE_REFUND') throw clientError('Payout request ID is required.');
-  if (['REJECT', 'APPROVE'].includes(action) && !reason) throw clientError('A reason or review note is required.');
   const ref = payoutId ? adminDb.collection('sellerPayouts').doc(payoutId) : null;
   if (action === 'APPROVE' || action === 'REJECT') {
     await adminDb.runTransaction(async tx => {
