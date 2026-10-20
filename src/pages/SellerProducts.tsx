@@ -229,7 +229,7 @@ export default function SellerProducts() {
       </div>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 mb-6">
-        <strong>Private drafts stay hidden until approved by marketplace admin. Published listings can be edited while your paid seller plan is active.
+        <strong>Private drafts stay hidden until approved by marketplace admin. Published listings can be edited while your paid seller plan is active.</strong>
       </div>
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-5">{error}</div>}
       {message && <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 mb-5">{message}</div>}
