@@ -172,7 +172,7 @@ export async function adminMarketplacePayouts(req, res) {
       const snap = await tx.get(ref);
       if (!snap.exists) throw clientError('Payout request not found.', 404);
       const payout = snap.data();
-      if (!['REQUESTED', 'PENDING'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only requested payouts can be approved or rejected.', 409);
+      if (!['REQUESTED', 'PENDING'].includes(String(payout.status || 'REQUESTED').toUpperCase())) throw clientError('Only requested payouts can be approved or rejected.', 409);
       const status = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
       tx.update(ref, { status, reviewNote: reason, ...(action === 'APPROVE' ? { approvedBy: admin.uid, approvedAt: FieldValue.serverTimestamp() } : { rejectedBy: admin.uid, rejectedAt: FieldValue.serverTimestamp() }), updatedAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_' + status, entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, reason, createdAt: FieldValue.serverTimestamp() });
