@@ -85,7 +85,11 @@ export default function Shop() {
       return Number.isFinite(expiry) && expiry > Date.now();
     };
     result.sort((a, b) => Number(activePromotion(b)) - Number(activePromotion(a)));
-    return result;
+    return result.sort((a, b) => {
+      const promotedA = Boolean(a.promotedUntil && new Date(a.promotedUntil).getTime() > Date.now());
+      const promotedB = Boolean(b.promotedUntil && new Date(b.promotedUntil).getTime() > Date.now());
+      return Number(promotedB) - Number(promotedA);
+    });
   }, [products, categories, search, selectedCategory, selectedSize, priceRange, sortBy, availability]);
 
   if (catalogError) {
