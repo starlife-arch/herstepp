@@ -628,7 +628,10 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
           receiptNumber: receiptNumberFor(paymentRef.id),
         }) || []
       : [];
-    const smsKey = queuePaymentSms(tx, db, {
+    const isMarketplaceOrder = order.marketplaceOrder === true
+      || (Array.isArray(order.items) && order.items.length > 0
+        && order.items.every(item => Boolean(item?.sellerId || item?.sellerSnapshot?.sellerId)));
+    const smsKey = isMarketplaceOrder ? null : queuePaymentSms(tx, db, {
       orderDocumentId: payment.orderDocumentId,
       order,
       payment: { ...payment, id: paymentRef.id, paymentId: paymentRef.id, amount: paidAmount },
