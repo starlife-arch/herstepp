@@ -26,7 +26,7 @@ const FOOTER_LINE = 'HerStep Collection · Juja Town, Jerry House, near Juja Pos
 // options.rawBody = true keeps the body as pre-built (already escaped) HTML —
 // used by the verification-code template, which renders the code in a styled
 // block. Every other caller passes plain text, which is escaped here.
-export function emailHtml(title, body, { ctaLabel, ctaUrl, rawBody = false } = {}) {
+export function emailHtml(title, body, { ctaLabel, ctaUrl, rawBody = false, brandLabel = 'HERSTEP COLLECTION', footerLine = FOOTER_LINE } = {}) {
   const safeTitle = escapeHtml(title);
   const safeBody = rawBody ? String(body ?? '') : escapeHtml(body).replace(/\n/g, '<br>');
   const button = ctaLabel && ctaUrl
@@ -42,7 +42,7 @@ export function emailHtml(title, body, { ctaLabel, ctaUrl, rawBody = false } = {
 <tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e6e8ec;">
 <tr><td style="background:${BRAND_NAVY};padding:22px 28px;">
-  <div style="font-family:Arial,sans-serif;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">HERSTEP COLLECTION</div>
+  <div style="font-family:Arial,sans-serif;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">${escapeHtml(brandLabel)}</div>
   <div style="font-family:Arial,sans-serif;color:${BRAND_ACCENT};font-size:12px;margin-top:4px;">Step Into Your Style.</div>
 </td></tr>
 <tr><td style="padding:28px;font-family:Arial,sans-serif;">
@@ -50,7 +50,7 @@ export function emailHtml(title, body, { ctaLabel, ctaUrl, rawBody = false } = {
   <div style="font-size:14px;line-height:1.6;color:${BRAND_TEXT};">${safeBody}</div>
   ${button}
 </td></tr>
-<tr><td style="padding:16px 28px;border-top:1px solid #eceef1;font-family:Arial,sans-serif;font-size:11px;line-height:1.6;color:#8a93a2;">${escapeHtml(FOOTER_LINE)}</td></tr>
+<tr><td style="padding:16px 28px;border-top:1px solid #eceef1;font-family:Arial,sans-serif;font-size:11px;line-height:1.6;color:#8a93a2;">${escapeHtml(footerLine)}</td></tr>
 </table>
 </td></tr></table>
 </body></html>`;
@@ -127,7 +127,11 @@ export function orderReceiptEmail(order, status) {
   const details = [];
   details.push(`<strong>Order:</strong> ${escapeHtml(orderId)}`);
   details.push(`<span style="display:inline-block;margin:2px 0;padding:3px 10px;border-radius:4px;background:${statusColour(st)};color:#fff;font-size:12px;font-weight:bold;">${escapeHtml(st)}</span>`);
-  details.push(`<strong>Delivery:</strong> ${method === 'COLLECTION' ? `Collection at ${escapeHtml(PICKUP_ADDRESS)}` : `to ${escapeHtml(delivery.location || '—')}`}`);
+  if (o.marketplaceSellerInvoices === true) {
+    details.push('<strong>Fulfilment:</strong> The seller will coordinate delivery or pickup directly. HerStep Collection pickup at Jerry House does not apply to marketplace items.');
+  } else {
+    details.push(`<strong>Delivery:</strong> ${method === 'COLLECTION' ? `Collection at ${escapeHtml(PICKUP_ADDRESS)}` : `to ${escapeHtml(delivery.location || '—')}`}`);
+  }
   if (delivery.phone) details.push(`<strong>Phone:</strong> ${escapeHtml(delivery.phone)}`);
   if (delivery.instructions) details.push(`<strong>Notes:</strong> ${escapeHtml(delivery.instructions)}`);
   if (paid && o.receiptNumber) details.push(`<strong>M-Pesa receipt:</strong> ${escapeHtml(o.receiptNumber)}`);
@@ -147,7 +151,7 @@ export function orderReceiptEmail(order, status) {
 <tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e6e8ec;">
 <tr><td style="background:${BRAND_NAVY};padding:22px 28px;">
-  <div style="font-family:Arial,sans-serif;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">HERSTEP COLLECTION</div>
+  <div style="font-family:Arial,sans-serif;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">${o.marketplaceSellerInvoices === true ? "HERSTEP MARKETPLACE" : "HERSTEP COLLECTION"}</div>
   <div style="font-family:Arial,sans-serif;color:${BRAND_ACCENT};font-size:12px;margin-top:4px;">Step Into Your Style.</div>
 </td></tr>
 <tr><td style="padding:28px;font-family:Arial,sans-serif;">
@@ -223,7 +227,11 @@ export function marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, r
     <p style="font-size:11px;line-height:1.6;color:#8a93a2;">Keep this invoice for your records. The total above covers this seller's product lines; checkout-wide discounts or delivery charges may be reflected separately on the platform payment receipt. Delivery, returns, and product questions should be coordinated with the seller, with HerStep marketplace support available for disputes.</p>`;
   return {
     subject: `Marketplace invoice ${invoiceNumber} — ${sellerName}`,
-    htmlContent: emailHtml(`Marketplace invoice ${invoiceNumber}`, body, { ctaLabel: 'View HerStep marketplace', ctaUrl: `${siteUrl()}/shop`, rawBody: true }),
+    htmlContent: emailHtml(`Marketplace invoice ${invoiceNumber}`, body, {
+      ctaLabel: 'View HerStep marketplace', ctaUrl: `${siteUrl()}/shop`, rawBody: true,
+      brandLabel: 'HERSTEP MARKETPLACE',
+      footerLine: 'HerStep Marketplace · This sale is between the buyer and the named seller. Contact the seller for fulfilment; contact HerStep Marketplace support for disputes.',
+    }),
   };
 }
 
