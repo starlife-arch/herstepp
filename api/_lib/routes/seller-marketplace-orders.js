@@ -1,6 +1,9 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { queueEmail } from '../email-service.js';
+import { emailHtml } from '../email-templates.js';
+import { siteUrl } from '../site-url.js';
 
 const clean = (value, max = 500) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const iso = value => value?.toDate?.().toISOString?.() ?? (typeof value === 'string' ? value : null);
@@ -135,16 +138,34 @@ export default async function sellerMarketplaceOrders(req, res) {
       orderDocumentId, orderId: order.orderId || orderDocumentId,
       previousStatus: previous, newStatus: requestedStatus, actorUid: user.uid, createdAt: now,
     });
+    const seller = sellerSnap.data() || {};
+    const sellerName = String(seller.businessName || seller.displayName || 'The seller').slice(0, 100);
+    const orderLabel = String(order.orderId || orderDocumentId);
+    const buyerEmail = String(order.customerEmail || order.email || '').trim().toLowerCase();
+    const statusLabel = requestedStatus.replace(/_/g, ' ').toLowerCase();
     if (order.customerId) {
       const noticeId = base64url(`seller-order-status:${orderDocumentId}:${user.uid}:${requestedStatus}`);
-      const seller = sellerSnap.data() || {};
       tx.set(adminDb.collection('notifications').doc(noticeId), {
         customerId: order.customerId, orderDocumentId,
         event: 'SELLER_FULFILMENT_STATUS_CHANGED',
         title: 'Marketplace order update',
-        body: `${String(seller.businessName || seller.displayName || 'The seller').slice(0, 100)} updated their items in order ${order.orderId || orderDocumentId} to ${requestedStatus.replace(/_/g, ' ').toLowerCase()}.`,
+        body: `${sellerName} updated their items in order ${orderLabel} to ${statusLabel}.`,
         readAt: null, createdAt: now,
       });
+    }
+    // Email the buyer from the configured orders sender; marketplace fulfilment
+    // belongs to the seller, and these updates must not use the Collection flow
+    // or send SMS. The deterministic key prevents duplicate notices on retries.
+    if (buyerEmail.includes('@')) {
+      const key = `marketplace-fulfilment-${orderDocumentId}-${user.uid}-${requestedStatus}`;
+      const { subject, htmlContent } = {
+        subject: `Marketplace order update — ${orderLabel}`,
+        htmlContent: emailHtml('Marketplace order update', `Your order ${orderLabel} has a new fulfilment update from ${sellerName}.\n\nStatus: ${statusLabel.toUpperCase()}\n\n${note ? `Seller note: ${note}\n\n` : ''}For marketplace items, the seller coordinates delivery or pickup directly. This is a HerStep Marketplace order, not a HerStep Collection order.`, {
+          ctaLabel: 'View order tracking', ctaUrl: `${siteUrl()}/track`, brandLabel: 'HERSTEP MARKETPLACE',
+          footerLine: 'HerStep Marketplace · Contact the seller for fulfilment or HerStep support for disputes.',
+        }),
+      };
+      queueEmail(tx, adminDb, { key, purpose: 'orders', to: buyerEmail, subject, htmlContent });
     }
     for (const row of releaseWrites) {
       tx.create(adminDb.collection('sellerLedger').doc(row.id), {
