@@ -73,10 +73,7 @@ export default async function publicSellerShop(req, res) {
     .map(serializeProduct)
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
-  const badgeExpiry = toDate(seller.badgeSubscriptionExpiresAt);
-  const verifiedBadgeActive = seller.verificationBadge === true
-    && seller.badgeSubscriptionStatus === 'ACTIVE'
-    && Boolean(badgeExpiry && badgeExpiry.getTime() > Date.now());
+  const verifiedBadgeActive = seller.verificationBadge === true;
 
   res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
   return res.status(200).json({
