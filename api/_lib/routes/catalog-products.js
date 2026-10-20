@@ -1,9 +1,9 @@
 // Public catalogue reads. These are the hottest routes on the site (every
 // Home/Shop visit) and were burning the Firestore 50k/day read quota, so:
-//  - responses carry `Cache-Control: public, s-maxage=60, stale-while-revalidate=300`
+//  - responses carry a short `Cache-Control: public, s-maxage=5` window so seller profile changes show quickly
 //    (set via setPublicCache) so Vercel's edge serves repeat visitors without
 //    touching Firestore at all for a minute;
-//  - an in-process TTL cache (60 s) collapses concurrent cold misses to ONE
+//  - an in-process TTL cache (5 s) collapses concurrent cold misses to ONE
 //    Firestore read per key per instance.
 // Everything else (authenticated/admin routes) stays "private, no-store" via
 // the dispatcher default.
@@ -17,7 +17,7 @@ function serialize(value) { if (value?.toDate) return value.toDate().toISOString
 function docData(doc) { return serialize({ id: doc.id, ...doc.data() }); }
 
 // --- tiny in-process TTL cache --------------------------------------------
-const ttlMs = 60_000;
+const ttlMs = 5_000;
 const cache = new Map(); // key -> { value, expiresAt }
 async function cached(key, loader) {
   const hit = cache.get(key);
@@ -30,6 +30,9 @@ async function cached(key, loader) {
 export async function listProducts(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
   setPublicCache(res);
+  // Seller business-name and verification changes should reach the storefront
+  // quickly instead of being hidden behind a long CDN cache window.
+  res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=0');
   const category = Array.isArray(req.query.category) ? req.query.category[0] : req.query.category;
   const key = `products:${typeof category === 'string' && category ? category : ''}`;
   const body = await cached(key, async () => {
@@ -47,6 +50,7 @@ export async function listProducts(req, res) {
 export async function productDetail(req, res) {
   if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
   setPublicCache(res);
+  res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=0');
   const id = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
   if (typeof id !== 'string' || !id) return res.status(404).json({ error: 'Product not found.' });
   const body = await cached(`product:${id}`, async () => {
@@ -57,17 +61,13 @@ export async function productDetail(req, res) {
     if (data.sellerUid) {
       const sellerSnap = await adminDb.collection('sellers').doc(String(data.sellerUid)).get();
       const seller = sellerSnap.exists ? sellerSnap.data() || {} : {};
-      const badgeExpiry = seller.badgeSubscriptionExpiresAt?.toDate?.()
-        || (seller.badgeSubscriptionExpiresAt ? new Date(seller.badgeSubscriptionExpiresAt) : null);
       const subscriptionExpiry = seller.subscriptionExpiresAt?.toDate?.()
         || (seller.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt) : null);
       const activeSeller = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
         && Boolean(subscriptionExpiry && Number.isFinite(subscriptionExpiry.getTime()) && subscriptionExpiry.getTime() > Date.now());
       data.sellerDisplayName = String(seller.displayName || data.sellerDisplayName || '').slice(0, 60);
       data.sellerBusinessName = String(seller.businessName || data.sellerBusinessName || '').slice(0, 100);
-      data.sellerVerificationBadgeActive = activeSeller && seller.verificationBadge === true
-        && seller.badgeSubscriptionStatus === 'ACTIVE'
-        && Boolean(badgeExpiry && Number.isFinite(badgeExpiry.getTime()) && badgeExpiry.getTime() > Date.now());
+      data.sellerVerificationBadgeActive = activeSeller && seller.verificationBadge === true;
     }
     return data;
   });

@@ -37,7 +37,7 @@ function serializeProfile(seller, application, uid) {
 }
 
 async function applyNameChangePayment(user, paymentRef, status, providerResult = {}) {
-  return adminDb.runTransaction(async tx => {
+  const result = await adminDb.runTransaction(async tx => {
     const [paymentSnap, sellerSnap, appSnap] = await Promise.all([
       tx.get(paymentRef),
       tx.get(adminDb.collection('sellers').doc(user.uid)),
@@ -46,7 +46,7 @@ async function applyNameChangePayment(user, paymentRef, status, providerResult =
     if (!paymentSnap.exists) throw clientError('Business name payment not found.', 404);
     const payment = paymentSnap.data() || {};
     if (payment.ownerUid !== user.uid) throw clientError('Forbidden.', 403);
-    if (payment.status === 'PAID') return { status: 'PAID', alreadyApplied: true };
+    if (payment.status === 'PAID') return { status: 'PAID', alreadyApplied: true, businessName: String(sellerSnap.data()?.businessName || payment.newBusinessName || '') };
     if (payment.status !== 'PENDING') return { status: payment.status, alreadyApplied: true };
     if (status === 'PAID') {
       if (Number(providerResult.amount ?? payment.amount) !== NAME_CHANGE_FEE) throw clientError('Business name payment amount did not match.', 409);
@@ -69,14 +69,31 @@ async function applyNameChangePayment(user, paymentRef, status, providerResult =
         newBusinessName: businessName, paymentId: paymentRef.id, amount: NAME_CHANGE_FEE,
         createdAt: FieldValue.serverTimestamp(),
       });
-      return { status: 'PAID', alreadyApplied: false };
+      return { status: 'PAID', alreadyApplied: false, businessName };
     }
     tx.update(paymentRef, {
       status, failureReason: String(providerResult.reason || '').slice(0, 300) || null,
       updatedAt: FieldValue.serverTimestamp(),
     });
-    return { status, alreadyApplied: false };
+    return { status, alreadyApplied: false, businessName: '' };
   });
+  // Product documents store a denormalized seller name for card/search display.
+  // Refresh those snapshots after the paid name-change transaction commits.
+  if (result.status === 'PAID' && result.businessName) {
+    try {
+      const products = await adminDb.collection('products').where('sellerUid', '==', user.uid).get();
+      for (let offset = 0; offset < products.docs.length; offset += 400) {
+        const batch = adminDb.batch();
+        for (const product of products.docs.slice(offset, offset + 400)) {
+          batch.update(product.ref, { sellerBusinessName: result.businessName });
+        }
+        await batch.commit();
+      }
+    } catch (error) {
+      console.error('[seller-profile] Business name saved but product display sync failed', { sellerUid: user.uid, message: error?.message || String(error) });
+    }
+  }
+  return result;
 }
 
 export default async function sellerProfile(req, res) {

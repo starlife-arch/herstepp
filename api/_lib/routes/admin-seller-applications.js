@@ -15,23 +15,27 @@ export default async function adminSellerApplications(req, res) {
     let query = adminDb.collection('sellerApplications');
     if (status !== 'ALL') query = query.where('status', '==', status);
     const snap = await query.limit(100).get();
-    const applications = snap.docs.map(doc => {
+    const applications = await Promise.all(snap.docs.map(async doc => {
       const d = doc.data();
+      const applicantUid = d.applicantUid || doc.id;
+      const sellerSnap = await adminDb.collection('sellers').doc(applicantUid).get();
+      const seller = sellerSnap.exists ? sellerSnap.data() || {} : {};
       return {
         id: doc.id,
-        applicantUid: d.applicantUid || doc.id,
+        applicantUid,
         applicantEmail: d.applicantEmail || '',
-        displayName: d.displayName || '',
-        businessName: d.businessName || '',
-        phone: d.phone || '',
+        displayName: d.displayName || seller.displayName || '',
+        businessName: d.businessName || seller.businessName || '',
+        phone: d.phone || seller.phone || '',
         categories: Array.isArray(d.categories) ? d.categories : [],
         description: d.description || '',
         status: d.status || 'PENDING',
+        verificationBadge: seller.verificationBadge === true,
         adminReason: d.adminReason || '',
         createdAt: iso(d.createdAt),
         updatedAt: iso(d.updatedAt),
       };
-    }).sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    })).then(rows => rows.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
     return res.json({ applications });
   }
 

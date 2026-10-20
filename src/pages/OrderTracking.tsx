@@ -129,7 +129,6 @@ export default function OrderTracking() {
   );
 
   const getStepIndex = (status: string) => statusSteps.findIndex(s => s.status === status);
-
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-8 animate-fadeIn">
       <h1 className="text-2xl font-bold text-neutral-900 mb-2">Track Your Order</h1>
@@ -245,7 +244,7 @@ export default function OrderTracking() {
           {order.items.some(item => item.sellerId) && (
             <Card className="p-6">
               <h3 className="font-semibold text-neutral-900 mb-3">Marketplace seller updates</h3>
-              <p className="text-sm text-neutral-600 mb-4">Each seller manages fulfilment for their own items. Status changes appear here when the seller updates the order.</p>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4"><p className="text-sm text-neutral-600">Each seller manages fulfilment for their own items. Status changes appear here when the seller updates the order.</p><Button variant="outline" size="sm" onClick={() => void fetchOrder(order.orderId)} disabled={loading}><RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />{loading ? 'Refreshing…' : 'Refresh status'}</Button></div>
               <div className="space-y-3">
                 {Array.from(new Map(order.items.filter(item => item.sellerId).map(item => [item.sellerId as string, item])).values()).map(item => {
                   const fulfilment = order.sellerFulfilment?.[item.sellerId || ''];
@@ -259,59 +258,60 @@ export default function OrderTracking() {
             </Card>
           )}
 
-          {/* Timeline */}
-          <Card className="p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
-              <div><h3 className="font-semibold text-neutral-900">Order Timeline</h3>{lastRefreshedAt && <p className="text-xs text-neutral-500 mt-1">Last checked {formatDateTime(lastRefreshedAt)}</p>}</div>
-              <Button variant="outline" size="sm" onClick={() => void fetchOrder(order.orderId)} disabled={loading}><RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />{loading ? 'Refreshing…' : 'Refresh status'}</Button>
-            </div>
-            {order.orderStatus === 'CANCELLED' ? (
-              <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
-                <XCircleIcon /> This order was cancelled.
+          {!order.items.some(item => item.sellerId) && (
+            <Card className="p-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                <div><h3 className="font-semibold text-neutral-900">Order Timeline</h3>{lastRefreshedAt && <p className="text-xs text-neutral-500 mt-1">Last checked {formatDateTime(lastRefreshedAt)}</p>}</div>
+                <Button variant="outline" size="sm" onClick={() => void fetchOrder(order.orderId)} disabled={loading}><RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />{loading ? 'Refreshing…' : 'Refresh status'}</Button>
               </div>
-            ) : (
-              <div className="relative">
-                {statusSteps.map((step, i) => {
-                  const currentIdx = getStepIndex(order.orderStatus);
-                  const isCompleted = i <= currentIdx;
-                  const isCurrent = i === currentIdx;
-                  const historyEntries = (Array.isArray(order.history) ? order.history : []).filter(h => h.newStatus === step.status).sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
-                  const historyEntry = historyEntries[historyEntries.length - 1];
-
-                  return (
-                    <div key={step.status} className="flex gap-4 mb-6 last:mb-0">
-                      <div className="flex flex-col items-center">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isCompleted ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'}`}>
-                          <step.icon className="w-4 h-4" />
+              {order.orderStatus === 'CANCELLED' ? (
+                <div className="flex items-center gap-3 p-4 bg-red-50 border border-red-100 rounded-lg text-sm text-red-700">
+                  <XCircleIcon /> This order was cancelled.
+                </div>
+              ) : (
+                <div className="relative">
+                  {statusSteps.map((step, i) => {
+                    const currentIdx = getStepIndex(order.orderStatus);
+                    const isCompleted = i <= currentIdx;
+                    const isCurrent = i === currentIdx;
+                    const historyEntries = (Array.isArray(order.history) ? order.history : []).filter(h => h.newStatus === step.status).sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+                    const historyEntry = historyEntries[historyEntries.length - 1];
+  
+                    return (
+                      <div key={step.status} className="flex gap-4 mb-6 last:mb-0">
+                        <div className="flex flex-col items-center">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${isCompleted ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-400'}`}>
+                            <step.icon className="w-4 h-4" />
+                          </div>
+                          {i < statusSteps.length - 1 && (
+                            <div className={`w-0.5 h-8 mt-2 ${isCompleted && i < currentIdx ? 'bg-neutral-900' : 'bg-neutral-200'}`} />
+                          )}
                         </div>
-                        {i < statusSteps.length - 1 && (
-                          <div className={`w-0.5 h-8 mt-2 ${isCompleted && i < currentIdx ? 'bg-neutral-900' : 'bg-neutral-200'}`} />
-                        )}
+                        <div className="pt-2">
+                          <p className={`font-medium text-sm ${isCompleted ? 'text-neutral-900' : 'text-neutral-400'}`}>{step.label}</p>
+                          {historyEntry?.createdAt && (
+                            <p className="text-xs text-neutral-500 mt-0.5">{formatDateTime(historyEntry.createdAt)}</p>
+                          )}
+                          {isCurrent && (
+                            <p className="text-xs text-neutral-600 mt-0.5 font-medium">Current status</p>
+                          )}
+                        </div>
                       </div>
-                      <div className="pt-2">
-                        <p className={`font-medium text-sm ${isCompleted ? 'text-neutral-900' : 'text-neutral-400'}`}>{step.label}</p>
-                        {historyEntry?.createdAt && (
-                          <p className="text-xs text-neutral-500 mt-0.5">{formatDateTime(historyEntry.createdAt)}</p>
-                        )}
-                        {isCurrent && (
-                          <p className="text-xs text-neutral-600 mt-0.5 font-medium">Current status</p>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {Array.isArray(order.history) && order.history.length > 0 && <div className="mt-6 pt-5 border-t border-neutral-200">
-              <h4 className="font-medium text-sm text-neutral-900 mb-3">Status update history</h4>
-              <ol className="space-y-3">
-                {[...order.history].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).map((entry, index) => <li key={`${entry.createdAt || 'event'}-${entry.newStatus || 'status'}-${index}`} className="flex gap-3 text-sm">
-                  <span className="mt-1.5 w-2 h-2 rounded-full bg-neutral-400 shrink-0" />
-                  <div className="min-w-0"><p className="font-medium text-neutral-800">{entry.newStatus ? entry.newStatus.replace(/_/g, ' ') : 'Order updated'}{entry.previousStatus ? <span className="font-normal text-neutral-500"> · from {entry.previousStatus.replace(/_/g, ' ')}</span> : null}</p>{entry.note && <p className="text-neutral-600 mt-0.5">{entry.note}</p>}{entry.createdAt && <p className="text-xs text-neutral-500 mt-0.5">{formatDateTime(entry.createdAt)}</p>}</div>
-                </li>)}
-              </ol>
-            </div>}
-          </Card>
+                    );
+                  })}
+                </div>
+              )}
+              {Array.isArray(order.history) && order.history.length > 0 && <div className="mt-6 pt-5 border-t border-neutral-200">
+                <h4 className="font-medium text-sm text-neutral-900 mb-3">Status update history</h4>
+                <ol className="space-y-3">
+                  {[...order.history].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).map((entry, index) => <li key={`${entry.createdAt || 'event'}-${entry.newStatus || 'status'}-${index}`} className="flex gap-3 text-sm">
+                    <span className="mt-1.5 w-2 h-2 rounded-full bg-neutral-400 shrink-0" />
+                    <div className="min-w-0"><p className="font-medium text-neutral-800">{entry.newStatus ? entry.newStatus.replace(/_/g, ' ') : 'Order updated'}{entry.previousStatus ? <span className="font-normal text-neutral-500"> · from {entry.previousStatus.replace(/_/g, ' ')}</span> : null}</p>{entry.note && <p className="text-neutral-600 mt-0.5">{entry.note}</p>}{entry.createdAt && <p className="text-xs text-neutral-500 mt-0.5">{formatDateTime(entry.createdAt)}</p>}</div>
+                  </li>)}
+                </ol>
+              </div>}
+            </Card>
+          )}
 
           {/* Order Items */}
           <Card className="p-6">

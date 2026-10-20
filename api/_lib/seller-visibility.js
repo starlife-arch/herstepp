@@ -33,12 +33,10 @@ export async function filterPublicSellerListings(db, products, now = new Date())
     if (!snapshot.exists) return [uid, null];
     const seller = snapshot.data() || {};
     const expiry = toDate(seller.subscriptionExpiresAt);
-    const badgeExpiry = toDate(seller.badgeSubscriptionExpiresAt);
     const active = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
       && Boolean(expiry && expiry.getTime() > now.getTime());
-    const verifiedBadgeActive = active && seller.verificationBadge === true
-      && seller.badgeSubscriptionStatus === 'ACTIVE'
-      && Boolean(badgeExpiry && badgeExpiry.getTime() > now.getTime());
+    // The blue check means an admin has verified the business; it is not a paid promotion add-on.
+    const verifiedBadgeActive = active && seller.verificationBadge === true;
     return [uid, {
       active,
       displayName: String(seller.displayName || '').slice(0, 60),
