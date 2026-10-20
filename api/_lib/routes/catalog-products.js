@@ -1,9 +1,9 @@
 // Public catalogue reads. These are the hottest routes on the site (every
 // Home/Shop visit) and were burning the Firestore 50k/day read quota, so:
-//  - responses carry `Cache-Control: public, s-maxage=60, stale-while-revalidate=300`
+//  - responses carry a short `Cache-Control: public, s-maxage=5` window so seller profile changes show quickly
 //    (set via setPublicCache) so Vercel's edge serves repeat visitors without
 //    touching Firestore at all for a minute;
-//  - an in-process TTL cache (60 s) collapses concurrent cold misses to ONE
+//  - an in-process TTL cache (5 s) collapses concurrent cold misses to ONE
 //    Firestore read per key per instance.
 // Everything else (authenticated/admin routes) stays "private, no-store" via
 // the dispatcher default.
