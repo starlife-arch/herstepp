@@ -4,7 +4,7 @@ import { clientError, methodNotAllowed } from '../http.js';
 
 const clean = (value, max = 180) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const money = value => Number.isSafeInteger(value) && value > 0 && value <= 10_000_000;
-const RESERVED = new Set(['REQUESTED', 'APPROVED']);
+const RESERVED = new Set(['REQUESTED', 'PENDING', 'APPROVED']);
 const REFUND_HOLD = new Set(['REQUESTED', 'APPROVED', 'CONFIRMED', 'PARTIALLY_REFUNDED']);
 async function availableAfterRefundHolds(ledgerDocs, readOrder) {
   const rows = ledgerDocs.map(doc => ({ id: doc.id, data: doc.data() || {} }));
@@ -56,7 +56,7 @@ const safePayout = (doc, includePayoutPhone = false) => {
   const d = doc.data() || {};
   return {
     id: doc.id, sellerId: d.sellerId, sellerName: d.sellerName || '', amount: d.amount, currency: d.currency || 'KES',
-    status: String(d.status || 'REQUESTED').toUpperCase(), reason: d.reason || d.reviewNote || '',
+    status: ['PENDING', 'REQUESTED'].includes(String(d.status || 'REQUESTED').toUpperCase()) ? 'REQUESTED' : String(d.status || 'REQUESTED').toUpperCase(), reason: d.reason || d.reviewNote || '',
     reviewNote: d.reviewNote || '', providerReference: d.providerReference || '',
     requestedAt: iso(d.createdAt || d.requestedAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
     rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || maskPhone(d.payoutPhone || ''),
@@ -128,16 +128,15 @@ export async function sellerPayouts(req, res) {
 export async function adminMarketplacePayouts(req, res) {
   const admin = await requireAdmin(req);
   if (req.method === 'GET') {
-    const [payoutSnapshots, refundSnap] = await Promise.all([
-      // Query each operational status independently and avoid orderBy(createdAt):
-      // Firestore orderBy silently excludes older/partial records missing that field.
-      Promise.all(['REQUESTED', 'APPROVED', 'REJECTED', 'PAID'].map(status =>
-        adminDb.collection('sellerPayouts').where('status', '==', status).limit(500).get()
-      )),
+    const [payoutSnapshot, refundSnap] = await Promise.all([
+      // Read all recent records without filtering by status. Legacy requests may
+      // use PENDING/lowercase statuses or omit status; filtering only modern
+      // uppercase values made real seller requests disappear from the admin UI.
+      // Avoid orderBy(createdAt) too, since it excludes records missing timestamps.
+      adminDb.collection('sellerPayouts').get(),
       adminDb.collection('refundRecords').where('status', '==', 'CONFIRMED').limit(200).get().catch(() => ({ docs: [] })),
     ]);
-    const payoutDocs = payoutSnapshots.flatMap(snapshot => snapshot.docs)
-      .filter((doc, index, all) => all.findIndex(other => other.id === doc.id) === index)
+    const payoutDocs = payoutSnapshot.docs
       .sort((a, b) => timeValue(b.data()?.createdAt || b.data()?.requestedAt) - timeValue(a.data()?.createdAt || a.data()?.requestedAt));
     const refundsToReconcile = [];
     for (const doc of refundSnap.docs) {
@@ -173,7 +172,7 @@ export async function adminMarketplacePayouts(req, res) {
       const snap = await tx.get(ref);
       if (!snap.exists) throw clientError('Payout request not found.', 404);
       const payout = snap.data();
-      if (payout.status !== 'REQUESTED') throw clientError('Only requested payouts can be approved or rejected.', 409);
+      if (!['REQUESTED', 'PENDING'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only requested payouts can be approved or rejected.', 409);
       const status = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
       tx.update(ref, { status, reviewNote: reason, ...(action === 'APPROVE' ? { approvedBy: admin.uid, approvedAt: FieldValue.serverTimestamp() } : { rejectedBy: admin.uid, rejectedAt: FieldValue.serverTimestamp() }), updatedAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_' + status, entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, reason, createdAt: FieldValue.serverTimestamp() });

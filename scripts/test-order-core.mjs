@@ -442,6 +442,17 @@ await test('admin cancel of an unpaid order restores stock (new array) + ORDER_C
   assert.equal(logs.length, 2);
 });
 
+await test('admin cannot change fulfilment status for a seller-owned marketplace order', async () => {
+  const db = seedBase({ product: { sellerUid: 'seller-1', sellerId: 'seller-1', sellerBusinessName: 'Seller Business', marketplaceSeller: true } });
+  const d = deps(db);
+  const res = await createOrderCore(db, d, checkoutPayload());
+  await assert.rejects(
+    () => adminOrderTransitionCore(db, d, { actorUid: 'admin-1', orderDocumentId: res.order.id, orderStatus: 'PROCESSING', note: '' }),
+    err => err.statusCode === 403 && /marketplace seller order/i.test(err.message),
+  );
+  assert.equal(db.__doc('orders', res.order.id).orderStatus, 'PENDING', 'admin must not change seller fulfilment');
+});
+
 await test('admin transition accepts DELIVERED (VALID set, not TRANSITIONS keys)', async () => {
   const db = seedBase();
   const d = deps(db);

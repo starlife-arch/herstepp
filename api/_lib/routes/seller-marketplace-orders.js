@@ -61,8 +61,17 @@ export default async function sellerMarketplaceOrders(req, res) {
   }
 
   if (req.method === 'GET') {
-    const snapshot = await adminDb.collection('orders').orderBy('createdAt', 'desc').limit(250).get();
-    const orders = snapshot.docs.map(doc => serializeOrder(doc, user.uid)).filter(order => order && order.paymentStatus === 'PAID');
+    // Discover orders through this seller's own ledger, not a global latest-250
+    // query that can silently hide older seller sales.
+    const ledgerSnap = await adminDb.collection('sellerLedger').where('sellerId', '==', user.uid).limit(2000).get();
+    const orderIds = [...new Set(ledgerSnap.docs
+      .map(doc => String(doc.data()?.orderDocumentId || '').trim())
+      .filter(id => /^[A-Za-z0-9_-]{8,150}$/.test(id)))];
+    const snapshots = await Promise.all(orderIds.map(id => adminDb.collection('orders').doc(id).get()));
+    const orders = snapshots.filter(doc => doc.exists)
+      .map(doc => serializeOrder(doc, user.uid))
+      .filter(order => order && order.paymentStatus === 'PAID')
+      .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
     return res.status(200).json({ orders });
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, ['GET', 'PATCH']);
@@ -94,9 +103,11 @@ export default async function sellerMarketplaceOrders(req, res) {
         .filter(row => row.data.orderDocumentId === orderDocumentId);
       const gross = ledgerRows.filter(row => row.data.type === 'ORDER_PAYMENT_PENDING')
         .reduce((sum, row) => sum + Math.max(0, Number(row.data.amount) || 0), 0);
-      const alreadyReleased = ledgerRows.filter(row => row.data.type === 'MARKETPLACE_EARNINGS_RELEASE_PENDING')
-        .reduce((sum, row) => sum + Math.abs(Number(row.data.amount) || 0), 0);
-      const amount = Math.max(0, gross - alreadyReleased);
+      // Release NET pending earnings. Refund reconciliation can reduce pending
+      // before delivery; releasing gross here would over-credit the seller.
+      const amount = Math.max(0, ledgerRows
+        .filter(row => String(row.data.balanceBucket || '').toUpperCase() === 'PENDING')
+        .reduce((sum, row) => sum + (Number(row.data.amount) || 0), 0));
       if (gross <= 0) throw clientError('Seller earnings for this order were not found. Contact marketplace support before marking it delivered.', 409);
       if (amount > 0) {
         const base = base64url(`marketplace-delivery-release:${orderDocumentId}:${user.uid}`);
@@ -124,6 +135,17 @@ export default async function sellerMarketplaceOrders(req, res) {
       orderDocumentId, orderId: order.orderId || orderDocumentId,
       previousStatus: previous, newStatus: requestedStatus, actorUid: user.uid, createdAt: now,
     });
+    if (order.customerId) {
+      const noticeId = base64url(`seller-order-status:${orderDocumentId}:${user.uid}:${requestedStatus}`);
+      const seller = sellerSnap.data() || {};
+      tx.set(adminDb.collection('notifications').doc(noticeId), {
+        customerId: order.customerId, orderDocumentId,
+        event: 'SELLER_FULFILMENT_STATUS_CHANGED',
+        title: 'Marketplace order update',
+        body: `${String(seller.businessName || seller.displayName || 'The seller').slice(0, 100)} updated their items in order ${order.orderId || orderDocumentId} to ${requestedStatus.replace(/_/g, ' ').toLowerCase()}.`,
+        readAt: null, createdAt: now,
+      });
+    }
     for (const row of releaseWrites) {
       tx.create(adminDb.collection('sellerLedger').doc(row.id), {
         sellerId: user.uid, orderDocumentId, orderId: order.orderId || orderDocumentId,

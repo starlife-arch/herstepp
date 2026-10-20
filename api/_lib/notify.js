@@ -147,12 +147,12 @@ export function queueMarketplaceSaleInvoices(tx, db, { orderDocumentId, order, s
       const invoice = marketplaceInvoiceEmail({ order, seller, items, invoiceNumber, receiptNumber });
       if (buyerEmail) {
         const key = `${orderDocumentId}-MARKETPLACE-${sellerId}-BUYER-INVOICE`;
-        queueEmail(tx, db, { key, purpose: 'invoices', to: buyerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent });
+        queueEmail(tx, db, { key, purpose: 'invoices', to: buyerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent, attachMarketplaceInvoice: { orderDocumentId, sellerId, invoiceNumber, receiptNumber } });
         keys.push(key);
       }
       if (sellerEmail && sellerEmail.includes('@')) {
         const key = `${orderDocumentId}-MARKETPLACE-${sellerId}-SELLER-INVOICE`;
-        queueEmail(tx, db, { key, purpose: 'invoices', to: sellerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent });
+        queueEmail(tx, db, { key, purpose: 'invoices', to: sellerEmail, subject: invoice.subject, htmlContent: invoice.htmlContent, attachMarketplaceInvoice: { orderDocumentId, sellerId, invoiceNumber, receiptNumber } });
         keys.push(key);
       } else {
         const auditId = Buffer.from(`marketplace-invoice-missing-email:${orderDocumentId}:${sellerId}`).toString('base64url');
@@ -211,17 +211,21 @@ const ORDER_STATUS_LINES = {
   CANCELLED: 'Your order was cancelled. If this was unexpected, contact support and we will help you right away.',
 };
 
-export function queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderStatus }) {
+export function queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderStatus, scope = 'ORDER' }) {
   try {
     const st = String(orderStatus).toUpperCase();
     const line = ORDER_STATUS_LINES[st];
     if (!line || !order?.customerEmail) return;
-    const { subject, htmlContent } = buildEmail(
-      `Order ${order.orderId} — ${st.replace(/_/g, ' ').toLowerCase()}`,
-      `Hi ${order.delivery?.fullName || order.customerName || 'there'},\n\n${line}`,
-      { ctaLabel: 'View your order', ctaUrl: `${siteUrl()}/dashboard` },
-    );
-    queueEmail(tx, db, { key: `${orderDocumentId}-ORDER-${st}`, purpose: 'orders', to: order.customerEmail, subject, htmlContent });
+    const firstParty = scope === 'FIRST_PARTY';
+    const subject = firstParty
+      ? `HerStep items in order ${order.orderId} — ${st.replace(/_/g, ' ').toLowerCase()}`
+      : `Order ${order.orderId} — ${st.replace(/_/g, ' ').toLowerCase()}`;
+    const message = firstParty
+      ? `Hi ${order.delivery?.fullName || order.customerName || 'there'},\n\nThe HerStep Collection items in order ${order.orderId} are now ${st.replace(/_/g, ' ').toLowerCase()}.`
+      : `Hi ${order.delivery?.fullName || order.customerName || 'there'},\n\n${line}`;
+    const { htmlContent } = buildEmail(subject, message, { ctaLabel: 'View your order', ctaUrl: `${siteUrl()}/dashboard` });
+    const key = `${orderDocumentId}-${firstParty ? 'FIRST-PARTY-ORDER' : 'ORDER'}-${st}`;
+    queueEmail(tx, db, { key, purpose: 'orders', to: order.customerEmail, subject, htmlContent });
   } catch (error) {
     console.error('[notify] queueOrderStatusEmail failed:', error?.message || error);
   }
@@ -327,16 +331,19 @@ export function queuePaymentSms(tx, db, { orderDocumentId, order, payment, statu
   }
 }
 
-export function queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatus }) {
+export function queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatus, scope = 'ORDER' }) {
   try {
     const st = String(orderStatus || '').toUpperCase();
     const phone = order?.customerPhone || order?.delivery?.phone;
     const line = ORDER_STATUS_LINES[st];
     if (!phone || !line || !order?.orderId) return null;
-    const key = `${orderDocumentId}-ORDER-${st}-SMS`;
+    const firstParty = scope === 'FIRST_PARTY';
+    const key = `${orderDocumentId}-${firstParty ? 'FIRST-PARTY-ORDER' : 'ORDER'}-${st}-SMS`;
     queueSms(tx, db, {
       key, to: phone,
-      message: `HerStep order ${order.orderId}: ${line} Details: ${siteUrl()}/dashboard`,
+      message: firstParty
+        ? `HerStep items in order ${order.orderId} are now ${st.replace(/_/g, ' ').toLowerCase()}. Details: ${siteUrl()}/dashboard`
+        : `HerStep order ${order.orderId}: ${line} Details: ${siteUrl()}/dashboard`,
     });
     return key;
   } catch (error) {
