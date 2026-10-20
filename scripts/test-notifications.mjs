@@ -57,7 +57,7 @@ await test('marketplace invoices identify buyer and seller and contain only sell
   assert(first.htmlContent.includes('Jerry House pickup point and first-party delivery charges do not apply'));
   assert(first.htmlContent.includes('Blue Bag'));
   assert(!first.htmlContent.includes('Gold Necklace'));
-  assert(first.htmlContent.includes('HerStep Collection provides the marketplace'));
+  assert(first.htmlContent.includes('HerStep Marketplace provides the platform'));
   assert(first.htmlContent.includes('HERSTEP MARKETPLACE'));
   assert(!first.htmlContent.includes('<script>'));
 });
@@ -67,6 +67,7 @@ await test('marketplace payment receipt does not promise a HerStep seller invoic
   const tx = { set: (ref, value) => db.records.set(ref.id, value) };
   const order = {
     orderId: 'HS-2026-000124', customerEmail: 'buyer@example.com', customerName: 'Buyer',
+    marketplaceOrder: true, marketplaceSellerInvoices: true,
     subtotal: 1200, deliveryFee: 0, discount: 0, total: 1200,
     items: [{ sellerId: 'seller-one', name: 'Blue Bag', size: 'One Size', quantity: 1, unitPrice: 1200, lineTotal: 1200 }],
   };
