@@ -213,7 +213,7 @@ export default function ProductDetail() {
         <div>
           <div className="mb-4">
             <p className="text-sm text-neutral-500 mb-1">{state.categories.find(c => c.id === product.categoryId)?.name}</p>
-            <div className="flex items-start justify-between gap-3"><div><h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1>{(product as any).promotedUntil && new Date((product as any).promotedUntil).getTime() > Date.now() && <Badge variant="success">Promoted listing</Badge>}</div><WishlistButton productId={product.id} /></div>
+            <div className="flex items-start justify-between gap-3"><div><h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mb-2">{product.name}</h1>{(product as any).promotedUntil && new Date((product as any).promotedUntil).getTime() > Date.now() && <Badge variant="default">Sponsored</Badge>}</div><WishlistButton productId={product.id} /></div>
             <p className="text-sm text-neutral-400">SKU: {product.sku}</p>
             {product.sellerUid && <p className="text-sm text-neutral-600 mt-2">Sold by <Link to={`/seller/shop/${encodeURIComponent(product.sellerUid)}`} className="font-medium underline hover:text-neutral-900">{product.sellerBusinessName || product.sellerDisplayName || "Marketplace seller"}</Link>{product.sellerVerificationBadgeActive === true && <span className="inline-flex items-center gap-1 text-blue-600" title="Verified seller"><BadgeCheck className="w-4 h-4 fill-blue-50" /><span className="text-xs font-medium">Verified</span></span>}</p>}
             {product.sellerUid && <div className="mt-3">
