@@ -398,7 +398,7 @@ export function ProductCard({ product }: { product: Product }) {
         </div>
         <div className="p-3 sm:p-4">
           {categoryName && <p className="text-xs text-neutral-500 mb-1">{categoryName}</p>}
-          {product.sellerUid && <p className="text-xs text-neutral-600 mb-1 flex items-center gap-1 min-w-0"><span className="truncate">{product.sellerBusinessName || product.sellerDisplayName || 'Marketplace seller'}</span>{(product as any).sellerVerificationBadgeActive === true && <BadgeCheck aria-label="Verified seller" title="Verified seller" className="w-3.5 h-3.5 shrink-0 text-blue-600 fill-blue-50" />}</p>}
+          {product.sellerUid && <p className="text-xs text-neutral-600 mb-1 flex items-center gap-1 min-w-0"><span className="truncate">{product.sellerBusinessName || product.sellerDisplayName || 'Marketplace seller'}</span>{(product as any).sellerVerificationBadgeActive === true && <span role="img" aria-label="Verified seller" className="inline-flex shrink-0" title="Verified seller"><BadgeCheck aria-hidden="true" className="w-3.5 h-3.5 text-blue-600 fill-blue-50" /></span>}</p>}
           <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-2 line-clamp-2">{product.name}</h3>
           <div className="flex items-center gap-2 mb-2">
             {hasDiscount(product) ? (
