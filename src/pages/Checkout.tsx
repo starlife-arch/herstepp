@@ -58,12 +58,12 @@ function CheckoutInvoiceButton({ orderDocumentId, orderId }: { orderDocumentId: 
 }
 
 export default function Checkout() {
-  usePageMeta('Checkout | HerStep Collection', undefined, true);
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
   const cartHasMarketplace = state.cart.some(item => Boolean((item.product as any).marketplaceSeller || (item.product as any).sellerUid || (item.product as any).sellerId));
   const cartHasFirstParty = state.cart.some(item => !((item.product as any).marketplaceSeller || (item.product as any).sellerUid || (item.product as any).sellerId));
   const marketplaceOnly = state.cart.length > 0 && cartHasMarketplace && !cartHasFirstParty;
+  usePageMeta(marketplaceOnly ? 'Marketplace Checkout | HerStep Marketplace' : 'Checkout | HerStep Collection', undefined, true);
   // /checkout?order=<doc id> — "Pay now" from the dashboard: retry payment for
   // an EXISTING order (no new order is created; the doc id stays internal).
   const [searchParams] = useSearchParams();
