@@ -14,6 +14,7 @@ import {
   unitPrice,
   PAYMENT_STATUS,
   validateCart,
+  deriveEffectiveOrderStatus,
 } from '../api/_lib/order-core.js';
 import { deliveryFee, validateDelivery } from '../api/_lib/delivery.js';
 
@@ -550,6 +551,68 @@ await test('delivery disabled in settings rejects DELIVERY with a clear message'
     () => createOrderCore(db, deps(db), checkoutPayload()),
     /Delivery is currently unavailable/,
   );
+});
+
+// ---------------------------------------------------------------------------
+// deriveEffectiveOrderStatus — buyer-facing progress for marketplace orders.
+await test('effective status: plain first-party order passes through orderStatus', async () => {
+  assert.equal(deriveEffectiveOrderStatus({ orderStatus: 'PROCESSING' }), 'PROCESSING');
+  assert.equal(deriveEffectiveOrderStatus({ orderStatus: 'PENDING' }), 'PENDING');
+});
+
+await test('effective status: seller fulfilment update surfaces to buyers', async () => {
+  // Marketplace docs keep a static PENDING orderStatus; the seller updates
+  // sellerFulfilment[uid].status instead.
+  const order = {
+    orderStatus: 'PENDING',
+    sellerFulfilment: { sellerA: { status: 'OUT_FOR_DELIVERY' } },
+  };
+  assert.equal(deriveEffectiveOrderStatus(order), 'OUT_FOR_DELIVERY');
+});
+
+await test('effective status: DELIVERED only when every fulfilment line delivered', async () => {
+  // Mixed basket: HerStep line delivered but seller still processing -> not done.
+  const partial = {
+    orderStatus: 'PROCESSING',
+    firstPartyFulfilment: { status: 'DELIVERED' },
+    sellerFulfilment: { sellerA: { status: 'PROCESSING' }, sellerB: { status: 'DELIVERED' } },
+  };
+  assert.equal(deriveEffectiveOrderStatus(partial), 'PROCESSING');
+  const allDone = {
+    orderStatus: 'PROCESSING',
+    firstPartyFulfilment: { status: 'DELIVERED' },
+    sellerFulfilment: { sellerA: { status: 'DELIVERED' }, sellerB: { status: 'DELIVERED' } },
+  };
+  assert.equal(deriveEffectiveOrderStatus(allDone), 'DELIVERED');
+  // Pure marketplace order: static PENDING doc status must NOT block delivery.
+  const marketplaceAllDelivered = {
+    orderStatus: 'PENDING',
+    sellerFulfilment: { sellerA: { status: 'DELIVERED' } },
+  };
+  assert.equal(deriveEffectiveOrderStatus(marketplaceAllDelivered), 'DELIVERED');
+});
+
+await test('effective status: cancellation anywhere wins outright', async () => {
+  const cancelledTop = {
+    orderStatus: 'CANCELLED',
+    sellerFulfilment: { sellerA: { status: 'DELIVERED' } },
+  };
+  assert.equal(deriveEffectiveOrderStatus(cancelledTop), 'CANCELLED');
+  const cancelledLine = {
+    orderStatus: 'PENDING',
+    firstPartyFulfilment: { status: 'PROCESSING' },
+    sellerFulfilment: { sellerA: { status: 'CANCELLED' } },
+  };
+  assert.equal(deriveEffectiveOrderStatus(cancelledLine), 'CANCELLED');
+});
+
+await test('effective status: most-advanced line wins on mixed baskets', async () => {
+  const mixed = {
+    orderStatus: 'PENDING',
+    firstPartyFulfilment: { status: 'PROCESSED' },
+    sellerFulfilment: { sellerA: { status: 'PROCESSING' } },
+  };
+  assert.equal(deriveEffectiveOrderStatus(mixed), 'PROCESSED');
 });
 
 // ---------------------------------------------------------------------------

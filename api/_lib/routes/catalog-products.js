@@ -67,7 +67,10 @@ export async function productDetail(req, res) {
         && Boolean(subscriptionExpiry && Number.isFinite(subscriptionExpiry.getTime()) && subscriptionExpiry.getTime() > Date.now());
       data.sellerDisplayName = String(seller.displayName || data.sellerDisplayName || '').slice(0, 60);
       data.sellerBusinessName = String(seller.businessName || data.sellerBusinessName || '').slice(0, 100);
-      data.sellerVerificationBadgeActive = activeSeller && seller.verificationBadge === true;
+      // Paid plan holders get the blue badge automatically — same rule as
+      // seller-visibility / public shop (no manual admin verification click).
+      const badgePaid = seller.badgeSubscriptionStatus === 'ACTIVE';
+      data.sellerVerificationBadgeActive = activeSeller && (seller.verificationBadge === true || badgePaid);
     }
     return data;
   });
