@@ -85,6 +85,15 @@ const statusColour = s => STATUS_COLOURS[String(s || '').toUpperCase()] || '#b42
 
 const PICKUP_ADDRESS = 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12';
 
+function isMarketplaceOrder(order) {
+  const o = order || {};
+  const marketplaceOrder = isMarketplaceOrder(o);
+  if (o.marketplaceOrder === true || marketplaceOrder
+    || String(o.delivery?.deliveryMethod || o.deliveryMethod || '').toUpperCase() === 'MARKETPLACE') return true;
+  const items = Array.isArray(o.items) ? o.items : [];
+  return items.length > 0 && items.every(item => Boolean(item?.sellerId || item?.sellerSnapshot?.sellerId));
+}
+
 // Order receipt / status email. Works for PAID orders and for failed/cancelled/
 // timed-out payment notices (adds a "Pay now" CTA in that case).
 export function orderReceiptEmail(order, status) {
@@ -127,7 +136,7 @@ export function orderReceiptEmail(order, status) {
   const details = [];
   details.push(`<strong>Order:</strong> ${escapeHtml(orderId)}`);
   details.push(`<span style="display:inline-block;margin:2px 0;padding:3px 10px;border-radius:4px;background:${statusColour(st)};color:#fff;font-size:12px;font-weight:bold;">${escapeHtml(st)}</span>`);
-  if (o.marketplaceSellerInvoices === true) {
+  if (marketplaceOrder) {
     details.push('<strong>Fulfilment:</strong> The seller will coordinate delivery or pickup directly. HerStep Collection pickup at Jerry House does not apply to marketplace items.');
   } else {
     details.push(`<strong>Delivery:</strong> ${method === 'COLLECTION' ? `Collection at ${escapeHtml(PICKUP_ADDRESS)}` : `to ${escapeHtml(delivery.location || '—')}`}`);
@@ -138,7 +147,7 @@ export function orderReceiptEmail(order, status) {
   // PAID receipts now travel WITH a second, separate invoice email (sender
   // invoices@). Tell the customer so they do not think this email is missing
   // its PDF.
-  if (paid && o.marketplaceSellerInvoices === true) {
+  if (paid && marketplaceOrder) {
     details.push('This email is your payment receipt. Seller-specific invoices for marketplace items are sent separately by the businesses selling those items. This receipt is not the seller invoice.');
   } else if (paid) {
     details.push('Your invoice is in a separate email from invoices@ and in your account under My Orders.');
@@ -151,7 +160,7 @@ export function orderReceiptEmail(order, status) {
 <tr><td align="center" style="padding:24px 12px;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:10px;overflow:hidden;border:1px solid #e6e8ec;">
 <tr><td style="background:${BRAND_NAVY};padding:22px 28px;">
-  <div style="font-family:Arial,sans-serif;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">${o.marketplaceSellerInvoices === true ? "HERSTEP MARKETPLACE" : "HERSTEP COLLECTION"}</div>
+  <div style="font-family:Arial,sans-serif;color:#ffffff;font-size:18px;font-weight:bold;letter-spacing:2px;">${marketplaceOrder ? "HERSTEP MARKETPLACE" : "HERSTEP COLLECTION"}</div>
   <div style="font-family:Arial,sans-serif;color:${BRAND_ACCENT};font-size:12px;margin-top:4px;">Step Into Your Style.</div>
 </td></tr>
 <tr><td style="padding:28px;font-family:Arial,sans-serif;">
@@ -177,14 +186,14 @@ export function orderReceiptEmail(order, status) {
     </td>` : ''}
   </tr></table>
 </td></tr>
-<tr><td style="padding:16px 28px;border-top:1px solid #eceef1;font-family:Arial,sans-serif;font-size:11px;line-height:1.6;color:#8a93a2;">${escapeHtml(FOOTER_LINE)}</td></tr>
+<tr><td style="padding:16px 28px;border-top:1px solid #eceef1;font-family:Arial,sans-serif;font-size:11px;line-height:1.6;color:#8a93a2;">${escapeHtml(marketplaceOrder ? 'HerStep Marketplace · Contact the seller for fulfilment or HerStep support for disputes.' : FOOTER_LINE)}</td></tr>
 </table>
 </td></tr></table>
 </body></html>`;
 
   const subject = paid
-    ? `Payment received — order ${orderId} | HerStep Collection`
-    : `Payment ${st.toLowerCase()} — order ${orderId} | HerStep Collection`;
+    ? `Payment received — order ${orderId} | ${marketplaceOrder ? 'HerStep Marketplace' : 'HerStep Collection'}`
+    : `Payment ${st.toLowerCase()} — order ${orderId} | ${marketplaceOrder ? 'HerStep Marketplace' : 'HerStep Collection'}`;
   return { subject, htmlContent: html };
 }
 
