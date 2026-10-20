@@ -52,9 +52,13 @@ await test('marketplace invoices identify buyer and seller and contain only sell
   assert(first.htmlContent.includes('buyer@example.com'));
   assert(first.htmlContent.includes('Blue Boutique'));
   assert(first.htmlContent.includes('QWE123'));
+  assert(first.htmlContent.includes('Invoice date:'));
+  assert(first.htmlContent.includes('Fulfilment:'));
+  assert(first.htmlContent.includes('Jerry House pickup point and first-party delivery charges do not apply'));
   assert(first.htmlContent.includes('Blue Bag'));
   assert(!first.htmlContent.includes('Gold Necklace'));
-  assert(first.htmlContent.includes('HerStep Collection provides the marketplace'));
+  assert(first.htmlContent.includes('HerStep Marketplace provides the platform'));
+  assert(first.htmlContent.includes('HERSTEP MARKETPLACE'));
   assert(!first.htmlContent.includes('<script>'));
 });
 await test('marketplace payment receipt does not promise a HerStep seller invoice', () => {
@@ -63,6 +67,7 @@ await test('marketplace payment receipt does not promise a HerStep seller invoic
   const tx = { set: (ref, value) => db.records.set(ref.id, value) };
   const order = {
     orderId: 'HS-2026-000124', customerEmail: 'buyer@example.com', customerName: 'Buyer',
+    marketplaceOrder: true, marketplaceSellerInvoices: true,
     subtotal: 1200, deliveryFee: 0, discount: 0, total: 1200,
     items: [{ sellerId: 'seller-one', name: 'Blue Bag', size: 'One Size', quantity: 1, unitPrice: 1200, lineTotal: 1200 }],
   };
@@ -71,7 +76,26 @@ await test('marketplace payment receipt does not promise a HerStep seller invoic
   assert(!keys.some(key => key.endsWith('-INVOICE')));
   const receipt = [...db.records.values()][0];
   assert(receipt.htmlContent.includes('Seller-specific invoices for marketplace items are sent separately'));
+  assert(receipt.htmlContent.includes('The seller will coordinate delivery or pickup directly'));
+  assert(!receipt.htmlContent.includes('Collection at Juja Town, Jerry House'));
   assert(!receipt.htmlContent.includes('Your invoice is in a separate email from invoices@'));
+});
+await test('legacy seller-scoped orders do not show Collection pickup in payment receipts', () => {
+  const receipt = orderReceiptEmail({
+    id: 'legacy-marketplace-order',
+    orderId: 'HS-2026-000125',
+    customerEmail: 'buyer@example.com',
+    delivery: { fullName: 'Buyer', deliveryMethod: 'COLLECTION', location: 'Juja Town, Jerry House, near Juja Posta' },
+    // Older marketplace orders may not have marketplaceOrder /
+    // marketplaceSellerInvoices flags, but seller-scoped lines identify them.
+    items: [{ sellerId: 'seller-one', name: 'Blue Bag', size: 'One Size', quantity: 1, unitPrice: 1200, lineTotal: 1200 }],
+    subtotal: 1200, deliveryFee: 0, discount: 0, total: 1200,
+  }, 'PAID');
+  assert(receipt.subject.includes('HerStep Marketplace'));
+  assert(receipt.htmlContent.includes('HERSTEP MARKETPLACE'));
+  assert(receipt.htmlContent.includes('seller will coordinate delivery or pickup directly'));
+  assert(!receipt.htmlContent.includes('Collection at Juja Town, Jerry House'));
+  assert(!receipt.htmlContent.includes('HerStep Collection · Juja Town, Jerry House'));
 });
 await test('marketplace sale queues one buyer and one seller invoice per seller, without SMS', () => {
   const db = fakeDb();
@@ -94,7 +118,7 @@ await test('marketplace sale queues one buyer and one seller invoice per seller,
   });
   assert.equal(writes.length, 4);
   assert.deepEqual(writes.map(row => row.to).sort(), ['blue@example.com', 'buyer@example.com', 'buyer@example.com', 'gold@example.com']);
-  assert(writes.every(row => row.purpose === 'invoices'));
+  assert(writes.every(row => row.purpose === 'orders'));
   assert(writes.every(row => !row.key.includes('SMS')));
 });
 await test('outbox is idempotent and a failed delivery returns to PENDING', async () => {

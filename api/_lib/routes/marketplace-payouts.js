@@ -205,8 +205,10 @@ export async function adminMarketplacePayouts(req, res) {
     if (!/^[A-Za-z0-9_-]{1,120}$/.test(refundRecordId) || !Array.isArray(allocations) || allocations.length > 20) throw clientError('Choose a confirmed refund and provide valid seller allocations.');
     if (!reason) throw clientError('A reconciliation note is required.');
     const normalized = allocations.map(row => ({ sellerId: clean(row?.sellerId, 128), amount: row?.amount }));
-    if (normalized.some(row => !row.sellerId || !money(row.amount)) || new Set(normalized.map(row => row.sellerId)).size !== normalized.length) {
-      throw clientError('Each seller allocation must have a unique seller and positive whole-KSh amount.');
+    // Do not let an empty/all-zero allocation set mark a refund reconciled:
+    // that would release every seller's refund hold without adjusting earnings.
+    if (!normalized.length || normalized.some(row => !row.sellerId || !money(row.amount)) || new Set(normalized.map(row => row.sellerId)).size !== normalized.length) {
+      throw clientError('Allocate a positive whole-KSh amount to at least one unique seller before reconciling this refund.');
     }
     const refundRef = adminDb.collection('refundRecords').doc(refundRecordId);
     const result = await adminDb.runTransaction(async tx => {
@@ -224,7 +226,15 @@ export async function adminMarketplacePayouts(req, res) {
       if (!orderSnap.exists) throw clientError('Refund order not found.', 404);
       const order = orderSnap.data() || {};
       const allocationTotal = normalized.reduce((sum, row) => sum + row.amount, 0);
+      const orderItems = Array.isArray(order.items) ? order.items : [];
+      const marketplaceOnlyOrder = orderItems.length > 0 && orderItems.every(item => Boolean(item?.sellerId || item?.sellerSnapshot?.sellerId));
       if (allocationTotal > Number(refund.amount || 0)) throw clientError('Seller allocations cannot exceed the confirmed refund amount.', 409);
+      // Marketplace-only refunds must be fully allocated across their sellers.
+      // Otherwise a partial ledger debit could incorrectly release the entire
+      // order's refund hold and make the unadjusted balance withdrawable.
+      if (marketplaceOnlyOrder && allocationTotal !== Number(refund.amount || 0)) {
+        throw clientError('For a marketplace-only order, seller allocations must equal the confirmed refund amount.', 409);
+      }
       const ledger = ledgerSnap.docs.map(doc => ({ id: doc.id, data: doc.data() || {} }));
       const writes = [];
       for (const allocation of normalized) {

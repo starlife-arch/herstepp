@@ -158,7 +158,9 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
   if (email && !emailVerified) throw clientError('Verify your email before creating an order.');
   const lines = validateCart(cart); // rejects bad input BEFORE touching Firestore
 
-  const method = delivery?.deliveryMethod === 'COLLECTION' ? 'COLLECTION' : 'DELIVERY';
+  const requestedMethod = String(delivery?.deliveryMethod || '').toUpperCase();
+  const marketplaceCheckout = requestedMethod === 'MARKETPLACE';
+  const method = marketplaceCheckout ? 'MARKETPLACE' : requestedMethod === 'COLLECTION' ? 'COLLECTION' : 'DELIVERY';
   const fullName = typeof delivery?.fullName === 'string' ? delivery.fullName.trim() : '';
   // normalizePhone throws a clear human message for anything that is not a
   // valid Kenyan number — every validation failure must be readable.
@@ -169,6 +171,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
   if (!fullName) throw clientError('Full name is required.');
   const location = method === 'COLLECTION' ? LOCATION : (typeof delivery?.location === 'string' ? delivery.location.trim() : '');
   if (method === 'DELIVERY' && !location) throw clientError('A delivery location is required.');
+  if (marketplaceCheckout && location && location !== 'Seller will coordinate delivery or pickup directly') throw clientError('Marketplace fulfilment is coordinated directly between the seller and buyer.');
   // Contract field is `instructions`; accept `notes` as a fallback.
   const instructions = [delivery?.instructions, delivery?.notes]
     .find(v => typeof v === 'string' && v.trim())
@@ -176,8 +179,8 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
     .slice(0, 500) ?? '';
 
   const settings = await loadCheckoutSettings(db);
-  if (method === 'COLLECTION' && settings.collectionEnabled === false) throw clientError('Collection is currently unavailable. Please choose delivery.');
-  if (method === 'DELIVERY' && settings.deliveryEnabled !== true) throw clientError('Delivery is currently unavailable. Please choose collection.');
+  if (!marketplaceCheckout && method === 'COLLECTION' && settings.collectionEnabled === false) throw clientError('Collection is currently unavailable. Please choose delivery.');
+  if (!marketplaceCheckout && method === 'DELIVERY' && settings.deliveryEnabled !== true) throw clientError('Delivery is currently unavailable. Please choose collection.');
 
   const year = now().getUTCFullYear();
   const groups = groupByProduct(lines);
@@ -246,7 +249,8 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       plan.push({ ref: snap.ref, data, inventory, changes });
     }
 
-    const deliveryFee = method === 'COLLECTION' ? 0 : calculateDeliveryFee(settings, location);
+    if (marketplaceCheckout && items.some(item => !item.sellerId || !item.sellerSnapshot?.sellerId)) throw clientError('Marketplace checkout can only contain marketplace seller products. Remove HerStep Collection items and check them out separately.', 409);
+    const deliveryFee = marketplaceCheckout || method === 'COLLECTION' ? 0 : calculateDeliveryFee(settings, location);
     let discount = 0; let promotion = null; let promoRef = null; let promoUsageRef = null; let promo = null; let promoUsage = 0;
     if (requestedPromo) {
       promoRef = db.collection('promoCodes').doc(requestedPromo); const promoSnap = await tx.get(promoRef);
@@ -284,6 +288,8 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       discount,
       promoCode: requestedPromo,
       promotion,
+      marketplaceOrder: marketplaceCheckout,
+      marketplaceSellerInvoices: marketplaceCheckout,
       total,
       currency: 'KES',
       // Exactly the AGENTS.md contract shape — payments/stk/initiate reads
@@ -292,7 +298,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
         fullName,
         phone,
         deliveryMethod: method,
-        location: method === 'COLLECTION' ? LOCATION : location,
+        location: marketplaceCheckout ? 'Seller will coordinate delivery or pickup directly' : method === 'COLLECTION' ? LOCATION : location,
         instructions,
       },
       paymentStatus: PAYMENT_STATUS.PENDING,
@@ -622,7 +628,10 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
           receiptNumber: receiptNumberFor(paymentRef.id),
         }) || []
       : [];
-    const smsKey = queuePaymentSms(tx, db, {
+    const isMarketplaceOrder = order.marketplaceOrder === true
+      || (Array.isArray(order.items) && order.items.length > 0
+        && order.items.every(item => Boolean(item?.sellerId || item?.sellerSnapshot?.sellerId)));
+    const smsKey = isMarketplaceOrder ? null : queuePaymentSms(tx, db, {
       orderDocumentId: payment.orderDocumentId,
       order,
       payment: { ...payment, id: paymentRef.id, paymentId: paymentRef.id, amount: paidAmount },

@@ -172,6 +172,30 @@ await test('marketplace order lines snapshot seller ownership while first-party 
   assert.equal('sellerSnapshot' in firstPartyOrder.items[0], false);
 });
 
+await test('marketplace checkout has no HerStep Collection pickup or delivery charge', async () => {
+  const db = seedBase({ product: {
+    sellerUid: 'seller-checkout-1', sellerId: 'seller-checkout-1',
+    sellerDisplayName: 'Marketplace Seller', sellerBusinessName: 'Seller Business', marketplaceSeller: true,
+  } });
+  const payload = checkoutPayload();
+  payload.delivery = { ...payload.delivery, deliveryMethod: 'MARKETPLACE', location: '' };
+  const result = await createOrderCore(db, deps(db), payload);
+  const order = db.__doc('orders', result.order.id).data;
+  assert.equal(order.marketplaceOrder, true);
+  assert.equal(order.marketplaceSellerInvoices, true);
+  assert.equal(order.delivery.deliveryMethod, 'MARKETPLACE');
+  assert.equal(order.delivery.location, 'Seller will coordinate delivery or pickup directly');
+  assert.equal(order.deliveryFee, 0);
+  assert.equal(order.total, order.subtotal - order.discount);
+});
+
+await test('marketplace checkout rejects first-party Collection items', async () => {
+  const db = seedBase();
+  const payload = checkoutPayload();
+  payload.delivery = { ...payload.delivery, deliveryMethod: 'MARKETPLACE', location: '' };
+  await assert.rejects(() => createOrderCore(db, deps(db), payload), /Marketplace checkout can only contain marketplace seller products/);
+});
+
 await test('verified marketplace payment creates one pending seller ledger entry per line and retries do not duplicate it', async () => {
   const db = seedBase({ product: {
     sellerUid: 'seller-ledger-1', sellerId: 'seller-ledger-1',

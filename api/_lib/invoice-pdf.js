@@ -89,8 +89,18 @@ export function dateNairobi(value) {
 // delivery.deliveryMethod ("COLLECTION" | "DELIVERY"), exactly like the email
 // templates read it (api/_lib/email-templates.js). Anything else defaults to
 // COLLECTION so nothing ever prints a wrong address.
+function isMarketplaceOrder(order) {
+  const o = order || {};
+  if (o.marketplaceOrder === true || String(o.delivery?.deliveryMethod || '').toUpperCase() === 'MARKETPLACE') return true;
+  const items = Array.isArray(o.items) ? o.items : [];
+  return items.length > 0 && items.every(item => Boolean(item?.sellerId || item?.sellerSnapshot?.sellerId));
+}
+
 function deliveryLine(order) {
   const d = order.delivery || {};
+  if (isMarketplaceOrder(order)) {
+    return { method: 'Seller-arranged delivery or pickup', where: 'The seller will coordinate delivery or pickup directly with the buyer.' };
+  }
   const method = String(d.deliveryMethod || 'COLLECTION').toUpperCase();
   if (method === 'DELIVERY') {
     const where = d.location || [d.county, d.town].filter(Boolean).join(', ') || d.address || '';
@@ -107,8 +117,9 @@ export async function buildInvoicePdf({ order, payment }) {
   const orderId = winansi(o.orderId || '', 40);
 
   const doc = await PDFDocument.create();
-  doc.setTitle(`HerStep Invoice ${invoiceNumber}`);
-  doc.setProducer('HerStep Collection');
+  const marketplaceOrder = isMarketplaceOrder(o);
+  doc.setTitle(`HerStep ${marketplaceOrder ? 'Marketplace' : 'Collection'} Invoice ${invoiceNumber}`);
+  doc.setProducer(marketplaceOrder ? 'HerStep Marketplace' : 'HerStep Collection');
   const regular = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
@@ -132,9 +143,9 @@ export async function buildInvoicePdf({ order, payment }) {
   };
 
   // ---- Header -------------------------------------------------------------
-  text(STORE.name, MARGIN, y, 26, bold, NAVY);
-  text(STORE.tagline, MARGIN, y - 18, 10, regular, MUTED);
-  text(STORE.address, MARGIN, y - 34, 10, regular, MUTED);
+  text(marketplaceOrder ? 'HERSTEP MARKETPLACE' : STORE.name, MARGIN, y, 26, bold, NAVY);
+  text(marketplaceOrder ? 'SELLER-ARRANGED FULFILMENT' : STORE.tagline, MARGIN, y - 18, 10, regular, MUTED);
+  text(marketplaceOrder ? 'The sale is between the buyer and the named seller.' : STORE.address, MARGIN, y - 34, 10, regular, MUTED);
 
   const rightX = PAGE_W - MARGIN;
   text('INVOICE', rightX - 120, y, 20, bold, NAVY);
@@ -229,7 +240,7 @@ export async function buildInvoicePdf({ order, payment }) {
   y = Math.min(yAfterLeft, yAfterRight) - 12;
 
   // ---- Delivery / collection ----------------------------------------------
-  sectionTitle('Delivery / Collection');
+  sectionTitle(marketplaceOrder ? 'Marketplace fulfilment' : 'Delivery / Collection');
   y -= 16;
   const dl = deliveryLine(o);
   text(dl.method, MARGIN, y, 11, regular, TEXT);
@@ -358,7 +369,8 @@ export async function buildMarketplaceInvoicePdf({ order, seller, items, invoice
   text('Invoice: ' + invoiceNo, PAGE_W - MARGIN - 190, y, 11, bold, NAVY, 80);
   text('Order: ' + orderNo, PAGE_W - MARGIN - 190, y - 17, 10, regular, TEXT, 80);
   text('Status: PAID', PAGE_W - MARGIN - 190, y - 34, 10, bold, GREEN, 40);
-  y -= 62;
+  text('Invoice date: ' + dateNairobi(o.paidAt || o.paymentCompletedAt || o.createdAt), PAGE_W - MARGIN - 190, y - 51, 9, regular, TEXT, 70);
+  y -= 78;
   rule(y); y -= 24;
 
   heading('Seller');
@@ -373,8 +385,7 @@ export async function buildMarketplaceInvoicePdf({ order, seller, items, invoice
   text('Name: ' + buyerName, MARGIN, y, 10, regular, TEXT, 150); y -= 15;
   text('Phone: ' + (buyerPhone || 'Not provided'), MARGIN, y, 10, regular, TEXT, 100); y -= 15;
   text('Email: ' + (buyerEmail || 'Not provided'), MARGIN, y, 10, regular, TEXT, 150); y -= 15;
-  text('Delivery: ' + winansi(o.delivery?.deliveryMethod || 'DELIVERY', 40), MARGIN, y, 10, regular, TEXT, 80); y -= 15;
-  if (o.delivery?.location) { text('Location: ' + o.delivery.location, MARGIN, y, 10, regular, TEXT, 150); y -= 15; }
+  text('Fulfilment: Seller will coordinate delivery or pickup directly with the buyer.', MARGIN, y, 10, regular, TEXT, 150); y -= 15;
   y -= 8;
 
   heading('Items sold by this business');
@@ -418,7 +429,7 @@ export async function buildMarketplaceInvoicePdf({ order, seller, items, invoice
   rule(y);
   y -= 18;
   text('This invoice covers only the seller items listed above.', MARGIN, y, 9, bold, MUTED, 100); y -= 14;
-  text('HerStep Collection operates the marketplace and is not the seller of these items.', MARGIN, y, 9, regular, MUTED, 120);
+  text('HerStep Marketplace provides the platform and is not the seller of these items.', MARGIN, y, 9, regular, MUTED, 120);
   return new Uint8Array(await doc.save());
 }
 

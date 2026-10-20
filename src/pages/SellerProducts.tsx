@@ -275,7 +275,16 @@ export default function SellerProducts() {
               <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-sale-price">Sale price (optional)</label><input id="seller-product-sale-price" className={fieldClass} type="number" min="0" step="1" value={salePrice} onChange={e => setSalePrice(e.target.value)} /></div>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-size">Size / variant</label><select id="seller-product-size" className={fieldClass} value={size} onChange={e => setSize(e.target.value)}>{sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+              <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-size">Size / variant</label><select id="seller-product-size" className={fieldClass} value={size} onChange={e => {
+                const nextSize = e.target.value;
+                setSize(nextSize);
+                if (editingPublished && editingId) {
+                  const currentProduct = drafts.find(item => item.id === editingId);
+                  const variant = currentProduct?.inventory?.find(item => item.size === nextSize);
+                  setQuantity(String(variant?.quantity ?? 1));
+                  setCostPrice(variant?.costPrice == null ? '' : String(variant.costPrice));
+                }
+              }}>{sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>{editingPublished && <p className="text-xs text-neutral-500 mt-1">Choose an existing size to edit its stock, or choose a new size to add a variant.</p>}</div>
               <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-quantity">Quantity</label><input id="seller-product-quantity" className={fieldClass} type="number" min="0" step="1" value={quantity} onChange={e => setQuantity(e.target.value)} required /></div>
               <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-cost">Cost (optional)</label><input id="seller-product-cost" className={fieldClass} type="number" min="0" step="1" value={costPrice} onChange={e => setCostPrice(e.target.value)} /></div>
             </div>

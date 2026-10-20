@@ -4,7 +4,7 @@
 // GET /api/admin/orders. Tabs without a Phase 1 backend show "Coming soon".
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image, Sparkles, Star, Store } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Package, Users, CreditCard, MessageSquare, Mail, Tag, Bell, Settings, LogOut, TrendingUp, AlertTriangle, X, Upload, Heart, FileText, Image, Sparkles, Star, Store, Wallet } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { usePageMeta } from '../hooks/usePageMeta';
 
@@ -751,6 +751,7 @@ export default function AdminDashboard() {
     { id: 'reviews', label: 'Reviews', icon: Star },
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'payments', label: 'Payments', icon: CreditCard },
+    { id: 'marketplace-payouts', label: 'Marketplace Payouts', icon: Wallet },
     { id: 'refunds', label: 'Refunds & Returns', icon: FileText },
     { id: 'tips', label: 'Tips', icon: Heart },
     { id: 'support', label: 'Support', icon: MessageSquare },
@@ -782,7 +783,7 @@ export default function AdminDashboard() {
           {navItems.map(item => (
             <button
               key={item.id}
-              onClick={() => setActiveSection(item.id)}
+              onClick={() => item.id === 'marketplace-payouts' ? navigate('/admin/marketplace-payouts') : setActiveSection(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeSection === item.id ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-600 hover:bg-neutral-50'}`}
             >
               <item.icon className="w-4 h-4" />
