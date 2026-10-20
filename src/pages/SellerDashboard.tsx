@@ -403,7 +403,7 @@ export default function SellerDashboard() {
           <Clock3 className="w-5 h-5 text-neutral-500 mt-0.5" />
           <div>
             <h3 className="font-semibold text-neutral-900">Secure subscription payments</h3>
-            <p className="text-sm text-neutral-600 mt-1">Your subscription activates only after the payment provider confirms the exact amount. If a payment is pending, use “Check payment status” instead of starting a different payment. Seller payouts are not enabled yet.</p>
+            <p className="text-sm text-neutral-600 mt-1">Your subscription activates only after the payment provider confirms the exact amount. If a payment is pending, use “Check payment status” instead of starting a different payment. Seller payouts are available for eligible sellers, but requests are reviewed manually and funds are not sent automatically.</p>
             <Link to="/support" className="inline-block text-sm font-medium text-neutral-900 underline mt-3">Contact support</Link>
           </div>
         </div>
