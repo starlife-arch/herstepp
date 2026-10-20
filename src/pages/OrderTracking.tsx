@@ -197,9 +197,7 @@ export default function OrderTracking() {
               <div className="flex items-center gap-2">
                 <Badge variant={getStatusBadge(order.paymentStatus).variant}>Payment: {getStatusBadge(order.paymentStatus).label}</Badge>
                 {order.items.some(item => item.sellerId) ? (
-                  <Badge variant={getStatusBadge(Object.values(order.sellerFulfilment || {})[0]?.status || 'PENDING').variant}>
-                    Seller fulfilment: {getStatusBadge(Object.values(order.sellerFulfilment || {})[0]?.status || 'PENDING').label}
-                  </Badge>
+                  <Badge variant="info">Seller-managed fulfilment</Badge>
                 ) : (
                   <Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge>
                 )}
