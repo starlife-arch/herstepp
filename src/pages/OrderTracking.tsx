@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useSearchParams, Link } from 'react-router-dom';
-import { Search, Package, Check, Truck, Clock, MapPin, Heart, FileText, RefreshCw } from 'lucide-react';
+import { Search, Package, Check, Truck, Clock, MapPin, Heart, FileText, RefreshCw, BadgeCheck } from 'lucide-react';
 import { Card, Button, Badge, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { apiFetch, apiDownload } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -25,7 +25,7 @@ type TrackOrder = {
   total: number;
   createdAt: string | null;
   delivery: { fullName: string; phone: string; deliveryMethod: string; location: string; instructions: string };
-  items: { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number; imageUrl: string | null; sellerId?: string | null; sellerBusinessName?: string }[];
+  items: { productId: string; name: string; size: string; quantity: number; unitPrice: number; lineTotal: number; imageUrl: string | null; sellerId?: string | null; sellerBusinessName?: string; sellerVerificationBadgeActive?: boolean }[];
   history: { newStatus?: string; previousStatus?: string | null; note?: string; createdAt: string | null }[];
   updatedAt?: string | null;
 };
@@ -89,9 +89,9 @@ export default function OrderTracking() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
 
-  async function fetchOrder(id: string) {
+  async function fetchOrder(id: string, quiet = false) {
     if (!id.trim()) return;
-    setLoading(true);
+    if (!quiet) setLoading(true);
     setError(null);
     setNotFound(false);
     setSearched(true);
@@ -107,7 +107,7 @@ export default function OrderTracking() {
       if (msg.includes("couldn't find") || err?.status === 404) setNotFound(true);
       else setError(msg || 'We could not load this order.');
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   }
 
@@ -116,6 +116,16 @@ export default function OrderTracking() {
     if (initial.trim()) void fetchOrder(initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Keep the buyer's tracking page in sync while it is open; the seller updates
+  // the sellerFulfilment field rather than the Collection orderStatus field.
+  useEffect(() => {
+    if (!order?.orderId) return;
+    const timer = window.setInterval(() => { void fetchOrder(order.orderId, true); }, 15000);
+    return () => window.clearInterval(timer);
+    // The order identity is stable while the status payload refreshes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order?.id, order?.orderId]);
 
   const statusSteps = useMemo(
     () => [
@@ -250,7 +260,7 @@ export default function OrderTracking() {
                   const fulfilment = order.sellerFulfilment?.[item.sellerId || ''];
                   const status = fulfilment?.status || 'PENDING';
                   return <div key={item.sellerId} className="flex items-start justify-between gap-3 border border-neutral-200 rounded-lg p-3">
-                    <div><p className="font-medium text-sm">{item.sellerBusinessName || 'Marketplace seller'}</p><p className="text-xs text-neutral-500 mt-1">Items from this seller: {item.name}</p>{fulfilment?.note && <p className="text-sm text-neutral-600 mt-2">{fulfilment.note}</p>}</div>
+                    <div><p className="font-medium text-sm flex items-center gap-1.5">{item.sellerBusinessName || 'Marketplace seller'}{item.sellerVerificationBadgeActive === true && <span title="Verified business" aria-label="Verified business" className="inline-flex text-blue-600"><BadgeCheck className="w-4 h-4 fill-blue-50" /></span>}</p><p className="text-xs text-neutral-500 mt-1">Items from this seller: {item.name}</p>{fulfilment?.note && <p className="text-sm text-neutral-600 mt-2">{fulfilment.note}</p>}</div>
                     <Badge variant={getStatusBadge(status).variant}>{getStatusBadge(status).label}</Badge>
                   </div>;
                 })}
