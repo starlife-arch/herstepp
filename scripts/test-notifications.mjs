@@ -55,6 +55,7 @@ await test('marketplace invoices identify buyer and seller and contain only sell
   assert(first.htmlContent.includes('Blue Bag'));
   assert(!first.htmlContent.includes('Gold Necklace'));
   assert(first.htmlContent.includes('HerStep Collection provides the marketplace'));
+  assert(first.htmlContent.includes('HERSTEP MARKETPLACE'));
   assert(!first.htmlContent.includes('<script>'));
 });
 await test('marketplace payment receipt does not promise a HerStep seller invoice', () => {
@@ -71,6 +72,8 @@ await test('marketplace payment receipt does not promise a HerStep seller invoic
   assert(!keys.some(key => key.endsWith('-INVOICE')));
   const receipt = [...db.records.values()][0];
   assert(receipt.htmlContent.includes('Seller-specific invoices for marketplace items are sent separately'));
+  assert(receipt.htmlContent.includes('The seller will coordinate delivery or pickup directly'));
+  assert(!receipt.htmlContent.includes('Collection at Juja Town, Jerry House'));
   assert(!receipt.htmlContent.includes('Your invoice is in a separate email from invoices@'));
 });
 await test('marketplace sale queues one buyer and one seller invoice per seller, without SMS', () => {
@@ -94,7 +97,7 @@ await test('marketplace sale queues one buyer and one seller invoice per seller,
   });
   assert.equal(writes.length, 4);
   assert.deepEqual(writes.map(row => row.to).sort(), ['blue@example.com', 'buyer@example.com', 'buyer@example.com', 'gold@example.com']);
-  assert(writes.every(row => row.purpose === 'invoices'));
+  assert(writes.every(row => row.purpose === 'orders'));
   assert(writes.every(row => !row.key.includes('SMS')));
 });
 await test('outbox is idempotent and a failed delivery returns to PENDING', async () => {
