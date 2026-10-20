@@ -52,6 +52,9 @@ await test('marketplace invoices identify buyer and seller and contain only sell
   assert(first.htmlContent.includes('buyer@example.com'));
   assert(first.htmlContent.includes('Blue Boutique'));
   assert(first.htmlContent.includes('QWE123'));
+  assert(first.htmlContent.includes('Invoice date:'));
+  assert(first.htmlContent.includes('Fulfilment:'));
+  assert(first.htmlContent.includes('Jerry House pickup point and first-party delivery charges do not apply'));
   assert(first.htmlContent.includes('Blue Bag'));
   assert(!first.htmlContent.includes('Gold Necklace'));
   assert(first.htmlContent.includes('HerStep Collection provides the marketplace'));
