@@ -196,7 +196,13 @@ export default function OrderTracking() {
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant={getStatusBadge(order.paymentStatus).variant}>Payment: {getStatusBadge(order.paymentStatus).label}</Badge>
-                <Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge>
+                {order.items.some(item => item.sellerId) ? (
+                  <Badge variant={getStatusBadge(Object.values(order.sellerFulfilment || {})[0]?.status || 'PENDING').variant}>
+                    Seller fulfilment: {getStatusBadge(Object.values(order.sellerFulfilment || {})[0]?.status || 'PENDING').label}
+                  </Badge>
+                ) : (
+                  <Badge variant={getStatusBadge(order.orderStatus).variant}>{getStatusBadge(order.orderStatus).label}</Badge>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
@@ -210,11 +216,11 @@ export default function OrderTracking() {
               </div>
               <div>
                 <p className="text-neutral-500">Delivery</p>
-                <p className="font-medium capitalize">{order.delivery?.deliveryMethod === 'DELIVERY' ? 'Delivery' : 'Collection'}</p>
+                <p className="font-medium">{order.delivery?.deliveryMethod === 'MARKETPLACE' ? 'Seller-arranged delivery or pickup' : order.delivery?.deliveryMethod === 'DELIVERY' ? 'Delivery' : 'Collection'}</p>
               </div>
               <div>
                 <p className="text-neutral-500">Location</p>
-                <p className="font-medium">{order.delivery?.location || '—'}</p>
+                <p className="font-medium">{order.delivery?.deliveryMethod === 'MARKETPLACE' ? 'Seller will coordinate directly' : order.delivery?.location || '—'}</p>
               </div>
               {order.receiptNumber && (
                 <div>
@@ -237,6 +243,23 @@ export default function OrderTracking() {
               </div>
             )}
           </Card>
+
+          {order.items.some(item => item.sellerId) && (
+            <Card className="p-6">
+              <h3 className="font-semibold text-neutral-900 mb-3">Marketplace seller updates</h3>
+              <p className="text-sm text-neutral-600 mb-4">Each seller manages fulfilment for their own items. Status changes appear here when the seller updates the order.</p>
+              <div className="space-y-3">
+                {Array.from(new Map(order.items.filter(item => item.sellerId).map(item => [item.sellerId as string, item])).values()).map(item => {
+                  const fulfilment = order.sellerFulfilment?.[item.sellerId || ''];
+                  const status = fulfilment?.status || 'PENDING';
+                  return <div key={item.sellerId} className="flex items-start justify-between gap-3 border border-neutral-200 rounded-lg p-3">
+                    <div><p className="font-medium text-sm">{item.sellerBusinessName || 'Marketplace seller'}</p><p className="text-xs text-neutral-500 mt-1">Items from this seller: {item.name}</p>{fulfilment?.note && <p className="text-sm text-neutral-600 mt-2">{fulfilment.note}</p>}</div>
+                    <Badge variant={getStatusBadge(status).variant}>{getStatusBadge(status).label}</Badge>
+                  </div>;
+                })}
+              </div>
+            </Card>
+          )}
 
           {/* Timeline */}
           <Card className="p-6">
