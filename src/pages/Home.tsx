@@ -379,7 +379,7 @@ export function ProductCard({ product }: { product: Product }) {
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             loading="lazy"
           />
-          {isPromoted && !isSoldOut && <div className="absolute bottom-2 left-2"><span className="bg-amber-300 text-neutral-900 px-2 py-0.5 rounded text-xs font-bold">PROMOTED</span></div>}
+          {/* Sponsored disclosure is shown with listing details below, not over the product photo. */}
           {isSoldOut && (
             <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
               <span className="bg-white text-neutral-900 px-3 py-1 rounded-full text-xs font-bold">SOLD OUT</span>
@@ -399,7 +399,8 @@ export function ProductCard({ product }: { product: Product }) {
         <div className="p-3 sm:p-4">
           {categoryName && <p className="text-xs text-neutral-500 mb-1">{categoryName}</p>}
           {product.sellerUid && <p className="text-xs text-neutral-600 mb-1 flex items-center gap-1 min-w-0"><span className="truncate">{product.sellerBusinessName || product.sellerDisplayName || 'Marketplace seller'}</span>{(product as any).sellerVerificationBadgeActive === true && <span role="img" aria-label="Verified seller" className="inline-flex shrink-0" title="Verified seller"><BadgeCheck aria-hidden="true" className="w-3.5 h-3.5 text-blue-600 fill-blue-50" /></span>}</p>}
-          <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-2 line-clamp-2">{product.name}</h3>
+          <h3 className="font-medium text-neutral-900 text-sm leading-tight mb-1 line-clamp-2">{product.name}</h3>
+          {isPromoted && !isSoldOut && <p className="text-[11px] font-semibold uppercase tracking-wide text-neutral-500 mb-2">Sponsored</p>}
           <div className="flex items-center gap-2 mb-2">
             {hasDiscount(product) ? (
               <>
