@@ -28,7 +28,6 @@ export default function AdminMarketplacePayouts() {
   }
   useEffect(() => { void refresh(); }, []);
   async function act(payout: Payout, action: 'APPROVE' | 'REJECT' | 'MARK_PAID') {
-    if (action !== 'MARK_PAID' && !notes[payout.id]?.trim()) { setError('Enter a review note before approving or rejecting.'); return; }
     if (action === 'MARK_PAID' && !references[payout.id]?.trim()) { setError('Enter the confirmed M-Pesa/provider reference after sending the money.'); return; }
     setBusy(payout.id); setError(''); setNotice('');
     try {
