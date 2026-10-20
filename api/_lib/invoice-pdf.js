@@ -369,7 +369,8 @@ export async function buildMarketplaceInvoicePdf({ order, seller, items, invoice
   text('Invoice: ' + invoiceNo, PAGE_W - MARGIN - 190, y, 11, bold, NAVY, 80);
   text('Order: ' + orderNo, PAGE_W - MARGIN - 190, y - 17, 10, regular, TEXT, 80);
   text('Status: PAID', PAGE_W - MARGIN - 190, y - 34, 10, bold, GREEN, 40);
-  y -= 62;
+  text('Invoice date: ' + dateNairobi(o.paidAt || o.paymentCompletedAt || o.createdAt), PAGE_W - MARGIN - 190, y - 51, 9, regular, TEXT, 70);
+  y -= 78;
   rule(y); y -= 24;
 
   heading('Seller');
