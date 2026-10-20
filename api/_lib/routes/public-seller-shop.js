@@ -75,7 +75,7 @@ export default async function publicSellerShop(req, res) {
 
   const verifiedBadgeActive = seller.verificationBadge === true;
 
-  res.setHeader('Cache-Control', 'public, s-maxage=60, stale-while-revalidate=120');
+  res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=0');
   return res.status(200).json({
     shop: {
       id: sellerId,
