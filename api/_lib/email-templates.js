@@ -87,8 +87,7 @@ const PICKUP_ADDRESS = 'Juja Town, Jerry House, near Juja Posta, Outside Shop No
 
 function isMarketplaceOrder(order) {
   const o = order || {};
-  const marketplaceOrder = isMarketplaceOrder(o);
-  if (o.marketplaceOrder === true || marketplaceOrder
+  if (o.marketplaceOrder === true || o.marketplaceSellerInvoices === true
     || String(o.delivery?.deliveryMethod || o.deliveryMethod || '').toUpperCase() === 'MARKETPLACE') return true;
   const items = Array.isArray(o.items) ? o.items : [];
   return items.length > 0 && items.every(item => Boolean(item?.sellerId || item?.sellerSnapshot?.sellerId));
@@ -98,6 +97,7 @@ function isMarketplaceOrder(order) {
 // timed-out payment notices (adds a "Pay now" CTA in that case).
 export function orderReceiptEmail(order, status) {
   const o = order || {};
+  const marketplaceOrder = isMarketplaceOrder(o);
   const st = String(status || o.paymentStatus || 'PENDING').toUpperCase();
   const name = o.delivery?.fullName || o.customerName || 'there';
   const orderId = o.orderId || '';
