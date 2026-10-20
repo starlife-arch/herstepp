@@ -73,7 +73,11 @@ export default async function publicSellerShop(req, res) {
     .map(serializeProduct)
     .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
 
-  const verifiedBadgeActive = seller.verificationBadge === true;
+  // Same rule as seller-visibility.js: paying for any plan (whose total always
+  // includes the mandatory badge fee) grants the blue badge automatically; an
+  // explicit admin revocation hides it again until the next payment.
+  const badgePaid = seller.badgeSubscriptionStatus === 'ACTIVE';
+  const verifiedBadgeActive = badgePaid || seller.verificationBadge === true;
 
   res.setHeader('Cache-Control', 'public, s-maxage=5, stale-while-revalidate=0');
   return res.status(200).json({

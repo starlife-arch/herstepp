@@ -835,6 +835,37 @@ export const ALLOWED_ORDER_TRANSITIONS = {
 
 const VALID_ORDER_STATUSES = new Set(ORDER_STATUSES);
 
+// Buyer-facing status for marketplace/mixed orders. Sellers update their own
+// fulfilment map (sellerFulfilment[uid].status) and admins update HerStep
+// Collection items via firstPartyFulfilment.status — the top-level orderStatus
+// stays PENDING on those docs. Derive ONE effective status so every buyer
+// surface (dashboard, tracking, API) shows the real progress:
+// - CANCELLED anywhere wins outright.
+// - DELIVERED only when EVERY fulfilment line (HerStep + each seller) delivered.
+// - Otherwise the most-advanced status any line has reached.
+const STATUS_RANK = { PENDING: 0, PROCESSING: 1, PROCESSED: 2, OUT_FOR_DELIVERY: 3, DELIVERED: 4 };
+
+export function deriveEffectiveOrderStatus(order) {
+  const raw = String(order?.orderStatus || 'PENDING').toUpperCase();
+  if (raw === 'CANCELLED') return 'CANCELLED';
+  const lines = [];
+  if (order?.firstPartyFulfilment && typeof order.firstPartyFulfilment === 'object') {
+    lines.push(String(order.firstPartyFulfilment.status || 'PENDING').toUpperCase());
+  }
+  const fulfilment = order?.sellerFulfilment;
+  if (fulfilment && typeof fulfilment === 'object' && !Array.isArray(fulfilment)) {
+    for (const value of Object.values(fulfilment)) {
+      lines.push(String(value?.status || 'PENDING').toUpperCase());
+    }
+  }
+  if (!lines.length) return raw;
+  if (lines.some(status => status === 'CANCELLED')) return 'CANCELLED';
+  const ranked = lines.filter(status => status in STATUS_RANK);
+  if (!ranked.length) return raw;
+  if (ranked.every(status => status === 'DELIVERED')) return 'DELIVERED';
+  return ranked.reduce((best, status) => (STATUS_RANK[status] > STATUS_RANK[best] ? status : best), 'PENDING');
+}
+
 export function nextOrderStatuses(current) {
   return ALLOWED_ORDER_TRANSITIONS[current] || [];
 }

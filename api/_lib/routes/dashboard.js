@@ -14,7 +14,7 @@
 // rendering "No orders yet".
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { methodNotAllowed, clientError } from '../http.js';
-import { reconcileBestEffort, PAYMENT_STATUS } from '../order-core.js';
+import { reconcileBestEffort, deriveEffectiveOrderStatus, PAYMENT_STATUS } from '../order-core.js';
 
 const iso = v => (v?.toDate ? v.toDate().toISOString() : v || null);
 const rows = s => s.docs.map(d => ({ id: d.id, ...d.data(), createdAt: iso(d.data().createdAt), updatedAt: iso(d.data().updatedAt) }));
@@ -132,7 +132,14 @@ export async function dashboard(req, res) {
       // sync-profile. Drives the "Verify your email to place orders" banner.
       emailVerified: p.emailVerified === true || u.email_verified === true,
     },
-    orders: ordersAll.map(o => ({ ...o, statusHistory: undefined })),
+    // statusHistory is stripped (loaded lazily via /api/orders/track), but the
+    // fulfilment maps stay: buyers see per-seller progress and the effective
+    // status below reflects seller/admin updates in real time.
+    orders: ordersAll.map(o => ({
+      ...o,
+      statusHistory: undefined,
+      orderStatus: deriveEffectiveOrderStatus(o),
+    })),
     payments,
     notifications,
     warnings,
