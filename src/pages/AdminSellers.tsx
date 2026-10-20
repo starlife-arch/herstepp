@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, ClipboardCheck, RefreshCw, ShieldCheck, Store, Save } from 'lucide-react';
+import { ArrowLeft, BadgeCheck, ClipboardCheck, RefreshCw, ShieldCheck, Store, Save } from 'lucide-react';
 import { Badge, Button, Card, EmptyState, Input, getStatusBadge, formatDateTime } from '../components/ui';
 import { apiFetch } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -15,6 +15,7 @@ type SellerApplication = {
   categories: string[];
   description: string;
   status: string;
+  verificationBadge: boolean;
   adminReason: string;
   createdAt: string | null;
   updatedAt: string | null;
@@ -76,6 +77,27 @@ export default function AdminSellers() {
     } catch (err: any) {
       setError(err?.message || 'Could not update the seller business profile.');
     } finally { setBusyId(''); }
+  };
+
+  const toggleVerification = async (application: SellerApplication) => {
+    const nextValue = !application.verificationBadge;
+    setBusyId(application.applicantUid);
+    setError('');
+    setNotice('');
+    try {
+      const suppliedReason = (reasons[application.applicantUid] || '').trim();
+      const reason = suppliedReason || (nextValue ? 'Verified after admin business review' : 'Verification badge revoked by admin');
+      const result: any = await apiFetch('/api/admin/sellers/profile', {
+        method: 'PATCH',
+        body: JSON.stringify({ sellerUid: application.applicantUid, verificationBadge: nextValue, reason }),
+      });
+      setNotice(result.message || 'Seller verification updated.');
+      await load();
+    } catch (err: any) {
+      setError(err?.message || 'Could not update seller verification.');
+    } finally {
+      setBusyId('');
+    }
   };
 
   const updateApplication = async (application: SellerApplication, nextStatus: string) => {
@@ -147,6 +169,7 @@ export default function AdminSellers() {
                         <Store className="w-5 h-5 text-neutral-500" />
                         <h2 className="text-lg font-semibold text-neutral-900">{application.displayName}</h2>
                         <Badge variant={badge.variant}>{badge.label}</Badge>
+                        {application.verificationBadge && <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700"><BadgeCheck className="w-4 h-4 fill-blue-50" /> Verified business</span>}
                       </div>
                       {application.businessName && <p className="text-sm text-neutral-600 mt-1">{application.businessName}</p>}
                       <div className="text-sm text-neutral-600 mt-3 space-y-1">
@@ -170,7 +193,10 @@ export default function AdminSellers() {
                           <Button size="sm" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => updateApplication(application, 'APPROVED')}><ShieldCheck className="w-4 h-4 mr-1.5" /> Approve</Button>
                           <Button size="sm" variant="danger" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => updateApplication(application, 'REJECTED')}>Reject</Button>
                         </>}
-                        {application.status === 'APPROVED' && <Button size="sm" variant="danger" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => updateApplication(application, 'SUSPENDED')}>Suspend seller</Button>}
+                        {application.status === 'APPROVED' && <>
+                          <Button size="sm" variant="outline" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => void toggleVerification(application)}><BadgeCheck className="w-4 h-4 mr-1.5 text-blue-600" />{application.verificationBadge ? 'Remove verified badge' : 'Verify business'}</Button>
+                          <Button size="sm" variant="danger" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => updateApplication(application, 'SUSPENDED')}>Suspend seller</Button>
+                        </>}
                         {application.status === 'SUSPENDED' && <Button size="sm" variant="secondary" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => updateApplication(application, 'REINSTATED')}>Reinstate seller</Button>}
                       </div>
                     </div>
