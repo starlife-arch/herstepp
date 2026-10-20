@@ -83,7 +83,13 @@ export default function Checkout() {
       const draft = sessionStorage.getItem('herstep-checkout-draft');
       if (draft) {
         const parsed = JSON.parse(draft);
-        setForm(current => ({ ...current, ...parsed }));
+        // Restore contact/instructions, but never let a stale Collection
+        // checkout draft override marketplace-only fulfilment.
+        setForm(current => ({
+          ...current,
+          ...parsed,
+          deliveryMethod: marketplaceOnly ? 'marketplace' : (parsed.deliveryMethod || current.deliveryMethod),
+        }));
         sessionStorage.removeItem('herstep-checkout-draft');
       }
     } catch { /* checkout remains usable if session storage is unavailable */ }
@@ -315,7 +321,9 @@ export default function Checkout() {
             delivery: {
               fullName: form.fullName,
               phone: form.phone,
-              deliveryMethod: form.deliveryMethod.toUpperCase(),
+              // The cart classification is authoritative. A stale restored
+              // form state must never turn marketplace checkout into Collection.
+              deliveryMethod: marketplaceOnly ? 'MARKETPLACE' : form.deliveryMethod.toUpperCase(),
               location: form.deliveryLocation,
               instructions: form.instructions,
             },
