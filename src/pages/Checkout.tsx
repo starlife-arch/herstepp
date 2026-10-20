@@ -61,6 +61,9 @@ export default function Checkout() {
   usePageMeta('Checkout | HerStep Collection', undefined, true);
   const { state, dispatch } = useApp();
   const navigate = useNavigate();
+  const cartHasMarketplace = state.cart.some(item => Boolean((item.product as any).marketplaceSeller || (item.product as any).sellerUid || (item.product as any).sellerId));
+  const cartHasFirstParty = state.cart.some(item => !((item.product as any).marketplaceSeller || (item.product as any).sellerUid || (item.product as any).sellerId));
+  const marketplaceOnly = state.cart.length > 0 && cartHasMarketplace && !cartHasFirstParty;
   // /checkout?order=<doc id> — "Pay now" from the dashboard: retry payment for
   // an EXISTING order (no new order is created; the doc id stays internal).
   const [searchParams] = useSearchParams();
@@ -71,7 +74,7 @@ export default function Checkout() {
     fullName: state.user?.name || '',
     phone: state.user?.phone || '',
     email: state.user?.email || '',
-    deliveryMethod: 'collection' as 'collection' | 'delivery',
+    deliveryMethod: (marketplaceOnly ? 'marketplace' : 'collection') as 'collection' | 'delivery' | 'marketplace',
     deliveryLocation: '',
     instructions: '',
   });
@@ -92,7 +95,8 @@ export default function Checkout() {
   const { promoCode, setPromoCode, promo, promoError, applyPromo, removePromo } = usePromo(state.cart);
 
   // Delivery fees come ONLY from GET /api/checkout/config — never hardcoded.
-  const [config, setConfig] = useState<CheckoutConfig | null>(null);
+  const marketplaceConfig: CheckoutConfig = { deliveryEnabled: false, collectionEnabled: false, collectionLocation: '', deliveryRates: normalizeDelivery({}).deliveryRates };
+  const [config, setConfig] = useState<CheckoutConfig | null>(marketplaceOnly ? marketplaceConfig : null);
   const [configError, setConfigError] = useState<string | null>(null);
 
   // The authoritative amount to pay is the server total from /api/orders/create.
@@ -124,6 +128,7 @@ export default function Checkout() {
 
   useEffect(() => {
     let cancelled = false;
+    if (marketplaceOnly) { setConfig(marketplaceConfig); return () => { cancelled = true; }; }
     apiFetch('/api/checkout/config')
       .then((data: any) => {
         if (cancelled) return;
@@ -146,14 +151,14 @@ export default function Checkout() {
         setConfigError(err instanceof Error ? err.message : 'Could not load delivery options.');
       });
     return () => { cancelled = true; };
-  }, []);
+  }, [marketplaceOnly]);
 
   const subtotal = state.cart.reduce((sum, item) => sum + effectivePrice(item.product) * item.quantity, 0);
 
   // Estimated fee for display only (from server rates). Collection is always
   // free. The ACTUAL amount to pay is the total returned by /api/orders/create.
   const estimateDeliveryFee = (): number => {
-    if (form.deliveryMethod === 'collection') return 0;
+    if (form.deliveryMethod === 'collection' || form.deliveryMethod === 'marketplace') return 0;
     return previewDeliveryFee(config, form.deliveryLocation);
   };
   const deliveryFee = estimateDeliveryFee();
@@ -169,6 +174,7 @@ export default function Checkout() {
     if (!form.email.trim()) e.email = 'Email is required';
     if (!/\S+@\S+\.\S+/.test(form.email)) e.email = 'Enter a valid email';
     if (form.deliveryMethod === 'delivery' && !form.deliveryLocation.trim()) e.deliveryLocation = 'Delivery location is required';
+    if (cartHasMarketplace && cartHasFirstParty) e.cart = 'Marketplace and HerStep Collection items must be checked out separately. Remove one type of item from your cart, complete that order, then return for the other items.';
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -512,7 +518,9 @@ export default function Checkout() {
         <div className="lg:col-span-2">
           {step === 'details' && (
             <Card className="p-6">
-              <h2 className="text-lg font-semibold text-neutral-900 mb-6">Delivery Details</h2>
+              <h2 className="text-lg font-semibold text-neutral-900 mb-2">{marketplaceOnly ? 'Marketplace Checkout' : 'Delivery Details'}</h2>
+              {marketplaceOnly && <p className="text-sm text-neutral-600 mb-6">Seller-managed fulfilment · no HerStep Collection pickup or delivery fees</p>}
+              {errors.cart && <p role="alert" className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{errors.cart}</p>}
               <div className="space-y-4">
                 {!state.user?.phone && (
                   <div className="p-3 rounded-lg bg-yellow-50 border border-yellow-200 text-sm text-yellow-800">
@@ -531,6 +539,12 @@ export default function Checkout() {
                 </div>
                 <Input label="Email Address" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} error={errors.email} placeholder="your@email.com" />
 
+                {marketplaceOnly ? (
+                  <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                    <p className="font-semibold text-blue-900">HerStep Marketplace checkout</p>
+                    <p className="text-sm text-blue-800 mt-1">This purchase is directly from the seller. HerStep Collection's Jerry House pickup point and Collection delivery charges do not apply. The seller will contact you to coordinate delivery or pickup.</p>
+                  </div>
+                ) : (
                 <div>
                   <label className="block text-sm font-medium text-neutral-700 mb-3">Delivery Method</label>
                   <div className={`grid grid-cols-2 gap-3 ${config?.deliveryEnabled ? '' : 'grid-cols-1'}`}>
@@ -559,6 +573,7 @@ export default function Checkout() {
                     <p className="text-xs text-neutral-500 mt-2">Delivery is currently unavailable. Collection only.</p>
                   )}
                 </div>
+                )}
 
                 {form.deliveryMethod === 'delivery' && <div className="space-y-2">
                   <Input label="Delivery Location" value={form.deliveryLocation} onChange={e => setForm({ ...form, deliveryLocation: e.target.value })} error={errors.deliveryLocation} placeholder="e.g., Juja Town, near Stage" />
@@ -608,7 +623,7 @@ export default function Checkout() {
                 <p className="text-sm text-neutral-600">{form.phone}</p>
                 <p className="text-sm text-neutral-600">{form.email}</p>
                 <p className="text-sm text-neutral-600 mt-2">
-                  {form.deliveryMethod === 'collection' ? 'Collection at Jerry House' : form.deliveryLocation}
+                  {marketplaceOnly ? 'Seller will coordinate delivery or pickup directly' : form.deliveryMethod === 'collection' ? 'Collection at Jerry House' : form.deliveryLocation}
                 </p>
               </div>
 
@@ -628,7 +643,7 @@ export default function Checkout() {
                     Try again — Pay {formatCurrency(amountToPay)}
                   </Button>
                 ) : (
-                  <Button size="lg" className="flex-1" onClick={handlePay} disabled={!config}>
+                  <Button size="lg" className="flex-1" onClick={handlePay} disabled={!config || (cartHasMarketplace && cartHasFirstParty)}>
                     <CreditCard className="w-4 h-4 mr-2" />
                     {config ? `Pay ${formatCurrency(estimatedTotal)}` : 'Loading…'}
                   </Button>
