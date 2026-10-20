@@ -15,6 +15,7 @@ type TrackOrder = {
   orderStatus: string;
   paymentStatus: string;
   sellerFulfilment?: Record<string, { status?: string; note?: string }>;
+  firstPartyFulfilment?: { status?: string; note?: string } | null;
   customerName?: string;
   receiptNumber?: string | null;
   invoiceNumber?: string | null;
