@@ -239,10 +239,20 @@ export default function SellerDashboard() {
     setPromotionBusy(true); setPromotionError(''); setPromotionMessage('');
     try {
       const key = `promote-${crypto.randomUUID()}`;
-      const result: any = await apiFetch('/api/sellers/promotions', { method: 'POST', body: JSON.stringify({ productId: promotionProductId, phone: promotionPhone.trim(), idempotencyKey: key }) });
+      let result: any;
+      try {
+        result = await apiFetch('/api/sellers/promotions', { method: 'POST', body: JSON.stringify({ productId: promotionProductId, phone: promotionPhone.trim(), idempotencyKey: key }) });
+      } catch (firstErr: any) {
+        // If a previous attempt was blocked by a spent/stuck payment record,
+        // retry once with a brand-new idempotency key so the seller always
+        // gets a fresh STK push instead of an error.
+        if (!/already|ended|prepared/i.test(firstErr?.message || '')) throw firstErr;
+        const retryKey = `promote-${crypto.randomUUID()}`;
+        result = await apiFetch('/api/sellers/promotions', { method: 'POST', body: JSON.stringify({ productId: promotionProductId, phone: promotionPhone.trim(), idempotencyKey: retryKey }) });
+      }
       setPromotionPayment(result.payment);
-      setPromotionMessage('Approve the KSh 100 M-Pesa prompt. Your listing will be promoted only after payment is verified.');
-    } catch (err: any) { setPromotionError(err?.message || 'Could not start promotion payment.'); }
+      setPromotionMessage('Approve the KSh 100 M-Pesa prompt on ' + promotionPhone.trim() + '. Your listing will be promoted only after payment is verified.');
+    } catch (err: any) { setPromotionError(err?.message || 'Could not start promotion payment. Please try again.'); }
     finally { setPromotionBusy(false); }
   }
 
