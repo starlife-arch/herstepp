@@ -49,5 +49,17 @@ export default async function adminSellerProfile(req, res) {
       displayName, businessName, reason, createdAt: now,
     });
   });
-  return res.json({ success: true, sellerUid, displayName, businessName, message: 'Seller business profile updated by admin. The name-change cooldown has been reset.' });
+  try {
+    const products = await adminDb.collection('products').where('sellerUid', '==', sellerUid).get();
+    for (let offset = 0; offset < products.docs.length; offset += 400) {
+      const batch = adminDb.batch();
+      for (const product of products.docs.slice(offset, offset + 400)) {
+        batch.update(product.ref, { sellerDisplayName: displayName, sellerBusinessName: businessName });
+      }
+      await batch.commit();
+    }
+  } catch (error) {
+    console.error('[admin-seller-profile] Seller profile saved but product display sync failed', { sellerUid, message: error?.message || String(error) });
+  }
+  return res.json({ success: true, sellerUid, displayName, businessName, message: 'Seller business profile updated by admin. Public product listings have been refreshed.' });
 }
