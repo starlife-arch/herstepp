@@ -145,6 +145,9 @@ export default async function sellerProducts(req, res) {
         ...product.inventory,
       ];
       const updated = {
+        // Keep existing public listing metadata while applying seller-editable
+        // fields; otherwise an edit could silently clear merchandising flags.
+        ...current,
         ...product,
         inventory: mergedInventory,
         stockQuantity: mergedInventory.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0),
@@ -155,6 +158,11 @@ export default async function sellerProducts(req, res) {
         sellerDisplayName: clean(seller.displayName || seller.businessName).slice(0, 60),
         sellerBusinessName: clean(seller.businessName).slice(0, 100),
         marketplaceSeller: true,
+        featured: current.featured === true,
+        bestseller: current.bestseller === true,
+        newArrival: current.newArrival === true,
+        video: current.video ?? null,
+        sellerVerificationBadgeActive: current.sellerVerificationBadgeActive === true,
         moderationStatus: current.moderationStatus || 'APPROVED',
         promotedUntil: current.promotedUntil || null,
         promotedPaymentId: current.promotedPaymentId || null,
@@ -173,6 +181,15 @@ export default async function sellerProducts(req, res) {
         sellerDisplayName: updated.sellerDisplayName,
         sellerBusinessName: updated.sellerBusinessName,
         marketplaceSeller: true,
+        featured: updated.featured,
+        bestseller: updated.bestseller,
+        newArrival: updated.newArrival,
+        sellerVerificationBadgeActive: updated.sellerVerificationBadgeActive,
+        moderationStatus: updated.moderationStatus,
+        promotedUntil: updated.promotedUntil,
+        promotedPaymentId: updated.promotedPaymentId,
+        promotedAt: updated.promotedAt,
+        updatedAt: new Date().toISOString(),
       };
       if (draftSnap.exists && draftSnap.data()?.sellerUid === user.uid) {
         tx.update(draftRef, { ...product, status: 'PUBLISHED', publishedProductId: id, sellerUid: user.uid, updatedAt: FieldValue.serverTimestamp() });
