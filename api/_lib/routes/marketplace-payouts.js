@@ -92,7 +92,7 @@ export async function sellerPayouts(req, res) {
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const sellerSnap = await sellerRef.get();
-  if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== user.uid || sellerSnap.data()?.status !== 'ACTIVE') {
+  if (!sellerSnap.exists || (sellerSnap.data()?.ownerUid && sellerSnap.data()?.ownerUid !== user.uid) || sellerSnap.data()?.status !== 'ACTIVE') {
     throw clientError('An approved, active seller account is required.', 403);
   }
   const amount = req.body?.amount;
