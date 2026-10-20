@@ -4,6 +4,7 @@ import { clientError, methodNotAllowed } from '../http.js';
 import { buildEmail } from '../email-templates.js';
 import { queueEmail, deliverQueuedEmailInline } from '../email-service.js';
 import { siteUrl } from '../site-url.js';
+import { deriveEffectiveOrderStatus } from '../order-core.js';
 
 const MAX_LINES = 12;
 const MAX_QTY = 10;
@@ -127,7 +128,7 @@ export async function processAbandonedCarts(req, res) {
       const order = doc.data() || {};
       const created = millis(order.createdAt);
       const paid = String(order.paymentStatus || '').toUpperCase() === 'PAID';
-      const completed = ['PROCESSING', 'PROCESSED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(String(order.orderStatus || '').toUpperCase());
+      const completed = ['PROCESSING', 'PROCESSED', 'OUT_FOR_DELIVERY', 'DELIVERED'].includes(deriveEffectiveOrderStatus(order));
       return created >= lastActivity && (paid || completed);
     }));
     if (hasRecentOrder) {

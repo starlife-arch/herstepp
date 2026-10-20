@@ -7,7 +7,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { waitUntil } from '@vercel/functions';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { ALLOWED_ORDER_TRANSITIONS, adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort } from '../order-core.js';
+import { ALLOWED_ORDER_TRANSITIONS, adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort, deriveEffectiveOrderStatus } from '../order-core.js';
 import { deliverEmailAfterCommit } from '../notify.js';
 import { retryPendingEmails } from '../email-service.js';
 import { retryPendingSms } from '../sms-service.js';
@@ -119,19 +119,27 @@ export async function track(req, res) {
       || (seller.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt) : null);
     const activeSeller = seller.status === 'ACTIVE' && seller.billingStatus === 'ACTIVE'
       && Boolean(expiry && Number.isFinite(expiry.getTime()) && expiry.getTime() > Date.now());
+    // Paid plan holders get the blue badge automatically — no manual admin
+    // verification click required (matches seller-visibility / public shop).
+    const badgePaid = seller.badgeSubscriptionStatus === 'ACTIVE';
     return [sellerId, {
       displayName: String(seller.displayName || application.displayName || '').slice(0, 60),
       businessName: String(seller.businessName || application.businessName || '').slice(0, 100),
-      verificationBadgeActive: activeSeller && seller.verificationBadge === true,
+      verificationBadgeActive: activeSeller && (seller.verificationBadge === true || badgePaid),
     }];
   }));
   const sellersById = new Map(sellerProfiles);
+
+  // Buyer-facing progress = derived from seller/first-party fulfilment maps,
+  // because marketplace orders keep a static PENDING orderStatus on the doc.
+  const effectiveStatus = deriveEffectiveOrderStatus(d);
 
   return res.json({
     order: {
       id: docSnap.id,
       orderId: d.orderId,
-      orderStatus: d.orderStatus,
+      orderStatus: effectiveStatus,
+      rawOrderStatus: d.orderStatus ?? null,
       paymentStatus: d.paymentStatus,
       sellerFulfilment: d.sellerFulfilment || {},
       firstPartyFulfilment: d.firstPartyFulfilment || null,
