@@ -61,19 +61,26 @@ export default async function sellerMarketplaceOrders(req, res) {
   const user = await requireUser(req);
   const sellerRef = adminDb.collection('sellers').doc(user.uid);
   const sellerSnap = await sellerRef.get();
-  if (!sellerSnap.exists || sellerSnap.data()?.ownerUid !== user.uid) {
+  if (!sellerSnap.exists || (sellerSnap.data()?.ownerUid && sellerSnap.data()?.ownerUid !== user.uid)) {
     throw clientError('An approved seller account is required to manage marketplace orders.', 403);
   }
 
   if (req.method === 'GET') {
     // Discover orders through this seller's own ledger, not a global latest-250
     // query that can silently hide older seller sales.
-    const ledgerSnap = await adminDb.collection('sellerLedger').where('sellerId', '==', user.uid).limit(2000).get();
-    const orderIds = [...new Set(ledgerSnap.docs
+    const [ledgerSnap, recentOrdersSnap] = await Promise.all([
+      adminDb.collection('sellerLedger').where('sellerId', '==', user.uid).limit(2000).get(),
+      // Ledger-backed discovery keeps older orders available, while this recent
+      // order scan also exposes paid seller orders whose legacy ledger row is missing.
+      adminDb.collection('orders').orderBy('createdAt', 'desc').limit(500).get(),
+    ]);
+    const orderIds = new Set(ledgerSnap.docs
       .map(doc => String(doc.data()?.orderDocumentId || '').trim())
-      .filter(id => /^[A-Za-z0-9_-]{8,150}$/.test(id)))];
-    const snapshots = await Promise.all(orderIds.map(id => adminDb.collection('orders').doc(id).get()));
-    const orders = snapshots.filter(doc => doc.exists)
+      .filter(id => /^[A-Za-z0-9_-]{8,150}$/.test(id)));
+    const orderDocs = new Map(recentOrdersSnap.docs.map(doc => [doc.id, doc]));
+    const ledgerOrderDocs = await Promise.all([...orderIds].map(id => adminDb.collection('orders').doc(id).get()));
+    for (const doc of ledgerOrderDocs) if (doc.exists) orderDocs.set(doc.id, doc);
+    const orders = [...orderDocs.values()]
       .map(doc => serializeOrder(doc, user.uid))
       .filter(order => order && order.paymentStatus === 'PAID')
       .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
