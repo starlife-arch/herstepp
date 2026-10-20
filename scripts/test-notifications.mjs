@@ -80,6 +80,23 @@ await test('marketplace payment receipt does not promise a HerStep seller invoic
   assert(!receipt.htmlContent.includes('Collection at Juja Town, Jerry House'));
   assert(!receipt.htmlContent.includes('Your invoice is in a separate email from invoices@'));
 });
+await test('legacy seller-scoped orders do not show Collection pickup in payment receipts', () => {
+  const receipt = orderReceiptEmail({
+    id: 'legacy-marketplace-order',
+    orderId: 'HS-2026-000125',
+    customerEmail: 'buyer@example.com',
+    delivery: { fullName: 'Buyer', deliveryMethod: 'COLLECTION', location: 'Juja Town, Jerry House, near Juja Posta' },
+    // Older marketplace orders may not have marketplaceOrder /
+    // marketplaceSellerInvoices flags, but seller-scoped lines identify them.
+    items: [{ sellerId: 'seller-one', name: 'Blue Bag', size: 'One Size', quantity: 1, unitPrice: 1200, lineTotal: 1200 }],
+    subtotal: 1200, deliveryFee: 0, discount: 0, total: 1200,
+  }, 'PAID');
+  assert(receipt.subject.includes('HerStep Marketplace'));
+  assert(receipt.htmlContent.includes('HERSTEP MARKETPLACE'));
+  assert(receipt.htmlContent.includes('seller will coordinate delivery or pickup directly'));
+  assert(!receipt.htmlContent.includes('Collection at Juja Town, Jerry House'));
+  assert(!receipt.htmlContent.includes('HerStep Collection · Juja Town, Jerry House'));
+});
 await test('marketplace sale queues one buyer and one seller invoice per seller, without SMS', () => {
   const db = fakeDb();
   const writes = [];
