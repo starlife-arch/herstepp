@@ -245,7 +245,9 @@ export async function adminMarketplacePayouts(req, res) {
       if (!['APPROVED', 'PROCESSING', 'PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only an approved or PrintPay-dispatched payout with a confirmed provider reference can be marked paid.', 409);
       if (debitSnap.exists) throw clientError('A payout ledger debit already exists.', 409);
       const ledgerRef = adminDb.collection('sellerLedger').doc(Buffer.from('marketplace-payout:' + payoutId).toString('base64url'));
-      const fee = Number.isSafeInteger(payout.printPayFeeBreakdown?.fee) && payout.printPayFeeBreakdown.fee >= 0 ? payout.printPayFeeBreakdown.fee : 0;\n      const totalDebit = Number(payout.amount) + fee;\n      tx.set(ledgerRef, { sellerId: payout.sellerId, type: 'SELLER_PAYOUT', status: 'POSTED', amount: -totalDebit, transferAmount: Number(payout.amount), providerFee: fee, totalDebit, currency: payout.currency || 'KES', balanceBucket: 'AVAILABLE', payoutId, providerReference, idempotencyKey: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
+      const fee = Number.isSafeInteger(payout.printPayFeeBreakdown?.fee) && payout.printPayFeeBreakdown.fee >= 0 ? payout.printPayFeeBreakdown.fee : 0;
+      const totalDebit = Number(payout.amount) + fee;
+      tx.set(ledgerRef, { sellerId: payout.sellerId, type: 'SELLER_PAYOUT', status: 'POSTED', amount: -totalDebit, transferAmount: Number(payout.amount), providerFee: fee, totalDebit, currency: payout.currency || 'KES', balanceBucket: 'AVAILABLE', payoutId, providerReference, idempotencyKey: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
       tx.update(ref, { status: 'PAID', providerReference, paidBy: admin.uid, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PAID', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, providerReference, createdAt: FieldValue.serverTimestamp() });
     });
