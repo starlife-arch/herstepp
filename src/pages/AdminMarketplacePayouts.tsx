@@ -25,12 +25,15 @@ export default function AdminMarketplacePayouts() {
   const [topupPhone, setTopupPhone] = useState('');
   const [topupAmount, setTopupAmount] = useState('10');
   const [topupLoading, setTopupLoading] = useState(false);
+  const [topupConfirm, setTopupConfirm] = useState(false);
+  const [confirmPayoutId, setConfirmPayoutId] = useState<string | null>(null);
   async function sendPrintPayTopup() {
     const amount = Number(topupAmount);
     const phone = topupPhone.replace(/[\s()-]/g, '');
     if (!/^((07|01)\d{8}|254[17]\d{8}|\+254[17]\d{8})$/.test(phone)) { setError('Enter a valid Kenyan M-Pesa phone number.'); return; }
-    if (!Number.isSafeInteger(amount) || amount <= 0) { setError('Enter a positive whole-KSh amount.'); return; }
-    if (!window.confirm('Send an STK Push for KSh ' + amount.toLocaleString() + ' to ' + topupPhone + '? The phone owner must approve the payment prompt.')) return;
+    if (!Number.isSafeInteger(amount) || amount < 10) { setError('PrintPay top ups must be at least KSh 10.'); return; }
+    if (!topupConfirm) { setTopupConfirm(true); setNotice('Review the phone number and amount, then select Confirm STK Push to send the payment prompt.'); return; }
+    setTopupConfirm(false);
     setTopupLoading(true); setError(''); setNotice('');
     try {
       const result: any = await apiFetch('/api/admin/marketplace-payouts', { method: 'POST', body: JSON.stringify({ action: 'PRINTPAY_TOPUP', phone: topupPhone, amount }) });
@@ -59,7 +62,6 @@ export default function AdminMarketplacePayouts() {
     } finally { setBalanceLoading(false); }
   }
   async function act(payout: Payout, action: 'APPROVE' | 'REJECT' | 'MARK_PAID' | 'SEND_PRINTPAY') {
-    if (action === 'SEND_PRINTPAY' && !window.confirm(`Send KSh ${Number(payout.amount).toLocaleString()} to ${payout.payoutPhone || payout.payoutPhoneMasked || 'the saved seller phone'} through PrintPay now? This initiates a REAL transfer. Do not click twice.`)) return;
     if (action === 'MARK_PAID' && !references[payout.id]?.trim()) { setError('Enter the confirmed M-Pesa/provider reference after sending the money.'); return; }
     setBusy(payout.id); setError(''); setNotice('');
     try {
@@ -68,6 +70,11 @@ export default function AdminMarketplacePayouts() {
       await refresh();
     } catch (err: any) { setError(err?.message || 'Could not update this payout.'); }
     finally { setBusy(null); }
+  }
+  async function requestPrintPaySend(payout: Payout) {
+    if (confirmPayoutId !== payout.id) { setConfirmPayoutId(payout.id); setNotice('Review the seller, destination, and amount. Confirm only if you intend to initiate a real transfer.'); setError(''); return; }
+    setConfirmPayoutId(null);
+    await act(payout, 'SEND_PRINTPAY');
   }
   async function reconcile(refund: Refund) {
     const chosen = uniqueSellers(refund).map(seller => ({
@@ -89,7 +96,7 @@ export default function AdminMarketplacePayouts() {
   }
   return <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><div><p className="text-xs font-semibold tracking-wide text-neutral-500">HERSTEP MARKETPLACE</p><h1 className="text-3xl font-bold mt-1">Seller payouts</h1><p className="text-sm text-neutral-600 mt-2">Approve seller requests and send approved payouts through PrintPay B2C. PrintPay acceptance means processing has started, not that final delivery is confirmed.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void checkPrintPayBalance()} disabled={balanceLoading}>{balanceLoading ? 'Checking PrintPay…' : 'Check PrintPay API balance'}</Button><Button variant="outline" onClick={() => void refresh()} disabled={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div></div>
-    <Card className="p-4 mb-4"><h2 className="font-semibold">Test PrintPay STK Push top up</h2><p className="text-sm text-neutral-600 mt-1">This sends a real M-Pesa payment prompt. Use your own phone for testing; the phone owner must approve it.</p><div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3"><label className="text-xs font-medium">M-Pesa phone number<input value={topupPhone} onChange={e => setTopupPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="07XXXXXXXX" /></label><label className="text-xs font-medium">Amount (KSh)<input type="number" min="1" step="1" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" /></label><div className="flex items-end"><Button onClick={() => void sendPrintPayTopup()} disabled={topupLoading}>{topupLoading ? 'Sending request…' : 'Send STK Push'}</Button></div></div></Card>
+    <Card className="p-4 mb-4"><h2 className="font-semibold">Test PrintPay STK Push top up</h2><p className="text-sm text-neutral-600 mt-1">This sends a real M-Pesa payment prompt. Use your own phone for testing; the phone owner must approve it.</p><div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3"><label className="text-xs font-medium">M-Pesa phone number<input value={topupPhone} onChange={e => setTopupPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="07XXXXXXXX" /></label><label className="text-xs font-medium">Amount (KSh)<input type="number" min="10" step="1" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" /></label><div className="flex items-end"><Button onClick={() => void sendPrintPayTopup()} disabled={topupLoading}>{topupLoading ? 'Sending request…' : topupConfirm ? 'Confirm STK Push' : 'Review STK Push'}</Button>{topupConfirm && <Button variant="outline" onClick={() => { setTopupConfirm(false); setNotice(''); }} disabled={topupLoading}>Cancel</Button>}</div></div></Card>
     {printPayBalance && <Card className="p-4 mb-4"><p className="text-sm text-neutral-500">PrintPay API wallet balance</p><p className="text-2xl font-bold">{money(printPayBalance.balance)}</p>{printPayBalance.walletId && <p className="text-xs text-neutral-500 mt-1">Wallet: {printPayBalance.walletId}</p>}<p className="text-xs text-neutral-500 mt-1">This is a read-only API check; it does not send money.</p></Card>}
     {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 mb-4">{notice}</div>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">{error}</div>}
@@ -114,7 +121,7 @@ export default function AdminMarketplacePayouts() {
       {['REQUESTED','PENDING','APPROVED','PROCESSING','PROVIDER_UNKNOWN','DISPATCHING'].includes(String(payout.status || 'REQUESTED').toUpperCase()) && <div className="mt-4 grid gap-3">
         <div><label className="block text-xs font-medium mb-1" htmlFor={`payout-note-${payout.id}`}>Review note / reason</label><input id={`payout-note-${payout.id}`} value={notes[payout.id] || ''} onChange={e => setNotes(prev => ({ ...prev, [payout.id]: e.target.value }))} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Reason for approval or rejection" /></div>
         {['APPROVED','PROCESSING','PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase()) && <div><label className="block text-xs font-medium mb-1" htmlFor={`payout-ref-${payout.id}`}>Confirmed provider reference (only after verifying payment)</label><input id={`payout-ref-${payout.id}`} value={references[payout.id] || ''} onChange={e => setReferences(prev => ({ ...prev, [payout.id]: e.target.value }))} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="M-Pesa transaction reference after payment" /></div>}
-        <div className="flex flex-wrap gap-2">{['REQUESTED','PENDING'].includes(String(payout.status || 'REQUESTED').toUpperCase()) && <><Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'APPROVE')}><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button><Button size="sm" variant="outline" disabled={busy === payout.id} onClick={() => void act(payout,'REJECT')}><XCircle className="w-4 h-4 mr-1" /> Reject</Button></>}{String(payout.status || '').toUpperCase() === 'APPROVED' && <><Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'SEND_PRINTPAY')}><Banknote className="w-4 h-4 mr-1" /> {busy === payout.id ? 'Sending…' : 'Send with PrintPay'}</Button><Button size="sm" variant="outline" disabled={busy === payout.id} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record external payment</Button></>}{['PROCESSING','PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase()) && <Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record verified payment</Button>}</div>
+        <div className="flex flex-wrap gap-2">{['REQUESTED','PENDING'].includes(String(payout.status || 'REQUESTED').toUpperCase()) && <><Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'APPROVE')}><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button><Button size="sm" variant="outline" disabled={busy === payout.id} onClick={() => void act(payout,'REJECT')}><XCircle className="w-4 h-4 mr-1" /> Reject</Button></>}{String(payout.status || '').toUpperCase() === 'APPROVED' && <><Button size="sm" disabled={busy === payout.id} onClick={() => void requestPrintPaySend(payout)}><Banknote className="w-4 h-4 mr-1" /> {busy === payout.id ? 'Sending…' : confirmPayoutId === payout.id ? 'Confirm real transfer' : 'Review PrintPay transfer'}</Button>{confirmPayoutId === payout.id && <Button size="sm" variant="outline" onClick={() => setConfirmPayoutId(null)}>Cancel</Button>}<Button size="sm" variant="outline" disabled={busy === payout.id} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record external payment</Button></>}{['PROCESSING','PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase()) && <Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record verified payment</Button>}</div>
       </div>}
     </Card>)}</div>}
   </div>;
