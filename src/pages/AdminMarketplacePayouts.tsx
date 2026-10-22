@@ -22,6 +22,22 @@ export default function AdminMarketplacePayouts() {
   const [references, setReferences] = useState<Record<string, string>>({});
   const [printPayBalance, setPrintPayBalance] = useState<{ walletId?: string; balance: number; currency?: string } | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  const [topupPhone, setTopupPhone] = useState('');
+  const [topupAmount, setTopupAmount] = useState('10');
+  const [topupLoading, setTopupLoading] = useState(false);
+  async function sendPrintPayTopup() {
+    const amount = Number(topupAmount);
+    const phone = topupPhone.replace(/[\s()-]/g, '');
+    if (!/^((07|01)\d{8}|254[17]\d{8}|\+254[17]\d{8})$/.test(phone)) { setError('Enter a valid Kenyan M-Pesa phone number.'); return; }
+    if (!Number.isSafeInteger(amount) || amount <= 0) { setError('Enter a positive whole-KSh amount.'); return; }
+    if (!window.confirm('Send an STK Push for KSh ' + amount.toLocaleString() + ' to ' + topupPhone + '? The phone owner must approve the payment prompt.')) return;
+    setTopupLoading(true); setError(''); setNotice('');
+    try {
+      const result: any = await apiFetch('/api/admin/marketplace-payouts', { method: 'POST', body: JSON.stringify({ action: 'PRINTPAY_TOPUP', phone: topupPhone, amount }) });
+      setNotice(result.message || 'PrintPay accepted the STK Push request. Confirm the payment in PrintPay.');
+    } catch (err: any) { setError(err?.message || 'PrintPay STK Push request failed.'); }
+    finally { setTopupLoading(false); }
+  }
   async function refresh() {
     setLoading(true); setError('');
     try { const result: any = await apiFetch('/api/admin/marketplace-payouts'); setPayouts(Array.isArray(result.payouts) ? result.payouts : []); setRefunds(Array.isArray(result.refundsToReconcile) ? result.refundsToReconcile : []); }
@@ -73,6 +89,7 @@ export default function AdminMarketplacePayouts() {
   }
   return <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
     <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><div><p className="text-xs font-semibold tracking-wide text-neutral-500">HERSTEP MARKETPLACE</p><h1 className="text-3xl font-bold mt-1">Seller payouts</h1><p className="text-sm text-neutral-600 mt-2">Approve seller requests and send approved payouts through PrintPay B2C. PrintPay acceptance means processing has started, not that final delivery is confirmed.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void checkPrintPayBalance()} disabled={balanceLoading}>{balanceLoading ? 'Checking PrintPay…' : 'Check PrintPay API balance'}</Button><Button variant="outline" onClick={() => void refresh()} disabled={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div></div>
+    <Card className="p-4 mb-4"><h2 className="font-semibold">Test PrintPay STK Push top up</h2><p className="text-sm text-neutral-600 mt-1">This sends a real M-Pesa payment prompt. Use your own phone for testing; the phone owner must approve it.</p><div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3"><label className="text-xs font-medium">M-Pesa phone number<input value={topupPhone} onChange={e => setTopupPhone(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="07XXXXXXXX" /></label><label className="text-xs font-medium">Amount (KSh)<input type="number" min="1" step="1" value={topupAmount} onChange={e => setTopupAmount(e.target.value)} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" /></label><div className="flex items-end"><Button onClick={() => void sendPrintPayTopup()} disabled={topupLoading}>{topupLoading ? 'Sending request…' : 'Send STK Push'}</Button></div></div></Card>
     {printPayBalance && <Card className="p-4 mb-4"><p className="text-sm text-neutral-500">PrintPay API wallet balance</p><p className="text-2xl font-bold">{money(printPayBalance.balance)}</p>{printPayBalance.walletId && <p className="text-xs text-neutral-500 mt-1">Wallet: {printPayBalance.walletId}</p>}<p className="text-xs text-neutral-500 mt-1">This is a read-only API check; it does not send money.</p></Card>}
     {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 mb-4">{notice}</div>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">{error}</div>}

@@ -145,3 +145,10 @@ export async function initiatePrintPayB2CPayout({
       : null,
   };
 }
+
+/** Sends a real STK Push payment prompt; it does not debit the wallet. */
+export async function initiatePrintPayB2CTopup({ phone, amount }) {
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000) throw new Error('Top up amount must be a positive whole KSh amount.');
+  const data = await post('/topup/stk_push', { phone: normalizeKenyanPhone(phone), amount });
+  return { providerStatus: 'INITIALIZED', providerMessage: clean(data?.message || 'PrintPay accepted the STK Push request.', 300) };
+}
