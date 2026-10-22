@@ -330,6 +330,8 @@ export async function adminMarketplacePayouts(req, res) {
         tx.update(ref, {
           status: unknown ? 'PROVIDER_UNKNOWN' : 'FAILED',
           printPayDispatchError: String(error?.message || 'PrintPay request failed').slice(0, 300),
+          printPayProviderRejectionMessage: clean(error?.providerMessage, 300),
+          printPayProviderHttpStatus: Number.isInteger(error?.providerHttpStatus) ? error.providerHttpStatus : null,
           printPayDispatchOutcomeUnknown: unknown,
           updatedAt: FieldValue.serverTimestamp(),
         });
