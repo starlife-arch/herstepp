@@ -23,6 +23,6 @@ export function sendError(res, error) {
   }
 
   return res.status(statusCode).json({
-    error: statusCode >= 500 ? 'We could not complete that request.' : error.message,
+    error: error?.expose ? error.message : statusCode >= 500 ? 'We could not complete that request.' : error.message,
   });
 }

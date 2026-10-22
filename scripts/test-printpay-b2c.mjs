@@ -7,7 +7,8 @@ process.env.PRINTPAY_B2C_PIN = '4321';
 const originalFetch = globalThis.fetch;
 const calls = [];
 try {
-  const { getPrintPayB2CWalletBalance, initiatePrintPayB2CPayout } = await import('../api/_lib/printpay-b2c.js');
+  const { getPrintPayB2CWalletBalance, initiatePrintPayB2CPayout, initiatePrintPayB2CTopup, MIN_B2C_AMOUNT } = await import('../api/_lib/printpay-b2c.js');
+  assert.equal(MIN_B2C_AMOUNT, 10);
 
   globalThis.fetch = async (url, options) => {
     calls.push({ url, options });
@@ -32,7 +33,7 @@ try {
   assert.equal(calls.at(-1).url, 'https://printpay.site/b2c/payout/withdraw');
   assert.deepEqual(JSON.parse(calls.at(-1).options.body), {
     command_id: 'BusinessPayment',
-    phone: '254712345678',
+    phone: '0712345678',
     amount: 1000,
     pin: '4321',
     remarks: 'Herstepp seller payout',
@@ -48,6 +49,31 @@ try {
   const noFee = await initiatePrintPayB2CPayout({ payoutId: 'payout-test-456', phone: '+254112345678', amount: 50 });
   assert.equal(noFee.feeBreakdown, null);
   assert.equal(noFee.finalStatusVerified, false);
+
+
+  // Amounts below KSh 10 must be rejected before any provider fetch for both
+  // withdrawals and STK top-ups.
+  for (const amount of [1, 9]) {
+    const before = calls.length;
+    await assert.rejects(
+      initiatePrintPayB2CPayout({ payoutId: 'payout-min-' + amount, phone: '+254712345678', amount }),
+      error => error.code === 'BELOW_MINIMUM' && error.message === 'The minimum amount is KSh 10.',
+    );
+    await assert.rejects(
+      initiatePrintPayB2CTopup({ phone: '0712345678', amount }),
+      error => error.code === 'BELOW_MINIMUM' && error.message === 'The minimum amount is KSh 10.',
+    );
+    assert.equal(calls.length, before, 'below-minimum requests must not fetch PrintPay');
+  }
+
+  globalThis.fetch = async (url, options) => {
+    calls.push({ url, options });
+    return new Response(JSON.stringify({ status: 'success', message: 'STK Push initialized' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  };
+  await initiatePrintPayB2CTopup({ phone: '+254740276456', amount: 10 });
+  assert.deepEqual(JSON.parse(calls.at(-1).options.body), { phone: '0740276456', amount: 10 });
 
   globalThis.fetch = async () => { throw new Error('simulated timeout'); };
   await assert.rejects(
@@ -73,7 +99,7 @@ try {
     initiatePrintPayB2CPayout({ payoutId: 'payout-test-no-pin', phone: '0712345678', amount: 100 }),
     /credentials are not fully configured/,
   );
-  console.log('PrintPay B2C tests passed: wallet balance, auth headers, payout payload, Kenyan phone normalization, fee parsing, unknown outcomes, provider errors, and server-only credentials.');
+  console.log('PrintPay B2C tests passed: wallet balance, auth headers, local Kenyan phone format, KSh 10 minimum with no below-minimum fetch, STK top-up payload, fee parsing, unknown outcomes, provider errors, and server-only credentials.');
 } finally {
   globalThis.fetch = originalFetch;
 }
