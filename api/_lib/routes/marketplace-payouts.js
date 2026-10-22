@@ -1,7 +1,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { initiatePrintPayB2CPayout, getPrintPayB2CWalletBalance } from '../printpay-b2c.js';
+import { initiatePrintPayB2CPayout, getPrintPayB2CWalletBalance, initiatePrintPayB2CTopup } from '../printpay-b2c.js';
 
 const clean = (value, max = 180) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const money = value => Number.isSafeInteger(value) && value > 0 && value <= 10_000_000;
@@ -241,7 +241,7 @@ export async function adminMarketplacePayouts(req, res) {
   const payoutId = clean(req.body?.payoutId, 180);
   const suppliedReason = clean(req.body?.reason, 500);
   const reason = suppliedReason || (action === 'APPROVE' ? 'Approved by admin' : action === 'REJECT' ? 'Rejected by admin' : '');
-  if (!payoutId && !['RECONCILE_REFUND', 'PRINTPAY_BALANCE'].includes(action)) throw clientError('Payout request ID is required.');
+  if (!payoutId && !['RECONCILE_REFUND', 'PRINTPAY_BALANCE', 'PRINTPAY_TOPUP'].includes(action)) throw clientError('Payout request ID is required.');
   const ref = payoutId ? adminDb.collection('sellerPayouts').doc(payoutId) : null;
   if (action === 'APPROVE' || action === 'REJECT') {
     await adminDb.runTransaction(async tx => {
@@ -258,6 +258,20 @@ export async function adminMarketplacePayouts(req, res) {
   if (action === 'PRINTPAY_BALANCE') {
     const balance = await getPrintPayB2CWalletBalance();
     return res.json({ ok: true, ...balance });
+  }
+  if (action === 'PRINTPAY_TOPUP') {
+    const phone = normalizeKenyanPhone(req.body?.phone);
+    const amount = req.body?.amount;
+    if (!money(amount)) throw clientError('Top up amount must be a positive whole KSh amount.');
+    try {
+      const result = await initiatePrintPayB2CTopup({ phone, amount });
+      await adminDb.collection('auditLogs').add({ actorUid: admin.uid, action: 'PRINTPAY_STK_TOPUP_INITIALIZED', entityType: 'PRINTPAY_TOPUP', phoneMasked: maskPhone(phone), amount, providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
+      return res.json({ ok: true, status: result.providerStatus, message: result.providerMessage });
+    } catch (error) {
+      const providerMessage = clean(error?.providerMessage || error?.message, 300);
+      await adminDb.collection('auditLogs').add({ actorUid: admin.uid, action: 'PRINTPAY_STK_TOPUP_REJECTED', entityType: 'PRINTPAY_TOPUP', phoneMasked: maskPhone(phone), amount, providerHttpStatus: Number.isInteger(error?.providerHttpStatus) ? error.providerHttpStatus : null, providerMessage, createdAt: FieldValue.serverTimestamp() });
+      throw clientError('PrintPay STK Push failed: ' + providerMessage, 502);
+    }
   }
   if (action === 'SEND_PRINTPAY') {
     // Claim the request transactionally before contacting PrintPay. This makes
@@ -426,5 +440,5 @@ export async function adminMarketplacePayouts(req, res) {
     return res.json({ ok: true, status: result.unresolved ? 'RECONCILED_WITH_HOLDS' : 'RECONCILED', ...result,
       message: result.unresolved ? 'Seller adjustments recorded. Other open refunds still hold this order’s available earnings.' : 'Seller adjustments recorded and this order’s refund hold is released.' });
   }
-  throw clientError('Choose APPROVE, REJECT, SEND_PRINTPAY, PRINTPAY_BALANCE, MARK_PAID, or RECONCILE_REFUND.');
+  throw clientError('Choose APPROVE, REJECT, SEND_PRINTPAY, PRINTPAY_BALANCE, PRINTPAY_TOPUP, MARK_PAID, or RECONCILE_REFUND.');
 }
