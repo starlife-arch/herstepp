@@ -61,6 +61,8 @@ const safePayout = (doc, includePayoutPhone = false) => {
     reviewNote: d.reviewNote || '', providerReference: d.providerReference || '',
     requestedAt: iso(d.createdAt || d.requestedAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
     rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || maskPhone(d.payoutPhone || ''),
+    printPayProviderMessage: d.printPayProviderMessage || '', printPayFeeBreakdown: d.printPayFeeBreakdown || null,
+    printPayDispatchError: d.printPayDispatchError || '',
     ...(includePayoutPhone ? { payoutPhone: d.payoutPhone || '' } : {}),
   };
 };
