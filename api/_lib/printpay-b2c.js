@@ -24,11 +24,11 @@ function normalizeKenyanPhone(value) {
   throw new Error('Enter a valid Kenyan M-Pesa phone number.');
 }
 
-function credentials() {
+function credentials(requirePin = false) {
   const walletId = clean(process.env.PRINTPAY_WALLET_ID, 300);
   const securityCredential = clean(process.env.PRINTPAY_SECURITY_CREDENTIAL, 1000);
   const pin = clean(process.env.PRINTPAY_B2C_PIN, 100);
-  if (!walletId || !securityCredential || !pin) {
+  if (!walletId || !securityCredential || (requirePin && !pin)) {
     throw new Error('PrintPay B2C credentials are not fully configured on the server.');
   }
   return { walletId, securityCredential, pin };
@@ -108,7 +108,7 @@ export async function initiatePrintPayB2CPayout({
   if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000) {
     throw new Error('Payout amount must be a positive whole KSh amount.');
   }
-  const { pin } = credentials();
+  const { pin } = credentials(true);
   const data = await post('/payout/withdraw', {
     command_id: 'BusinessPayment',
     phone: normalizeKenyanPhone(phone),
