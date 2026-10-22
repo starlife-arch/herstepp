@@ -262,7 +262,7 @@ export async function adminMarketplacePayouts(req, res) {
   if (action === 'PRINTPAY_TOPUP') {
     const phone = normalizeKenyanPhone(req.body?.phone);
     const amount = req.body?.amount;
-    if (!money(amount)) throw clientError('Top up amount must be a positive whole KSh amount.');
+    if (!money(amount) || amount < 10) throw clientError('Top up amount must be at least KSh 10 as required by PrintPay.');
     try {
       const result = await initiatePrintPayB2CTopup({ phone, amount });
       await adminDb.collection('auditLogs').add({ actorUid: admin.uid, action: 'PRINTPAY_STK_TOPUP_INITIALIZED', entityType: 'PRINTPAY_TOPUP', phoneMasked: maskPhone(phone), amount, providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
