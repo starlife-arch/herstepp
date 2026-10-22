@@ -67,6 +67,7 @@ async function post(path, body) {
   } catch {
     const error = new Error('PrintPay returned a non-JSON response. The operation outcome may be unknown.');
     error.providerHttpStatus = response.status;
+    error.outcomeUnknown = true;
     throw error;
   }
   if (!response.ok || String(data?.status || '').toLowerCase() !== 'success') {
