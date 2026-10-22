@@ -20,6 +20,8 @@ export default function AdminMarketplacePayouts() {
   const [error, setError] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [references, setReferences] = useState<Record<string, string>>({});
+  const [printPayBalance, setPrintPayBalance] = useState<{ walletId?: string; balance: number; currency?: string } | null>(null);
+  const [balanceLoading, setBalanceLoading] = useState(false);
   async function refresh() {
     setLoading(true); setError('');
     try { const result: any = await apiFetch('/api/admin/marketplace-payouts'); setPayouts(Array.isArray(result.payouts) ? result.payouts : []); setRefunds(Array.isArray(result.refundsToReconcile) ? result.refundsToReconcile : []); }
@@ -27,6 +29,19 @@ export default function AdminMarketplacePayouts() {
     finally { setLoading(false); }
   }
   useEffect(() => { void refresh(); }, []);
+  async function checkPrintPayBalance() {
+    setBalanceLoading(true); setError(''); setNotice('');
+    try {
+      const result: any = await apiFetch('/api/admin/marketplace-payouts', {
+        method: 'POST', body: JSON.stringify({ action: 'PRINTPAY_BALANCE' }),
+      });
+      setPrintPayBalance({ walletId: result.walletId, balance: Number(result.balance), currency: result.currency || 'KES' });
+      setNotice('PrintPay API balance check succeeded.');
+    } catch (err: any) {
+      setPrintPayBalance(null);
+      setError(err?.message || 'Could not read the PrintPay balance through the API.');
+    } finally { setBalanceLoading(false); }
+  }
   async function act(payout: Payout, action: 'APPROVE' | 'REJECT' | 'MARK_PAID' | 'SEND_PRINTPAY') {
     if (action === 'SEND_PRINTPAY' && !window.confirm(`Send KSh ${Number(payout.amount).toLocaleString()} to ${payout.payoutPhone || payout.payoutPhoneMasked || 'the saved seller phone'} through PrintPay now? This initiates a REAL transfer. Do not click twice.`)) return;
     if (action === 'MARK_PAID' && !references[payout.id]?.trim()) { setError('Enter the confirmed M-Pesa/provider reference after sending the money.'); return; }
@@ -57,7 +72,8 @@ export default function AdminMarketplacePayouts() {
     finally { setBusy(null); }
   }
   return <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
-    <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><div><p className="text-xs font-semibold tracking-wide text-neutral-500">HERSTEP MARKETPLACE</p><h1 className="text-3xl font-bold mt-1">Seller payouts</h1><p className="text-sm text-neutral-600 mt-2">Approve seller requests and send approved payouts through PrintPay B2C. PrintPay acceptance means processing has started, not that final delivery is confirmed.</p></div><Button variant="outline" onClick={() => void refresh()} disabled={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div>
+    <div className="flex flex-wrap items-center justify-between gap-3 mb-6"><div><p className="text-xs font-semibold tracking-wide text-neutral-500">HERSTEP MARKETPLACE</p><h1 className="text-3xl font-bold mt-1">Seller payouts</h1><p className="text-sm text-neutral-600 mt-2">Approve seller requests and send approved payouts through PrintPay B2C. PrintPay acceptance means processing has started, not that final delivery is confirmed.</p></div><div className="flex flex-wrap gap-2"><Button variant="outline" onClick={() => void checkPrintPayBalance()} disabled={balanceLoading}>{balanceLoading ? 'Checking PrintPay…' : 'Check PrintPay API balance'}</Button><Button variant="outline" onClick={() => void refresh()} disabled={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button></div></div>
+    {printPayBalance && <Card className="p-4 mb-4"><p className="text-sm text-neutral-500">PrintPay API wallet balance</p><p className="text-2xl font-bold">{money(printPayBalance.balance)}</p>{printPayBalance.walletId && <p className="text-xs text-neutral-500 mt-1">Wallet: {printPayBalance.walletId}</p>}<p className="text-xs text-neutral-500 mt-1">This is a read-only API check; it does not send money.</p></Card>}
     {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 mb-4">{notice}</div>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">{error}</div>}
     {refunds.length > 0 && <section className="mb-8 space-y-4">
