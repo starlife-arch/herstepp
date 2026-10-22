@@ -14,7 +14,7 @@ When preparing a controlled test, add these as server-side Vercel environment va
 - `PRINTPAY_SECURITY_CREDENTIAL` — PrintPay B2C security credential.
 - `PRINTPAY_B2C_PIN` — PIN required by the documented B2C withdrawal request.
 
-Do not place these values in frontend environment variables, source code, logs, or client responses. Keep the existing `PRINTPAY_API_KEY` for buyer payments unchanged; it is a separate integration credential.
+Do not place these values in frontend environment variables, source code, logs, or client responses. Keep the existing `PRINTPAY_API_KEY` for buyer payments unchanged. `PRINTPAY_WALLET_ID`, `PRINTPAY_SECURITY_CREDENTIAL`, and `PRINTPAY_B2C_PIN` are separate B2C credentials and must never be substituted for `PRINTPAY_API_KEY`. The B2C adapter sends phones to PrintPay in local `07XXXXXXXX` / `01XXXXXXXX` format and rejects amounts below KSh 10 before making a provider request.
 
 ## Documented provider operations
 
