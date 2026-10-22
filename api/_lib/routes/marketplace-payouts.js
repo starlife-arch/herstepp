@@ -1,10 +1,15 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
-import { initiatePrintPayB2CPayout, getPrintPayB2CWalletBalance, initiatePrintPayB2CTopup } from '../printpay-b2c.js';
+import { initiatePrintPayB2CPayout, getPrintPayB2CWalletBalance, initiatePrintPayB2CTopup, MIN_B2C_AMOUNT } from '../printpay-b2c.js';
+import { sendTelegramMessage } from '../telegram.js';
 
 const clean = (value, max = 180) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const money = value => Number.isSafeInteger(value) && value > 0 && value <= 10_000_000;
+const PAYOUT_FEE_BUFFER = 50;
+function alertPayoutAdmin(message) {
+  Promise.resolve(sendTelegramMessage(message)).catch(error => console.error('[marketplace-payouts] Telegram payout alert failed:', error?.message || String(error)));
+}
 const RESERVED = new Set(['REQUESTED', 'PENDING', 'APPROVED', 'DISPATCHING', 'PROCESSING', 'PROVIDER_UNKNOWN']);
 const REFUND_HOLD = new Set(['REQUESTED', 'APPROVED', 'CONFIRMED', 'PARTIALLY_REFUNDED']);
 async function availableAfterRefundHolds(ledgerDocs, readOrder) {
@@ -101,9 +106,10 @@ export async function sellerPayouts(req, res) {
     throw clientError('An approved, active seller account is required.', 403);
   }
   const amount = req.body?.amount;
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000) throw clientError('Payout amount must be a positive whole KSh amount.');
+  if (amount < MIN_B2C_AMOUNT) throw clientError('The minimum payout is KSh 10.');
   const phone = normalizeKenyanPhone(req.body?.payoutPhone || sellerSnap.data()?.defaultPayoutPhone);
   const requestKey = clean(req.body?.idempotencyKey, 80);
-  if (!money(amount)) throw clientError('Payout amount must be a positive whole KSh amount.');
   if (!/^[A-Za-z0-9_-]{12,80}$/.test(requestKey)) throw clientError('A valid unique payout request key is required.');
   const payoutRef = adminDb.collection('sellerPayouts').doc(user.uid + '_' + requestKey);
   const creation = await adminDb.runTransaction(async tx => {
@@ -142,6 +148,19 @@ export async function sellerPayouts(req, res) {
     });
   }
 
+  let wallet;
+  try {
+    wallet = await getPrintPayB2CWalletBalance();
+  } catch (error) {
+    await payoutRef.update({ status: 'REQUESTED', printPayDispatchError: String(error?.message || 'Could not check PrintPay wallet balance.').slice(0, 300), updatedAt: FieldValue.serverTimestamp() });
+    alertPayoutAdmin(`Payout waiting for wallet funds: ${String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller')} KSh ${amount} (wallet balance unavailable; check PrintPay).`);
+    return res.status(202).json({ ok: true, payoutId: payoutRef.id, status: 'REQUESTED', message: 'Your payout request is received. It will be sent as soon as HerStep funds the payout wallet.' });
+  }
+  if (wallet.balance < amount + PAYOUT_FEE_BUFFER) {
+    await payoutRef.update({ status: 'REQUESTED', printPayWalletBalanceAtRequest: wallet.balance, updatedAt: FieldValue.serverTimestamp() });
+    alertPayoutAdmin(`Payout waiting for wallet funds: ${String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller')} KSh ${amount} (wallet KSh ${wallet.balance}).`);
+    return res.status(202).json({ ok: true, payoutId: payoutRef.id, status: 'REQUESTED', message: 'Your payout request is received. It will be sent as soon as HerStep funds the payout wallet.' });
+  }
   let result;
   try {
     result = await initiatePrintPayB2CPayout({ payoutId: payoutRef.id, phone, amount });
@@ -165,9 +184,11 @@ export async function sellerPayouts(req, res) {
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, error: safeError, providerHttpStatus, providerMessage, createdAt: FieldValue.serverTimestamp() });
     });
     if (unknown) {
-      return res.status(202).json({ ok: true, payoutId: payoutRef.id, status, message: 'PrintPay did not return a definite result. Your payout is held for reconciliation; do not submit it again.' });
+      alertPayoutAdmin(`Seller payout outcome unknown: ${String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller')} KSh ${amount}. Reconcile with PrintPay before retrying.`);
+      return res.status(202).json({ ok: true, payoutId: payoutRef.id, status, message: 'Your payout is being checked. Your balance remains reserved until the result is confirmed.' });
     }
-    return res.status(502).json({ ok: false, payoutId: payoutRef.id, status, message: 'PrintPay rejected the payout request. No confirmed transfer was initiated; check the payout status before trying again.' });
+    alertPayoutAdmin(`PrintPay rejected seller payout: ${String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller')} KSh ${amount}. PrintPay message: ${clean(error?.providerMessage || error?.message, 300) || 'No message returned'}`);
+    return res.status(502).json({ ok: false, payoutId: payoutRef.id, status, message: 'We could not send your payout right now. Your balance is unchanged and the HerStep team has been notified.' });
   }
 
   // Provider success means initialized, not final delivery. Keep the payout reserved.
@@ -256,8 +277,10 @@ export async function adminMarketplacePayouts(req, res) {
     return res.json({ ok: true, status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED', message: action === 'APPROVE' ? 'Payout approved. Send funds separately, then record the confirmed provider reference.' : 'Payout request rejected.' });
   }
   if (action === 'PRINTPAY_BALANCE') {
-    const balance = await getPrintPayB2CWalletBalance();
-    return res.json({ ok: true, ...balance });
+    try {
+      const balance = await getPrintPayB2CWalletBalance();
+      return res.json({ ok: true, ...balance });
+    } catch (error) { error.expose = true; error.statusCode = error.statusCode || 502; throw error; }
   }
   if (action === 'PRINTPAY_TOPUP') {
     const phone = normalizeKenyanPhone(req.body?.phone);
@@ -270,7 +293,10 @@ export async function adminMarketplacePayouts(req, res) {
     } catch (error) {
       const providerMessage = clean(error?.providerMessage || error?.message, 300);
       await adminDb.collection('auditLogs').add({ actorUid: admin.uid, action: 'PRINTPAY_STK_TOPUP_REJECTED', entityType: 'PRINTPAY_TOPUP', phoneMasked: maskPhone(phone), amount, providerHttpStatus: Number.isInteger(error?.providerHttpStatus) ? error.providerHttpStatus : null, providerMessage, createdAt: FieldValue.serverTimestamp() });
-      throw clientError('PrintPay STK Push failed: ' + providerMessage, 502);
+      error.expose = true;
+      error.statusCode = 502;
+      error.message = 'PrintPay STK Push failed: ' + providerMessage;
+      throw error;
     }
   }
   if (action === 'SEND_PRINTPAY') {
@@ -280,14 +306,21 @@ export async function adminMarketplacePayouts(req, res) {
       const snap = await tx.get(ref);
       if (!snap.exists) throw clientError('Payout request not found.', 404);
       const payout = snap.data() || {};
-      if (payout.status !== 'APPROVED') throw clientError('Only an approved payout can be sent with PrintPay.', 409);
+      if (!['APPROVED', 'REQUESTED', 'FAILED'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only approved, requested, or failed payouts can be sent with PrintPay.', 409);
+      if (!Number.isSafeInteger(Number(payout.amount)) || Number(payout.amount) < MIN_B2C_AMOUNT) throw clientError('The minimum payout is KSh 10.');
       if (!payout.payoutPhone) throw clientError('This payout has no saved M-Pesa destination.', 409);
       tx.update(ref, { status: 'DISPATCHING', printPayDispatchStartedAt: FieldValue.serverTimestamp(), printPayDispatchStartedBy: admin.uid, updatedAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PRINTPAY_DISPATCH_STARTED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, createdAt: FieldValue.serverTimestamp() });
-      return { phone: payout.payoutPhone, amount: Number(payout.amount), sellerId: payout.sellerId };
+      return { phone: payout.payoutPhone, amount: Number(payout.amount), sellerId: payout.sellerId, sellerName: payout.sellerName || 'Marketplace seller' };
     });
     let result;
     try {
+      const wallet = await getPrintPayB2CWalletBalance();
+      if (wallet.balance < claimed.amount + PAYOUT_FEE_BUFFER) {
+        await ref.update({ status: 'REQUESTED', printPayWalletBalanceAtRequest: wallet.balance, updatedAt: FieldValue.serverTimestamp() });
+        alertPayoutAdmin(`Payout waiting for wallet funds: ${claimed.sellerName} KSh ${claimed.amount} (wallet KSh ${wallet.balance}).`);
+        return res.status(202).json({ ok: true, status: 'REQUESTED', message: 'Wallet funds are not sufficient yet. This payout remains requested and reserved.' });
+      }
       result = await initiatePrintPayB2CPayout({ payoutId, phone: claimed.phone, amount: claimed.amount });
     } catch (error) {
       const unknown = Boolean(error?.outcomeUnknown);
@@ -295,7 +328,7 @@ export async function adminMarketplacePayouts(req, res) {
         const snap = await tx.get(ref);
         if (!snap.exists || snap.data()?.status !== 'DISPATCHING') return;
         tx.update(ref, {
-          status: unknown ? 'PROVIDER_UNKNOWN' : 'APPROVED',
+          status: unknown ? 'PROVIDER_UNKNOWN' : 'FAILED',
           printPayDispatchError: String(error?.message || 'PrintPay request failed').slice(0, 300),
           printPayDispatchOutcomeUnknown: unknown,
           updatedAt: FieldValue.serverTimestamp(),
@@ -303,7 +336,10 @@ export async function adminMarketplacePayouts(req, res) {
         tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: claimed.amount, error: String(error?.message || 'PrintPay request failed').slice(0, 300), createdAt: FieldValue.serverTimestamp() });
       });
       if (unknown) throw clientError('PrintPay outcome is unknown. This payout is locked against resending; check the PrintPay dashboard and reconcile it before taking further action.', 409);
-      throw clientError(String(error?.message || 'PrintPay rejected the payout request.'));
+      alertPayoutAdmin(`PrintPay rejected seller payout: ${claimed.sellerName} KSh ${claimed.amount}. PrintPay message: ${clean(error?.providerMessage || error?.message, 300) || 'No message returned'}`);
+      error.expose = true;
+      error.statusCode = 502;
+      throw error;
     }
     // From this point PrintPay has accepted the request. If Firestore persistence
     // fails, never reopen the request for dispatch: retain the lock if possible.
