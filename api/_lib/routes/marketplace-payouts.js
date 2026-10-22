@@ -63,6 +63,8 @@ const safePayout = (doc, includePayoutPhone = false) => {
     rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || maskPhone(d.payoutPhone || ''),
     printPayProviderMessage: d.printPayProviderMessage || '', printPayFeeBreakdown: d.printPayFeeBreakdown || null,
     printPayDispatchError: d.printPayDispatchError || '',
+    printPayProviderHttpStatus: Number.isInteger(d.printPayProviderHttpStatus) ? d.printPayProviderHttpStatus : null,
+    printPayProviderRejectionMessage: d.printPayProviderRejectionMessage || '',
     ...(includePayoutPhone ? { payoutPhone: d.payoutPhone || '' } : {}),
   };
 };
@@ -149,13 +151,18 @@ export async function sellerPayouts(req, res) {
     await adminDb.runTransaction(async tx => {
       const snap = await tx.get(payoutRef);
       if (!snap.exists || snap.data()?.status !== 'DISPATCHING') return;
+      const safeError = String(error?.message || 'PrintPay request failed').slice(0, 300);
+      const providerMessage = clean(error?.providerMessage, 300);
+      const providerHttpStatus = Number.isInteger(error?.providerHttpStatus) ? error.providerHttpStatus : null;
       tx.update(payoutRef, {
         status,
-        printPayDispatchError: String(error?.message || 'PrintPay request failed').slice(0, 300),
+        printPayDispatchError: safeError,
+        printPayProviderHttpStatus: providerHttpStatus,
+        printPayProviderRejectionMessage: providerMessage,
         printPayDispatchOutcomeUnknown: unknown,
         updatedAt: FieldValue.serverTimestamp(),
       });
-      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, error: String(error?.message || 'PrintPay request failed').slice(0, 300), createdAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, error: safeError, providerHttpStatus, providerMessage, createdAt: FieldValue.serverTimestamp() });
     });
     if (unknown) {
       return res.status(202).json({ ok: true, payoutId: payoutRef.id, status, message: 'PrintPay did not return a definite result. Your payout is held for reconciliation; do not submit it again.' });
