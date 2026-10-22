@@ -168,7 +168,7 @@ export async function adminMarketplacePayouts(req, res) {
   const payoutId = clean(req.body?.payoutId, 180);
   const suppliedReason = clean(req.body?.reason, 500);
   const reason = suppliedReason || (action === 'APPROVE' ? 'Approved by admin' : action === 'REJECT' ? 'Rejected by admin' : '');
-  if (!payoutId && action !== 'RECONCILE_REFUND') throw clientError('Payout request ID is required.');
+  if (!payoutId && !['RECONCILE_REFUND', 'PRINTPAY_BALANCE'].includes(action)) throw clientError('Payout request ID is required.');
   const ref = payoutId ? adminDb.collection('sellerPayouts').doc(payoutId) : null;
   if (action === 'APPROVE' || action === 'REJECT') {
     await adminDb.runTransaction(async tx => {
