@@ -10,6 +10,7 @@
  * PRINTPAY_B2C_PIN
  */
 const PRINTPAY_BASE_URL = 'https://printpay.site/b2c';
+const REQUEST_TIMEOUT_MS = 15_000;
 
 const clean = (value, max = 180) =>
   typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -35,15 +36,31 @@ function credentials() {
 
 async function post(path, body) {
   const { walletId, securityCredential } = credentials();
-  const response = await fetch(PRINTPAY_BASE_URL + path, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Wallet-ID': walletId,
-      'X-Security-Credential': securityCredential,
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  let response;
+  try {
+    response = await fetch(PRINTPAY_BASE_URL + path, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Wallet-ID': walletId,
+        'X-Security-Credential': securityCredential,
+      },
+      signal: controller.signal,
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch (cause) {
+    // Especially for a withdrawal, a network error or timeout is an unknown
+    // outcome: the provider may have accepted the request before the response
+    // was lost. Callers must reconcile with PrintPay, never blindly retry.
+    const error = new Error('PrintPay connection failed or timed out. The operation outcome may be unknown; reconcile with PrintPay before retrying.');
+    error.outcomeUnknown = true;
+    error.cause = cause;
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
   let data;
   try {
     data = await response.json();
