@@ -1,10 +1,11 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { initiatePrintPayB2CPayout, getPrintPayB2CWalletBalance } from '../printpay-b2c.js';
 
 const clean = (value, max = 180) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const money = value => Number.isSafeInteger(value) && value > 0 && value <= 10_000_000;
-const RESERVED = new Set(['REQUESTED', 'PENDING', 'APPROVED']);
+const RESERVED = new Set(['REQUESTED', 'PENDING', 'APPROVED', 'DISPATCHING', 'PROCESSING', 'PROVIDER_UNKNOWN']);
 const REFUND_HOLD = new Set(['REQUESTED', 'APPROVED', 'CONFIRMED', 'PARTIALLY_REFUNDED']);
 async function availableAfterRefundHolds(ledgerDocs, readOrder) {
   const rows = ledgerDocs.map(doc => ({ id: doc.id, data: doc.data() || {} }));
@@ -60,6 +61,8 @@ const safePayout = (doc, includePayoutPhone = false) => {
     reviewNote: d.reviewNote || '', providerReference: d.providerReference || '',
     requestedAt: iso(d.createdAt || d.requestedAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
     rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || maskPhone(d.payoutPhone || ''),
+    printPayProviderMessage: d.printPayProviderMessage || '', printPayFeeBreakdown: d.printPayFeeBreakdown || null,
+    printPayDispatchError: d.printPayDispatchError || '',
     ...(includePayoutPhone ? { payoutPhone: d.payoutPhone || '' } : {}),
   };
 };
@@ -165,7 +168,7 @@ export async function adminMarketplacePayouts(req, res) {
   const payoutId = clean(req.body?.payoutId, 180);
   const suppliedReason = clean(req.body?.reason, 500);
   const reason = suppliedReason || (action === 'APPROVE' ? 'Approved by admin' : action === 'REJECT' ? 'Rejected by admin' : '');
-  if (!payoutId && action !== 'RECONCILE_REFUND') throw clientError('Payout request ID is required.');
+  if (!payoutId && !['RECONCILE_REFUND', 'PRINTPAY_BALANCE'].includes(action)) throw clientError('Payout request ID is required.');
   const ref = payoutId ? adminDb.collection('sellerPayouts').doc(payoutId) : null;
   if (action === 'APPROVE' || action === 'REJECT') {
     await adminDb.runTransaction(async tx => {
@@ -179,6 +182,71 @@ export async function adminMarketplacePayouts(req, res) {
     });
     return res.json({ ok: true, status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED', message: action === 'APPROVE' ? 'Payout approved. Send funds separately, then record the confirmed provider reference.' : 'Payout request rejected.' });
   }
+  if (action === 'PRINTPAY_BALANCE') {
+    const balance = await getPrintPayB2CWalletBalance();
+    return res.json({ ok: true, ...balance });
+  }
+  if (action === 'SEND_PRINTPAY') {
+    // Claim the request transactionally before contacting PrintPay. This makes
+    // double-clicks and concurrent admin requests unable to dispatch twice.
+    const claimed = await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) throw clientError('Payout request not found.', 404);
+      const payout = snap.data() || {};
+      if (payout.status !== 'APPROVED') throw clientError('Only an approved payout can be sent with PrintPay.', 409);
+      if (!payout.payoutPhone) throw clientError('This payout has no saved M-Pesa destination.', 409);
+      tx.update(ref, { status: 'DISPATCHING', printPayDispatchStartedAt: FieldValue.serverTimestamp(), printPayDispatchStartedBy: admin.uid, updatedAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PRINTPAY_DISPATCH_STARTED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, createdAt: FieldValue.serverTimestamp() });
+      return { phone: payout.payoutPhone, amount: Number(payout.amount), sellerId: payout.sellerId };
+    });
+    let result;
+    try {
+      result = await initiatePrintPayB2CPayout({ payoutId, phone: claimed.phone, amount: claimed.amount });
+    } catch (error) {
+      const unknown = Boolean(error?.outcomeUnknown);
+      await adminDb.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists || snap.data()?.status !== 'DISPATCHING') return;
+        tx.update(ref, {
+          status: unknown ? 'PROVIDER_UNKNOWN' : 'APPROVED',
+          printPayDispatchError: String(error?.message || 'PrintPay request failed').slice(0, 300),
+          printPayDispatchOutcomeUnknown: unknown,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: claimed.amount, error: String(error?.message || 'PrintPay request failed').slice(0, 300), createdAt: FieldValue.serverTimestamp() });
+      });
+      if (unknown) throw clientError('PrintPay outcome is unknown. This payout is locked against resending; check the PrintPay dashboard and reconcile it before taking further action.', 409);
+      throw clientError(String(error?.message || 'PrintPay rejected the payout request.'));
+    }
+    // From this point PrintPay has accepted the request. If Firestore persistence
+    // fails, never reopen the request for dispatch: retain the lock if possible.
+    try {
+      await adminDb.runTransaction(async tx => {
+        const snap = await tx.get(ref);
+        if (!snap.exists || snap.data()?.status !== 'DISPATCHING') throw clientError('Payout dispatch state changed; manual reconciliation is required.', 409);
+        tx.update(ref, {
+          status: 'PROCESSING',
+          printPayProvider: 'PRINTPAY',
+          printPayProviderStatus: result.providerStatus,
+          printPayProviderMessage: result.providerMessage,
+          printPayFinalStatusVerified: false,
+          printPayFeeBreakdown: result.feeBreakdown,
+          printPayInitiatedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PRINTPAY_INITIALIZED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: claimed.amount, feeBreakdown: result.feeBreakdown, providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
+      });
+    } catch (persistError) {
+      console.error('[marketplace-payouts] PrintPay accepted payout but processing status could not be saved; payout must not be resent.', { payoutId, message: persistError?.message || String(persistError) });
+      try {
+        await ref.update({ status: 'PROVIDER_UNKNOWN', printPayProvider: 'PRINTPAY', printPayProviderStatus: result.providerStatus, printPayProviderMessage: result.providerMessage, printPayFinalStatusVerified: false, printPayFeeBreakdown: result.feeBreakdown, printPayDispatchError: 'PrintPay accepted the request, but saving its status failed. Reconcile before any retry.', updatedAt: FieldValue.serverTimestamp() });
+      } catch (lockError) {
+        console.error('[marketplace-payouts] CRITICAL: unable to persist unknown PrintPay outcome; do not resend.', { payoutId, message: lockError?.message || String(lockError) });
+      }
+      throw clientError('PrintPay accepted the payout request, but the app could not save its status. Check PrintPay and reconcile before taking any further action.', 409);
+    }
+    return res.json({ ok: true, status: 'PROCESSING', feeBreakdown: result.feeBreakdown, message: 'PrintPay accepted the payout request for processing. Final delivery is not yet verified; do not resend this payout.' });
+  }
   if (action === 'MARK_PAID') {
     const providerReference = clean(req.body?.providerReference, 160);
     if (!providerReference) throw clientError('A confirmed M-Pesa/provider reference is required.');
@@ -189,10 +257,12 @@ export async function adminMarketplacePayouts(req, res) {
       ]);
       if (!snap.exists) throw clientError('Payout request not found.', 404);
       const payout = snap.data();
-      if (payout.status !== 'APPROVED') throw clientError('Only an approved payout can be marked paid.', 409);
+      if (!['APPROVED', 'PROCESSING', 'PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only an approved or PrintPay-dispatched payout with a confirmed provider reference can be marked paid.', 409);
       if (debitSnap.exists) throw clientError('A payout ledger debit already exists.', 409);
       const ledgerRef = adminDb.collection('sellerLedger').doc(Buffer.from('marketplace-payout:' + payoutId).toString('base64url'));
-      tx.set(ledgerRef, { sellerId: payout.sellerId, type: 'SELLER_PAYOUT', status: 'POSTED', amount: -Number(payout.amount), currency: payout.currency || 'KES', balanceBucket: 'AVAILABLE', payoutId, providerReference, idempotencyKey: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
+      const fee = Number.isSafeInteger(payout.printPayFeeBreakdown?.fee) && payout.printPayFeeBreakdown.fee >= 0 ? payout.printPayFeeBreakdown.fee : 0;
+      const totalDebit = Number(payout.amount) + fee;
+      tx.set(ledgerRef, { sellerId: payout.sellerId, type: 'SELLER_PAYOUT', status: 'POSTED', amount: -totalDebit, transferAmount: Number(payout.amount), providerFee: fee, totalDebit, currency: payout.currency || 'KES', balanceBucket: 'AVAILABLE', payoutId, providerReference, idempotencyKey: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
       tx.update(ref, { status: 'PAID', providerReference, paidBy: admin.uid, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PAID', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, providerReference, createdAt: FieldValue.serverTimestamp() });
     });
@@ -283,5 +353,5 @@ export async function adminMarketplacePayouts(req, res) {
     return res.json({ ok: true, status: result.unresolved ? 'RECONCILED_WITH_HOLDS' : 'RECONCILED', ...result,
       message: result.unresolved ? 'Seller adjustments recorded. Other open refunds still hold this order’s available earnings.' : 'Seller adjustments recorded and this order’s refund hold is released.' });
   }
-  throw clientError('Choose APPROVE, REJECT, MARK_PAID, or RECONCILE_REFUND.');
+  throw clientError('Choose APPROVE, REJECT, SEND_PRINTPAY, PRINTPAY_BALANCE, MARK_PAID, or RECONCILE_REFUND.');
 }
