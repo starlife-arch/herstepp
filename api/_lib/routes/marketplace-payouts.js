@@ -104,7 +104,7 @@ export async function sellerPayouts(req, res) {
   if (!money(amount)) throw clientError('Payout amount must be a positive whole KSh amount.');
   if (!/^[A-Za-z0-9_-]{12,80}$/.test(requestKey)) throw clientError('A valid unique payout request key is required.');
   const payoutRef = adminDb.collection('sellerPayouts').doc(user.uid + '_' + requestKey);
-  await adminDb.runTransaction(async tx => {
+  const creation = await adminDb.runTransaction(async tx => {
     const [existing, ledgerSnap, payoutsSnap] = await Promise.all([
       tx.get(payoutRef),
       tx.get(adminDb.collection('sellerLedger').where('sellerId', '==', user.uid)),
@@ -113,19 +113,85 @@ export async function sellerPayouts(req, res) {
     if (existing.exists) {
       const prior = existing.data();
       if (prior.sellerId !== user.uid || Number(prior.amount) !== amount || prior.payoutPhone !== phone) throw clientError('This payout request key was already used for different details.', 409);
-      return; // exact idempotent retry
+      return { created: false, status: String(prior.status || 'REQUESTED').toUpperCase() };
     }
     const available = await availableAfterRefundHolds(ledgerSnap.docs, orderId => tx.get(adminDb.collection('orders').doc(orderId)));
-    const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(doc.data()?.status)).reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
+    const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(String(doc.data()?.status || '').toUpperCase())).reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
     if (amount > available - reserved) throw clientError('Payout amount exceeds your available balance.', 409);
     tx.create(payoutRef, {
       sellerId: user.uid, sellerName: String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller').slice(0, 100),
-      amount, currency: 'KES', status: 'REQUESTED', payoutPhone: phone, payoutPhoneMasked: maskPhone(phone),
-      idempotencyKey: payoutRef.id, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      amount, currency: 'KES', status: 'DISPATCHING', payoutPhone: phone, payoutPhoneMasked: maskPhone(phone),
+      idempotencyKey: payoutRef.id, printPayProvider: 'PRINTPAY', printPayDispatchStartedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp(),
     });
-    tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: 'SELLER_PAYOUT_REQUESTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, createdAt: FieldValue.serverTimestamp() });
+    tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: 'SELLER_PAYOUT_PRINTPAY_DISPATCH_STARTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, createdAt: FieldValue.serverTimestamp() });
+    return { created: true, status: 'DISPATCHING' };
   });
-  return res.status(201).json({ ok: true, payoutId: payoutRef.id, status: 'REQUESTED', message: 'Payout request submitted for admin review. No money has been sent.' });
+
+  // Exact retries return the existing payout and never dispatch a second transfer.
+  if (!creation.created) {
+    return res.status(200).json({
+      ok: true, payoutId: payoutRef.id, status: creation.status,
+      message: creation.status === 'PROCESSING'
+        ? 'Your payout has been sent to PrintPay for processing. Do not submit it again.'
+        : creation.status === 'PROVIDER_UNKNOWN'
+          ? 'Your payout is being reconciled because PrintPay did not return a definite result. Do not submit it again.'
+          : 'This payout request already exists.',
+    });
+  }
+
+  let result;
+  try {
+    result = await initiatePrintPayB2CPayout({ payoutId: payoutRef.id, phone, amount });
+  } catch (error) {
+    const unknown = Boolean(error?.outcomeUnknown);
+    const status = unknown ? 'PROVIDER_UNKNOWN' : 'FAILED';
+    await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(payoutRef);
+      if (!snap.exists || snap.data()?.status !== 'DISPATCHING') return;
+      tx.update(payoutRef, {
+        status,
+        printPayDispatchError: String(error?.message || 'PrintPay request failed').slice(0, 300),
+        printPayDispatchOutcomeUnknown: unknown,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, error: String(error?.message || 'PrintPay request failed').slice(0, 300), createdAt: FieldValue.serverTimestamp() });
+    });
+    if (unknown) {
+      return res.status(202).json({ ok: true, payoutId: payoutRef.id, status, message: 'PrintPay did not return a definite result. Your payout is held for reconciliation; do not submit it again.' });
+    }
+    return res.status(502).json({ ok: false, payoutId: payoutRef.id, status, message: 'PrintPay rejected the payout request. No confirmed transfer was initiated; check the payout status before trying again.' });
+  }
+
+  // Provider success means initialized, not final delivery. Keep the payout reserved.
+  try {
+    await adminDb.runTransaction(async tx => {
+      const snap = await tx.get(payoutRef);
+      if (!snap.exists || snap.data()?.status !== 'DISPATCHING') throw clientError('Payout state changed during PrintPay dispatch; reconciliation is required.', 409);
+      tx.update(payoutRef, {
+        status: 'PROCESSING',
+        printPayProviderStatus: result.providerStatus,
+        printPayProviderMessage: result.providerMessage,
+        printPayFinalStatusVerified: false,
+        printPayFeeBreakdown: result.feeBreakdown,
+        printPayInitiatedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: 'SELLER_PAYOUT_PRINTPAY_INITIALIZED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, feeBreakdown: result.feeBreakdown, providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
+    });
+  } catch (persistError) {
+    console.error('[marketplace-payouts] PrintPay accepted seller payout but status persistence failed; do not resend.', { payoutId: payoutRef.id, message: persistError?.message || String(persistError) });
+    try {
+      await payoutRef.update({ status: 'PROVIDER_UNKNOWN', printPayProvider: 'PRINTPAY', printPayProviderStatus: result.providerStatus, printPayProviderMessage: result.providerMessage, printPayFinalStatusVerified: false, printPayFeeBreakdown: result.feeBreakdown, printPayDispatchError: 'PrintPay accepted the request, but saving its status failed. Reconcile before any retry.', updatedAt: FieldValue.serverTimestamp() });
+    } catch (lockError) {
+      console.error('[marketplace-payouts] CRITICAL: unable to persist unknown seller payout outcome; do not resend.', { payoutId: payoutRef.id, message: lockError?.message || String(lockError) });
+    }
+    return res.status(202).json({ ok: true, payoutId: payoutRef.id, status: 'PROVIDER_UNKNOWN', message: 'PrintPay accepted the payout request, but the app could not save its final state. It is held for reconciliation; do not submit again.' });
+  }
+  return res.status(201).json({
+    ok: true, payoutId: payoutRef.id, status: 'PROCESSING',
+    message: 'Your payout was sent to PrintPay automatically and is processing. Final delivery will be confirmed before it is marked paid.',
+  });
 }
 
 export async function adminMarketplacePayouts(req, res) {
