@@ -152,11 +152,11 @@ export async function initiatePrintPayB2CTopup({ phone, amount }) {
     throw new Error('PrintPay top up amount must be a whole KSh amount of at least 10.');
   }
   // PrintPay's STK endpoint example uses the local 07XXXXXXXX phone format.
-  const digits = String(phone || '').replace(/[\\s()-]/g, '');
-  const localPhone = /^\\+?254[17]\\d{8}$/.test(digits)
-    ? '0' + digits.replace(/^\\+?254/, '')
+  const digits = String(phone || '').replace(/[\s()-]/g, '');
+  const localPhone = /^\+?254[17]\d{8}$/.test(digits)
+    ? '0' + digits.replace(/^\+?254/, '')
     : digits;
-  if (!/^(07|01)\\d{8}$/.test(localPhone)) {
+  if (!/^(07|01)\d{8}$/.test(localPhone)) {
     throw new Error('Enter a valid Kenyan M-Pesa phone number.');
   }
   const data = await post('/topup/stk_push', { phone: localPhone, amount });
