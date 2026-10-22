@@ -23,7 +23,7 @@ Do not place these values in frontend environment variables, source code, logs, 
 - Withdrawal command: `BusinessPayment`
 - Auth headers: `X-Wallet-ID`, `X-Security-Credential`
 
-The adapter normalizes Kenyan phone numbers, validates the internal payout ID and whole-KSh amount, and keeps the PIN server-side.
+The adapter normalizes Kenyan phone numbers, validates the internal payout ID and whole-KSh amount, keeps the PIN server-side, and applies a 15-second network timeout. A network error/timeout is explicitly treated as an unknown outcome; it must not trigger a blind retry.
 
 ## Fee handling
 
@@ -52,4 +52,4 @@ A webhook URL alone is not sufficient to safely trust a callback. Before accepti
 
 ## Safety gate
 
-Do not connect the adapter to the seller-facing request route or enable automatic live transfers until fee consent/reservation, final-result verification, idempotent ledger posting, failure/reversal handling, and reconciliation are implemented and tested. The provider's initialization message alone is insufficient evidence to debit seller earnings or tell the seller that funds arrived.
+Do not connect the adapter to the seller-facing request route or enable automatic live transfers until fee consent/reservation, final-result verification, idempotent ledger posting, failure/reversal handling, and reconciliation are implemented and tested. The provider's initialization message alone is insufficient evidence to debit seller earnings or tell the seller that funds arrived. `scripts/test-printpay-b2c.mjs` covers wallet balance, auth headers, withdrawal payload, phone normalization, fee parsing, missing fee data, provider errors, unknown outcomes, and missing server credentials; it is included in `npm test`.
