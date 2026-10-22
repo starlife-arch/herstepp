@@ -112,7 +112,7 @@ export default function SellerDashboard() {
 
   async function requestPayout() {
     const amount = Number(payoutAmount);
-    if (!Number.isSafeInteger(amount) || amount < 1) { setPayoutError('Enter a whole KSh amount to request.'); return; }
+    if (!Number.isSafeInteger(amount) || amount < 10) { setPayoutError('The minimum payout is KSh 10.'); return; }
     if (!payoutPhone.trim()) { setPayoutError('Enter the Kenyan M-Pesa number to receive the payout.'); return; }
     setPayoutBusy(true); setPayoutError(''); setPayoutNotice('');
     try {
@@ -306,14 +306,14 @@ export default function SellerDashboard() {
           <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Payout requests</p><p className="text-2xl font-bold mt-1">{Array.isArray(payoutData?.payouts) ? payoutData.payouts.length : 0}</p></div>
         </div>
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] mt-4 items-end">
-          <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-amount">Amount (KSh)</label><input id="seller-payout-amount" type="number" min="1" step="1" max={Number(payoutData?.availableBalance) || undefined} value={payoutAmount} onChange={e => setPayoutAmount(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. 1500" /></div>
+          <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-amount">Amount (KSh)</label><input id="seller-payout-amount" type="number" min="10" step="1" max={Number(payoutData?.availableBalance) || undefined} value={payoutAmount} onChange={e => setPayoutAmount(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. 1500" /><p className="mt-1 text-xs text-red-600">{payoutAmount && Number(payoutAmount) < 10 ? 'The minimum payout is KSh 10.' : ''}</p></div>
           <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-phone">M-Pesa payout number</label><p className="text-xs text-neutral-500 mb-2">Your saved default is prefilled. You can enter a different number for this payout only.</p><input id="seller-payout-phone" value={payoutPhone} onChange={e => setPayoutPhone(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="07… or +254…" autoComplete="tel" /></div>
-          <Button onClick={requestPayout} disabled={payoutBusy || !payoutData || Number(payoutAmount) < 1}><CreditCard className="w-4 h-4 mr-2" />{payoutBusy ? 'Submitting…' : 'Request payout'}</Button>
+          <Button onClick={requestPayout} disabled={payoutBusy || !payoutData || Number(payoutAmount) < 10}><CreditCard className="w-4 h-4 mr-2" />{payoutBusy ? 'Submitting…' : 'Request payout'}</Button>
         </div>
-        <p className="text-xs text-neutral-500 mt-2">Payouts are sent to PrintPay automatically when you submit. Transfers remain processing until delivery is verified. If a result is uncertain, do not submit the same withdrawal again.</p>
+        <p className="text-xs text-neutral-600 mt-2">Minimum payout: KSh 10. Earnings become available after you mark an order Delivered. Pending earnings are not yet withdrawable. Your request may wait while HerStep funds the payout wallet; if PrintPay rejects a transfer, your balance remains unchanged.</p>
         <div className="mt-5 space-y-2">
-          {(payoutData?.payouts || []).slice(0, 8).map((payout: any) => <div key={payout.id} className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm"><span className="font-medium">{formatMoney(Number(payout.amount) || 0)} · {payout.payoutPhoneMasked || 'M-Pesa'}</span><span className="text-neutral-600">{String(payout.status || '').replace(/_/g, ' ')}{payout.providerReference ? ` · ${payout.providerReference}` : ''}</span></div>)}
-          {payoutData && !(payoutData.payouts || []).length && <p className="text-sm text-neutral-500">No payout requests yet.</p>}
+          {(payoutData?.payouts || []).slice(0, 8).map((payout: any) => { const status = String(payout.status || '').toUpperCase(); const statusText = status === 'REQUESTED' || status === 'PENDING' ? 'Waiting for funds' : status === 'PROCESSING' || status === 'DISPATCHING' ? 'Processing' : status === 'PAID' ? 'Paid' : status === 'FAILED' ? 'Failed - balance returned' : status === 'PROVIDER_UNKNOWN' ? 'Being checked - balance reserved' : status.replace(/_/g, ' '); return <div key={payout.id} className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm"><span className="font-medium">{formatMoney(Number(payout.amount) || 0)} · {payout.payoutPhoneMasked || 'M-Pesa'}</span><span className="text-neutral-600">{statusText}{payout.providerReference ? ` · ${payout.providerReference}` : ''}</span></div>; })}
+          {payoutData && !(payoutData.payouts || []).length && <p className="text-sm text-neutral-500">No payout requests yet. Earnings become available after you mark an order Delivered.</p>}
         </div>
       </Card>}
 
