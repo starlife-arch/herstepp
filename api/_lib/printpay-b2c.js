@@ -148,12 +148,17 @@ export async function initiatePrintPayB2CPayout({
 
 /** Sends a real STK Push payment prompt; it does not debit the wallet. */
 export async function initiatePrintPayB2CTopup({ phone, amount }) {
-  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000) throw new Error('Top up amount must be a positive whole KSh amount.');
-  if (amount < 10) throw new Error('PrintPay top up minimum is KSh 10.');
+  if (!Number.isSafeInteger(amount) || amount < 10 || amount > 10_000_000) {
+    throw new Error('PrintPay top up amount must be a whole KSh amount of at least 10.');
+  }
   // PrintPay's published STK example uses the local 07XXXXXXXX format.
-  const digits = String(phone || '').replace(/[\\s()-]/g, '');
-  const localPhone = /^\\+?254[17]\\d{8}$/.test(digits) ? '0' + digits.replace(/^\\+?254/, '') : digits;
-  if (!/^(07|01)\\d{8}$/.test(localPhone)) throw new Error('Enter a valid Kenyan M-Pesa phone number.');
+  const digits = String(phone || '').replace(/[\s()-]/g, '');
+  const localPhone = /^\+?254[17]\d{8}$/.test(digits)
+    ? '0' + digits.replace(/^\+?254/, '')
+    : digits;
+  if (!/^(07|01)\d{8}$/.test(localPhone)) {
+    throw new Error('Enter a valid Kenyan M-Pesa phone number.');
+  }
   const data = await post('/topup/stk_push', { phone: localPhone, amount });
   return { providerStatus: 'INITIALIZED', providerMessage: clean(data?.message || 'PrintPay accepted the STK Push request.', 300) };
 }
