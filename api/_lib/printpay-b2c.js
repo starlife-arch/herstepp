@@ -15,13 +15,28 @@ const REQUEST_TIMEOUT_MS = 15_000;
 const clean = (value, max = 180) =>
   typeof value === 'string' ? value.trim().slice(0, max) : '';
 
+// PrintPay's B2C documentation shows phones in the local 07XXXXXXXX / 01XXXXXXXX
+// format, so send exactly that (not 2547XXXXXXXX or +2547XXXXXXXX).
 function normalizeKenyanPhone(value) {
   const digits = String(value || '').replace(/[\s()-]/g, '');
-  if (/^07\d{8}$/.test(digits)) return '254' + digits.slice(1);
-  if (/^01\d{8}$/.test(digits)) return '254' + digits.slice(1);
-  if (/^254[17]\d{8}$/.test(digits)) return digits;
-  if (/^\+254[17]\d{8}$/.test(digits)) return digits.slice(1);
+  if (/^0[17]\d{8}$/.test(digits)) return digits;
+  if (/^254[17]\d{8}$/.test(digits)) return '0' + digits.slice(3);
+  if (/^\+254[17]\d{8}$/.test(digits)) return '0' + digits.slice(4);
   throw new Error('Enter a valid Kenyan M-Pesa phone number.');
+}
+
+// PrintPay rejects anything below KES 10 ("Invalid phone number or amount
+// (Minimum KES 10)"). Check it here so the request is never sent.
+export const MIN_B2C_AMOUNT = 10;
+function assertAmount(amount) {
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000) {
+    throw new Error('Amount must be a positive whole KSh amount.');
+  }
+  if (amount < MIN_B2C_AMOUNT) {
+    const error = new Error(`The minimum amount is KSh ${MIN_B2C_AMOUNT}.`);
+    error.code = 'BELOW_MINIMUM';
+    throw error;
+  }
 }
 
 function credentials(requirePin = false) {
@@ -73,7 +88,9 @@ async function post(path, body) {
   if (!response.ok || String(data?.status || '').toLowerCase() !== 'success') {
     const error = new Error('PrintPay request was not accepted. Check the provider dashboard before retrying.');
     error.providerHttpStatus = response.status;
-    error.providerMessage = clean(data?.message, 300);
+    error.providerMessage = clean(data?.message || data?.error, 300);
+    // Server log only (no secrets): lets you see PrintPay's exact reason in Vercel Logs.
+    console.error(`[printpay-b2c] ${path} answered HTTP ${response.status}: ${error.providerMessage || '(no message)'}`);
     throw error;
   }
   return data;
@@ -106,9 +123,7 @@ export async function initiatePrintPayB2CPayout({
   occasion = 'Marketplace seller payout',
 }) {
   if (!clean(payoutId, 180)) throw new Error('A stable payout ID is required.');
-  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 10_000_000) {
-    throw new Error('Payout amount must be a positive whole KSh amount.');
-  }
+  assertAmount(amount);
   const { pin } = credentials(true);
   const data = await post('/payout/withdraw', {
     command_id: 'BusinessPayment',
@@ -148,17 +163,7 @@ export async function initiatePrintPayB2CPayout({
 
 /** Sends a real STK Push payment prompt; it does not debit the wallet. */
 export async function initiatePrintPayB2CTopup({ phone, amount }) {
-  if (!Number.isSafeInteger(amount) || amount < 10 || amount > 10_000_000) {
-    throw new Error('PrintPay top up amount must be a whole KSh amount of at least 10.');
-  }
-  // PrintPay's STK endpoint example uses the local 07XXXXXXXX phone format.
-  const digits = String(phone || '').replace(/[\s()-]/g, '');
-  const localPhone = /^\+?254[17]\d{8}$/.test(digits)
-    ? '0' + digits.replace(/^\+?254/, '')
-    : digits;
-  if (!/^(07|01)\d{8}$/.test(localPhone)) {
-    throw new Error('Enter a valid Kenyan M-Pesa phone number.');
-  }
-  const data = await post('/topup/stk_push', { phone: localPhone, amount });
+  assertAmount(amount);
+  const data = await post('/topup/stk_push', { phone: normalizeKenyanPhone(phone), amount });
   return { providerStatus: 'INITIALIZED', providerMessage: clean(data?.message || 'PrintPay accepted the STK Push request.', 300) };
 }
