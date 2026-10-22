@@ -280,7 +280,7 @@ export async function adminMarketplacePayouts(req, res) {
     try {
       const balance = await getPrintPayB2CWalletBalance();
       return res.json({ ok: true, ...balance });
-    } catch (error) { error.expose = true; error.statusCode = error.statusCode || 502; throw error; }
+    } catch (error) { error.expose = true; error.statusCode = error.statusCode || 502; if (error.providerMessage) error.message = error.providerMessage; throw error; }
   }
   if (action === 'PRINTPAY_TOPUP') {
     const phone = normalizeKenyanPhone(req.body?.phone);
@@ -341,6 +341,7 @@ export async function adminMarketplacePayouts(req, res) {
       alertPayoutAdmin(`PrintPay rejected seller payout: ${claimed.sellerName} KSh ${claimed.amount}. PrintPay message: ${clean(error?.providerMessage || error?.message, 300) || 'No message returned'}`);
       error.expose = true;
       error.statusCode = 502;
+      if (error.providerMessage) error.message = clean(error.providerMessage, 300);
       throw error;
     }
     // From this point PrintPay has accepted the request. If Firestore persistence
