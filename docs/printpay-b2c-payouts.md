@@ -2,9 +2,9 @@
 
 ## Current state
 
-The adapter exists at `api/_lib/printpay-b2c.js` on branch `feat/printpay-b2c-payout-foundation`. It now supports the documented wallet-balance request and payout initiation, and parses the dynamic fee breakdown when PrintPay includes the documented message format.
+The adapter at `api/_lib/printpay-b2c.js` supports the documented wallet-balance request, withdrawal initiation, and STK Push top-ups. It parses the dynamic fee breakdown when PrintPay includes the documented message format. The seller request route checks the B2C wallet before dispatch and holds underfunded requests in `REQUESTED`; the admin route can retry eligible requests after the wallet is funded.
 
-It is **not connected to seller payout requests or admin routes**. No live transfer is initiated by this change.
+A successful withdrawal response means `PROCESSING`, not final delivery. Do not mark a payout `PAID` until a real provider reference is verified.
 
 ## Configuration
 
@@ -23,7 +23,7 @@ Do not place these values in frontend environment variables, source code, logs, 
 - Withdrawal command: `BusinessPayment`
 - Auth headers: `X-Wallet-ID`, `X-Security-Credential`
 
-The adapter normalizes Kenyan phone numbers, validates the internal payout ID and whole-KSh amount, keeps the PIN server-side, and applies a 15-second network timeout. A network error/timeout is explicitly treated as an unknown outcome; it must not trigger a blind retry.
+The adapter normalizes Kenyan phone numbers to the local `07XXXXXXXX` / `01XXXXXXXX` format required by the documented examples, validates the internal payout ID and whole-KSh amount, rejects amounts below KSh 10 with `BELOW_MINIMUM` before making a provider request, keeps the PIN server-side, logs one provider-rejection line without credentials, and applies a 15-second network timeout. A network error/timeout is explicitly treated as an unknown outcome; it must not trigger a blind retry.
 
 ## Fee handling
 
