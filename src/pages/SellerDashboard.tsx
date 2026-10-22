@@ -120,7 +120,7 @@ export default function SellerDashboard() {
         method: 'POST',
         body: JSON.stringify({ amount, payoutPhone: payoutPhone.trim(), idempotencyKey: `payout-${crypto.randomUUID()}` }),
       });
-      setPayoutNotice(result.message || 'Payout request submitted for review.');
+      setPayoutNotice(result.message || 'Your payout was sent to PrintPay for processing.');
       setPayoutAmount('');
       const refreshed: any = await apiFetch('/api/sellers/payouts');
       setPayoutData(refreshed);
@@ -310,7 +310,7 @@ export default function SellerDashboard() {
           <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-phone">M-Pesa payout number</label><p className="text-xs text-neutral-500 mb-2">Your saved default is prefilled. You can enter a different number for this payout only.</p><input id="seller-payout-phone" value={payoutPhone} onChange={e => setPayoutPhone(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="07… or +254…" autoComplete="tel" /></div>
           <Button onClick={requestPayout} disabled={payoutBusy || !payoutData || Number(payoutAmount) < 1}><CreditCard className="w-4 h-4 mr-2" />{payoutBusy ? 'Submitting…' : 'Request payout'}</Button>
         </div>
-        <p className="text-xs text-neutral-500 mt-2">Requests are reviewed by HerStep admin. This form does not send money automatically.</p>
+        <p className="text-xs text-neutral-500 mt-2">Payouts are sent to PrintPay automatically when you submit. Transfers remain processing until delivery is verified. If a result is uncertain, do not submit the same withdrawal again.</p>
         <div className="mt-5 space-y-2">
           {(payoutData?.payouts || []).slice(0, 8).map((payout: any) => <div key={payout.id} className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm"><span className="font-medium">{formatMoney(Number(payout.amount) || 0)} · {payout.payoutPhoneMasked || 'M-Pesa'}</span><span className="text-neutral-600">{String(payout.status || '').replace(/_/g, ' ')}{payout.providerReference ? ` · ${payout.providerReference}` : ''}</span></div>)}
           {payoutData && !(payoutData.payouts || []).length && <p className="text-sm text-neutral-500">No payout requests yet.</p>}
