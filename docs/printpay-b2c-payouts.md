@@ -2,13 +2,13 @@
 
 ## Current state
 
-The PrintPay B2C adapter exists at `api/_lib/printpay-b2c.js`, but is intentionally **not connected to seller payout requests or admin routes**. No live transfer is initiated by this change.
+The adapter exists at `api/_lib/printpay-b2c.js` on branch `feat/printpay-b2c-payout-foundation`. It now supports the documented wallet-balance request and payout initiation, and parses the dynamic fee breakdown when PrintPay includes the documented message format.
 
-The current marketplace payout workflow remains unchanged until the provider verification and fee rules below are confirmed.
+It is **not connected to seller payout requests or admin routes**. No live transfer is initiated by this change.
 
 ## Configuration
 
-Add these as **server-side Vercel environment variables** when the integration is ready:
+When preparing a controlled test, add these as server-side Vercel environment variables:
 
 - `PRINTPAY_WALLET_ID` — PrintPay B2C wallet ID.
 - `PRINTPAY_SECURITY_CREDENTIAL` — PrintPay B2C security credential.
@@ -16,34 +16,40 @@ Add these as **server-side Vercel environment variables** when the integration i
 
 Do not place these values in frontend environment variables, source code, logs, or client responses. Keep the existing `PRINTPAY_API_KEY` for buyer payments unchanged; it is a separate integration credential.
 
-## Provider request
+## Documented provider operations
 
-The adapter uses the documented endpoint `POST https://printpay.site/b2c/payout/withdraw` and `command_id: BusinessPayment`. It normalizes Kenyan phone numbers and validates the payout ID and whole-KSh amount before the request.
+- Wallet balance: `POST https://printpay.site/b2c/walletbalance`
+- B2C withdrawal: `POST https://printpay.site/b2c/payout/withdraw`
+- Withdrawal command: `BusinessPayment`
+- Auth headers: `X-Wallet-ID`, `X-Security-Credential`
 
-A successful response currently means **initialization accepted**, not confirmed M-Pesa delivery. The adapter returns `finalStatusVerified: false`; it does not mark the payout paid and does not write a seller-ledger debit.
+The adapter normalizes Kenyan phone numbers, validates the internal payout ID and whole-KSh amount, keeps the PIN server-side, and applies a 15-second network timeout. A network error/timeout is explicitly treated as an unknown outcome; it must not trigger a blind retry.
 
-## Required before wiring into production
+## Fee handling
 
-Ask PrintPay support to confirm these details in writing:
+PrintPay's example response reports a total wallet debit and a dynamic fee, e.g. amount KES 1,000 plus fee KES 14. The adapter extracts this breakdown if the response follows that format. It does not guess the fee when the message format differs.
 
-1. Final payout result/status endpoint, including the request identifier and exact terminal status values.
-2. Callback payload schema and how callback authenticity is verified (signature algorithm/header or another supported authentication method).
-3. Whether a provider reference can be supplied by Herstepp and echoed back for reliable matching.
-4. A fee quote endpoint or exact fee schedule. The example says the provider debits amount plus fee, but no reliable pre-transfer fee calculation is documented. Seller-paid fees must be shown before confirmation and included in balance validation.
-5. Failure/reversal behavior, callback retries, and how to safely reconcile a timeout where the initiation outcome is unknown.
+**Important:** the fee is disclosed in the response after initiation, not in a documented quote endpoint. Before enabling automatic transfers, the seller must explicitly agree that the provider fee is added to their deduction, and the payout workflow must reserve enough funds to cover the provider fee without allowing a negative balance. If Herstepp needs to show the exact fee before confirmation, PrintPay must provide a quote or fee schedule.
+
+## Final payout status
+
+The documentation supplied shows the result webhook URL `https://printpay.site/b2c/payout/result`, but does not specify the callback body, authenticity verification, correlation reference, or terminal success/failure fields. Therefore the adapter treats the response as **INITIALIZED**, not PAID. It does not mark a payout paid or write a seller-ledger debit.
+
+A webhook URL alone is not sufficient to safely trust a callback. Before accepting callback results, obtain the exact payload and supported authenticity-verification mechanism from PrintPay, or use a documented provider status lookup if available.
 
 ## Required production state machine
 
 - Create and reserve one unique payout record before attempting provider initiation.
-- Use the payout document ID as the stable internal correlation key; prevent a second initiation for the same payout.
+- Prevent a second initiation for the same payout; use a stable internal payout ID for correlation.
+- Check wallet balance and reserve both the seller payout amount and a safe fee allowance before dispatch.
 - Never blindly retry after a timeout or malformed provider response. Reconcile with PrintPay first.
 - Keep the payout pending after initialization.
-- Accept only authenticated, validated final provider results; match payout ID/reference, seller, phone, amount, and currency.
-- On confirmed success, atomically create one deterministic immutable negative ledger entry and mark the payout paid.
-- On confirmed failure, release the reservation only when PrintPay confirms no transfer occurred or the funds were reversed.
+- Accept only authenticated, validated final provider results; match the payout/reference, seller, phone, amount, and currency.
+- On confirmed success, atomically create one deterministic immutable negative ledger entry for the **recipient amount plus seller-paid fee**, and mark the payout paid.
+- On confirmed failure, release the reservation only when PrintPay confirms no transfer occurred or funds were reversed.
 - Deduplicate repeated callbacks and write audit events.
 - Keep an operational reconciliation path for unknown outcomes.
 
 ## Safety gate
 
-Do not connect the adapter to the seller-facing request route or enable automatic live transfers until items 1–5 are implemented and tested. The provider's initialization message alone is insufficient evidence to debit seller earnings or tell the seller that funds arrived.
+Do not connect the adapter to the seller-facing request route or enable automatic live transfers until fee consent/reservation, final-result verification, idempotent ledger posting, failure/reversal handling, and reconciliation are implemented and tested. The provider's initialization message alone is insufficient evidence to debit seller earnings or tell the seller that funds arrived. `scripts/test-printpay-b2c.mjs` covers wallet balance, auth headers, withdrawal payload, phone normalization, fee parsing, missing fee data, provider errors, unknown outcomes, and missing server credentials; it is included in `npm test`.
