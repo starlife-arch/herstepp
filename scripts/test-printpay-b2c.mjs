@@ -99,7 +99,7 @@ try {
     initiatePrintPayB2CPayout({ payoutId: 'payout-test-no-pin', phone: '0712345678', amount: 100 }),
     /credentials are not fully configured/,
   );
-  console.log('PrintPay B2C tests passed: wallet balance, auth headers, payout payload, Kenyan phone normalization, fee parsing, unknown outcomes, provider errors, and server-only credentials.');
+  console.log('PrintPay B2C tests passed: wallet balance, auth headers, local Kenyan phone format, KSh 10 minimum with no below-minimum fetch, STK top-up payload, fee parsing, unknown outcomes, provider errors, and server-only credentials.');
 } finally {
   globalThis.fetch = originalFetch;
 }
