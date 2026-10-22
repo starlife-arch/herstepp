@@ -64,7 +64,15 @@ try {
   );
 
   process.env.PRINTPAY_B2C_PIN = '';
-  await assert.rejects(getPrintPayB2CWalletBalance(), /credentials are not fully configured/);
+  // Wallet-balance reads need wallet/security credentials, not the withdrawal PIN.
+  globalThis.fetch = async () => new Response(JSON.stringify({ status: 'success', wallet_id: 'test-wallet', balance: 100 }), {
+    status: 200, headers: { 'Content-Type': 'application/json' },
+  });
+  assert.equal((await getPrintPayB2CWalletBalance()).balance, 100);
+  await assert.rejects(
+    initiatePrintPayB2CPayout({ payoutId: 'payout-test-no-pin', phone: '0712345678', amount: 100 }),
+    /credentials are not fully configured/,
+  );
   console.log('PrintPay B2C tests passed: wallet balance, auth headers, payout payload, Kenyan phone normalization, fee parsing, unknown outcomes, provider errors, and server-only credentials.');
 } finally {
   globalThis.fetch = originalFetch;
