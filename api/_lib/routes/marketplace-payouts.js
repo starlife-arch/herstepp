@@ -64,7 +64,7 @@ const safePayout = (doc, includePayoutPhone = false) => {
     id: doc.id, sellerId: d.sellerId, sellerName: d.sellerName || '', amount: d.amount, currency: d.currency || 'KES',
     status: ['PENDING', 'REQUESTED'].includes(String(d.status || 'REQUESTED').toUpperCase()) ? 'REQUESTED' : String(d.status || 'REQUESTED').toUpperCase(), reason: d.reason || d.reviewNote || '',
     reviewNote: d.reviewNote || '', providerReference: d.providerReference || '',
-    requestedAt: iso(d.createdAt || d.requestedAt), approvedAt: iso(d.approvedAt), paidAt: iso(d.paidAt),
+    requestedAt: iso(d.createdAt || d.requestedAt), approvedAt: iso(d.approvedAt), processingStartedAt: iso(d.printPayInitiatedAt || d.processingStartedAt || d.printPayDispatchStartedAt), lastCheckedAt: iso(d.printPayLastCheckedAt), updatedAt: iso(d.updatedAt), paidAt: iso(d.paidAt),
     rejectedAt: iso(d.rejectedAt), payoutPhoneMasked: d.payoutPhoneMasked || maskPhone(d.payoutPhone || ''),
     printPayProviderMessage: d.printPayProviderMessage || '', printPayFeeBreakdown: d.printPayFeeBreakdown || null,
     printPayDispatchError: d.printPayDispatchError || '',
