@@ -151,6 +151,9 @@ export async function initiatePrintPayB2CPayout({
 
   return {
     payoutId: clean(payoutId, 180),
+    // PrintPay's documented status-polling endpoint uses the conversation ID
+    // returned by the withdrawal initiation response to find the transaction.
+    providerConversationId: clean(data?.conversation_id, 180),
     providerStatus: 'INITIALIZED',
     finalStatusVerified: false,
     providerMessage: message,
@@ -158,6 +161,36 @@ export async function initiatePrintPayB2CPayout({
     feeBreakdown: feeBreakdownValid
       ? { amount: reportedAmount, fee: reportedFee, totalDebit: reportedTotalDebit }
       : null,
+  };
+}
+
+/**
+ * Reads the final state of a previously initialized B2C payout.
+ * PrintPay documents POST /payout/status and returns transaction_status,
+ * result_desc and receipt. Only terminal states are returned to callers.
+ */
+export async function getPrintPayB2CPayoutStatus({ conversationId }) {
+  const id = clean(conversationId, 180);
+  if (!id) throw new Error('A PrintPay conversation ID is required to check payout status.');
+  const data = await post('/payout/status', { conversation_id: id });
+  const status = clean(data?.transaction_status, 40).toUpperCase();
+  if (!['COMPLETED', 'FAILED', 'TIMED_OUT', 'REVERSED'].includes(status)) {
+    return {
+      providerConversationId: id,
+      transactionStatus: status || 'PROCESSING',
+      resultCode: data?.result_code ?? null,
+      resultDescription: clean(data?.result_desc, 300),
+      receipt: clean(data?.receipt, 80),
+      terminal: false,
+    };
+  }
+  return {
+    providerConversationId: id,
+    transactionStatus: status,
+    resultCode: data?.result_code ?? null,
+    resultDescription: clean(data?.result_desc, 300),
+    receipt: clean(data?.receipt, 80),
+    terminal: true,
   };
 }
 
