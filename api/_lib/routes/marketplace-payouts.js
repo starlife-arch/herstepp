@@ -133,6 +133,7 @@ export async function sellerPayouts(req, res) {
       updatedAt: FieldValue.serverTimestamp(), createdAt: FieldValue.serverTimestamp(),
     });
     tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: 'SELLER_PAYOUT_PRINTPAY_DISPATCH_STARTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, createdAt: FieldValue.serverTimestamp() });
+    tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: user.uid, sellerId: user.uid, actorUid: user.uid, action: 'SELLER_PAYOUT_REQUESTED', payoutId: payoutRef.id, amount, currency: 'KES', status: 'DISPATCHING', createdAt: FieldValue.serverTimestamp() });
     return { created: true, status: 'DISPATCHING' };
   });
 
@@ -153,11 +154,13 @@ export async function sellerPayouts(req, res) {
     wallet = await getPrintPayB2CWalletBalance();
   } catch (error) {
     await payoutRef.update({ status: 'REQUESTED', printPayDispatchError: String(error?.message || 'Could not check PrintPay wallet balance.').slice(0, 300), updatedAt: FieldValue.serverTimestamp() });
+    await adminDb.collection('sellerMarketplaceAudit').add({ sellerUid: user.uid, sellerId: user.uid, actorUid: 'SYSTEM', action: 'SELLER_PAYOUT_WAITING_FOR_WALLET_CHECK', payoutId: payoutRef.id, amount, currency: 'KES', status: 'REQUESTED', reason: String(error?.message || 'Wallet balance check unavailable').slice(0, 200), createdAt: FieldValue.serverTimestamp() });
     alertPayoutAdmin(`Payout waiting for wallet funds: ${String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller')} KSh ${amount} (wallet balance unavailable; check PrintPay).`);
     return res.status(202).json({ ok: true, payoutId: payoutRef.id, status: 'REQUESTED', message: 'Your payout request is received. It will be sent as soon as HerStep funds the payout wallet.' });
   }
   if (wallet.balance < amount + PAYOUT_FEE_BUFFER) {
     await payoutRef.update({ status: 'REQUESTED', printPayWalletBalanceAtRequest: wallet.balance, updatedAt: FieldValue.serverTimestamp() });
+    await adminDb.collection('sellerMarketplaceAudit').add({ sellerUid: user.uid, sellerId: user.uid, actorUid: 'SYSTEM', action: 'SELLER_PAYOUT_WAITING_FOR_WALLET_FUNDS', payoutId: payoutRef.id, amount, currency: 'KES', walletBalance: wallet.balance, requiredBalance: amount + PAYOUT_FEE_BUFFER, status: 'REQUESTED', createdAt: FieldValue.serverTimestamp() });
     alertPayoutAdmin(`Payout waiting for wallet funds: ${String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller')} KSh ${amount} (wallet KSh ${wallet.balance}).`);
     return res.status(202).json({ ok: true, payoutId: payoutRef.id, status: 'REQUESTED', message: 'Your payout request is received. It will be sent as soon as HerStep funds the payout wallet.' });
   }
@@ -182,6 +185,7 @@ export async function sellerPayouts(req, res) {
         updatedAt: FieldValue.serverTimestamp(),
       });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, error: safeError, providerHttpStatus, providerMessage, createdAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: user.uid, sellerId: user.uid, actorUid: 'SYSTEM', action: unknown ? 'SELLER_PAYOUT_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_DISPATCH_FAILED', payoutId: payoutRef.id, amount, currency: 'KES', status, reason: providerMessage || safeError, createdAt: FieldValue.serverTimestamp() });
     });
     if (unknown) {
       alertPayoutAdmin(`Seller payout outcome unknown: ${String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller')} KSh ${amount}. Reconcile with PrintPay before retrying.`);
@@ -206,6 +210,7 @@ export async function sellerPayouts(req, res) {
         updatedAt: FieldValue.serverTimestamp(),
       });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: user.uid, action: 'SELLER_PAYOUT_PRINTPAY_INITIALIZED', entityType: 'SELLER_PAYOUT', entityId: payoutRef.id, amount, feeBreakdown: result.feeBreakdown, providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: user.uid, sellerId: user.uid, actorUid: 'SYSTEM', action: 'SELLER_PAYOUT_PROCESSING', payoutId: payoutRef.id, amount, currency: 'KES', status: 'PROCESSING', providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
     });
   } catch (persistError) {
     console.error('[marketplace-payouts] PrintPay accepted seller payout but status persistence failed; do not resend.', { payoutId: payoutRef.id, message: persistError?.message || String(persistError) });
@@ -272,6 +277,7 @@ export async function adminMarketplacePayouts(req, res) {
       if (!['REQUESTED', 'PENDING'].includes(String(payout.status || 'REQUESTED').toUpperCase())) throw clientError('Only requested payouts can be approved or rejected.', 409);
       const status = action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
       tx.update(ref, { status, reviewNote: reason, ...(action === 'APPROVE' ? { approvedBy: admin.uid, approvedAt: FieldValue.serverTimestamp() } : { rejectedBy: admin.uid, rejectedAt: FieldValue.serverTimestamp() }), updatedAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: payout.sellerId, sellerId: payout.sellerId, actorUid: admin.uid, action: action === 'APPROVE' ? 'SELLER_PAYOUT_APPROVED' : 'SELLER_PAYOUT_REJECTED', payoutId, amount: payout.amount, currency: payout.currency || 'KES', status, reason, createdAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_' + status, entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, reason, createdAt: FieldValue.serverTimestamp() });
     });
     return res.json({ ok: true, status: action === 'APPROVE' ? 'APPROVED' : 'REJECTED', message: action === 'APPROVE' ? 'Payout approved. Send funds separately, then record the confirmed provider reference.' : 'Payout request rejected.' });
@@ -311,6 +317,7 @@ export async function adminMarketplacePayouts(req, res) {
       if (!payout.payoutPhone) throw clientError('This payout has no saved M-Pesa destination.', 409);
       tx.update(ref, { status: 'DISPATCHING', printPayDispatchStartedAt: FieldValue.serverTimestamp(), printPayDispatchStartedBy: admin.uid, updatedAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PRINTPAY_DISPATCH_STARTED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, createdAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: payout.sellerId, sellerId: payout.sellerId, actorUid: admin.uid, action: 'SELLER_PAYOUT_PRINTPAY_RETRY_STARTED', payoutId, amount: payout.amount, currency: payout.currency || 'KES', status: 'DISPATCHING', createdAt: FieldValue.serverTimestamp() });
       return { phone: payout.payoutPhone, amount: Number(payout.amount), sellerId: payout.sellerId, sellerName: payout.sellerName || 'Marketplace seller' };
     });
     let result;
@@ -318,6 +325,7 @@ export async function adminMarketplacePayouts(req, res) {
       const wallet = await getPrintPayB2CWalletBalance();
       if (wallet.balance < claimed.amount + PAYOUT_FEE_BUFFER) {
         await ref.update({ status: 'REQUESTED', printPayWalletBalanceAtRequest: wallet.balance, updatedAt: FieldValue.serverTimestamp() });
+        await adminDb.collection('sellerMarketplaceAudit').add({ sellerUid: claimed.sellerId, sellerId: claimed.sellerId, actorUid: 'SYSTEM', action: 'SELLER_PAYOUT_WAITING_FOR_WALLET_FUNDS', payoutId, amount: claimed.amount, currency: 'KES', walletBalance: wallet.balance, requiredBalance: claimed.amount + PAYOUT_FEE_BUFFER, status: 'REQUESTED', createdAt: FieldValue.serverTimestamp() });
         alertPayoutAdmin(`Payout waiting for wallet funds: ${claimed.sellerName} KSh ${claimed.amount} (wallet KSh ${wallet.balance}).`);
         return res.status(202).json({ ok: true, status: 'REQUESTED', message: 'Wallet funds are not sufficient yet. This payout remains requested and reserved.' });
       }
@@ -336,6 +344,7 @@ export async function adminMarketplacePayouts(req, res) {
           updatedAt: FieldValue.serverTimestamp(),
         });
         tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: unknown ? 'SELLER_PAYOUT_PRINTPAY_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_PRINTPAY_REJECTED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: claimed.amount, error: String(error?.message || 'PrintPay request failed').slice(0, 300), createdAt: FieldValue.serverTimestamp() });
+        tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: claimed.sellerId, sellerId: claimed.sellerId, actorUid: 'SYSTEM', action: unknown ? 'SELLER_PAYOUT_OUTCOME_UNKNOWN' : 'SELLER_PAYOUT_DISPATCH_FAILED', payoutId, amount: claimed.amount, currency: 'KES', status: unknown ? 'PROVIDER_UNKNOWN' : 'FAILED', reason: clean(error?.providerMessage || error?.message, 300), createdAt: FieldValue.serverTimestamp() });
       });
       if (unknown) throw clientError('PrintPay outcome is unknown. This payout is locked against resending; check the PrintPay dashboard and reconcile it before taking further action.', 409);
       alertPayoutAdmin(`PrintPay rejected seller payout: ${claimed.sellerName} KSh ${claimed.amount}. PrintPay message: ${clean(error?.providerMessage || error?.message, 300) || 'No message returned'}`);
@@ -361,6 +370,7 @@ export async function adminMarketplacePayouts(req, res) {
           updatedAt: FieldValue.serverTimestamp(),
         });
         tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PRINTPAY_INITIALIZED', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: claimed.amount, feeBreakdown: result.feeBreakdown, providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
+        tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: claimed.sellerId, sellerId: claimed.sellerId, actorUid: 'SYSTEM', action: 'SELLER_PAYOUT_PROCESSING', payoutId, amount: claimed.amount, currency: 'KES', status: 'PROCESSING', providerMessage: result.providerMessage, createdAt: FieldValue.serverTimestamp() });
       });
     } catch (persistError) {
       console.error('[marketplace-payouts] PrintPay accepted payout but processing status could not be saved; payout must not be resent.', { payoutId, message: persistError?.message || String(persistError) });
@@ -391,6 +401,7 @@ export async function adminMarketplacePayouts(req, res) {
       tx.set(ledgerRef, { sellerId: payout.sellerId, type: 'SELLER_PAYOUT', status: 'POSTED', amount: -totalDebit, transferAmount: Number(payout.amount), providerFee: fee, totalDebit, currency: payout.currency || 'KES', balanceBucket: 'AVAILABLE', payoutId, providerReference, idempotencyKey: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
       tx.update(ref, { status: 'PAID', providerReference, paidBy: admin.uid, paidAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_PAYOUT_PAID', entityType: 'SELLER_PAYOUT', entityId: payoutId, amount: payout.amount, providerReference, createdAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: payout.sellerId, sellerId: payout.sellerId, actorUid: admin.uid, action: 'SELLER_PAYOUT_PAID', payoutId, amount: payout.amount, currency: payout.currency || 'KES', status: 'PAID', providerReference, createdAt: FieldValue.serverTimestamp() });
     });
     return res.json({ ok: true, status: 'PAID', message: 'Payout recorded as paid with an immutable seller-ledger debit.' });
   }
