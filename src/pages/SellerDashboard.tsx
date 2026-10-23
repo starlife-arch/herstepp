@@ -47,6 +47,11 @@ const formatDate = (value?: string | null) => {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? 'Not set' : date.toLocaleDateString('en-KE', { year: 'numeric', month: 'short', day: 'numeric' });
 };
+const formatDateTime = (value?: string | null) => {
+  if (!value) return 'Not recorded';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+};
 const terminalStatuses = new Set(['PAID', 'FAILED', 'CANCELLED', 'TIMEOUT']);
 
 export default function SellerDashboard() {
@@ -312,7 +317,7 @@ export default function SellerDashboard() {
         </div>
         <p className="text-xs text-neutral-600 mt-2">Minimum payout: KSh 10. Earnings become available after you mark an order Delivered. Pending earnings are not yet withdrawable. Your request may wait while HerStep funds the payout wallet; if PrintPay rejects a transfer, your balance remains unchanged.</p>
         <div className="mt-5 space-y-2">
-          {(payoutData?.payouts || []).slice(0, 8).map((payout: any) => { const status = String(payout.status || '').toUpperCase(); const statusText = status === 'REQUESTED' || status === 'PENDING' ? 'Waiting for funds' : status === 'PROCESSING' || status === 'DISPATCHING' ? 'Processing' : status === 'PAID' ? 'Paid' : status === 'FAILED' ? 'Failed - balance returned' : status === 'PROVIDER_UNKNOWN' ? 'Being checked - balance reserved' : status.replace(/_/g, ' '); return <div key={payout.id} className="flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm"><span className="font-medium">{formatMoney(Number(payout.amount) || 0)} · {payout.payoutPhoneMasked || 'M-Pesa'}</span><span className="text-neutral-600">{statusText}{payout.providerReference ? ` · ${payout.providerReference}` : ''}</span></div>; })}
+          {(payoutData?.payouts || []).slice(0, 8).map((payout: any) => { const status = String(payout.status || '').toUpperCase(); const statusText = status === 'REQUESTED' || status === 'PENDING' ? 'Waiting for funds' : status === 'PROCESSING' || status === 'DISPATCHING' ? 'Processing' : status === 'PAID' ? 'Paid' : status === 'FAILED' ? 'Failed - balance returned' : status === 'PROVIDER_UNKNOWN' ? 'Being checked - balance reserved' : status.replace(/_/g, ' '); return <div key={payout.id} className="border-t pt-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{formatMoney(Number(payout.amount) || 0)} · {payout.payoutPhoneMasked || 'M-Pesa'}</span><span className="text-neutral-600">{statusText}{payout.providerReference ? ` · ${payout.providerReference}` : ''}</span></div><div className="mt-2 grid gap-1 text-xs text-neutral-500 sm:grid-cols-2"><span>Requested: {formatDateTime(payout.requestedAt)}</span><span>Processing started: {formatDateTime(payout.processingStartedAt)}</span><span>Last checked: {formatDateTime(payout.lastCheckedAt)}</span><span>Paid: {formatDateTime(payout.paidAt)}</span></div></div>; })}
           {payoutData && !(payoutData.payouts || []).length && <p className="text-sm text-neutral-500">No payout requests yet. Earnings become available after you mark an order Delivered.</p>}
         </div>
       </Card>}
