@@ -203,6 +203,7 @@ export async function sellerPayouts(req, res) {
       tx.update(payoutRef, {
         status: 'PROCESSING',
         printPayProviderStatus: result.providerStatus,
+        printPayConversationId: result.providerConversationId || null,
         printPayProviderMessage: result.providerMessage,
         printPayFinalStatusVerified: false,
         printPayFeeBreakdown: result.feeBreakdown,
@@ -363,6 +364,7 @@ export async function adminMarketplacePayouts(req, res) {
           status: 'PROCESSING',
           printPayProvider: 'PRINTPAY',
           printPayProviderStatus: result.providerStatus,
+          printPayConversationId: result.providerConversationId || null,
           printPayProviderMessage: result.providerMessage,
           printPayFinalStatusVerified: false,
           printPayFeeBreakdown: result.feeBreakdown,
