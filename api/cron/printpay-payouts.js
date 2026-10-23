@@ -25,6 +25,11 @@ export default async function handler(req, res) {
       continue;
     }
 
+    // Persist the latest poll time so sellers and admins can see whether this payout is still being checked.
+    await payoutDoc.ref.update({ printPayLastCheckedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() }).catch(error => {
+      console.error('[printpay-payout-reconcile] could not record last check time', { payoutId: payoutDoc.id, message: clean(error?.message, 200) });
+    });
+
     let provider;
     try {
       provider = await getPrintPayB2CPayoutStatus({ conversationId });
