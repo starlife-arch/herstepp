@@ -273,20 +273,28 @@ export async function adminMarketplacePayouts(req, res) {
     ]);
     const payoutDocs = payoutSnapshot.docs
       .sort((a, b) => timeValue(b.data()?.createdAt || b.data()?.requestedAt) - timeValue(a.data()?.createdAt || a.data()?.requestedAt));
-    const [sellerSnap, ledgerSnap] = await Promise.all([
+    const [sellerSnap, ledgerSnap, fundControlSnap] = await Promise.all([
       adminDb.collection('sellers').get(),
       adminDb.collection('sellerLedger').get(),
+      adminDb.collection('sellerFundControls').where('status', '==', 'ACTIVE').get().catch(() => ({ docs: [] })),
     ]);
     const sellerFinancials = new Map();
     const ensureSeller = (sellerId, name = '') => {
       if (!sellerFinancials.has(sellerId)) sellerFinancials.set(sellerId, { sellerId, sellerName: name || 'Marketplace seller', availableBalance: 0, pendingBalance: 0, totalWithdrawn: 0, paidPayoutCount: 0, payoutRequestCount: 0 });
       const row = sellerFinancials.get(sellerId);
+      if (!row.activeHolds) row.activeHolds = [];
       if (name && row.sellerName === 'Marketplace seller') row.sellerName = name;
       return row;
     };
     for (const doc of sellerSnap.docs) {
       const seller = doc.data() || {};
       ensureSeller(doc.id, String(seller.businessName || seller.displayName || 'Marketplace seller'));
+    }
+    for (const doc of fundControlSnap.docs) {
+      const control = doc.data() || {};
+      if (!control.sellerId || control.controlType !== 'HOLD') continue;
+      const summary = ensureSeller(String(control.sellerId));
+      summary.activeHolds.push({ id: doc.id, amount: Number(control.amount) || 0, reason: String(control.reason || ''), createdAt: iso(control.createdAt) });
     }
     for (const doc of ledgerSnap.docs) {
       const row = doc.data() || {};
