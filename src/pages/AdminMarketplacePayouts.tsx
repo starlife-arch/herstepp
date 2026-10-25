@@ -15,6 +15,7 @@ export default function AdminMarketplacePayouts() {
   usePageMeta('Marketplace Payouts | HerStep Admin', 'Review and reconcile marketplace seller payouts.');
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [refunds, setRefunds] = useState<Refund[]>([]);
+  const [sellerFinancials, setSellerFinancials] = useState<Array<{sellerId:string;sellerName:string;availableBalance:number;pendingBalance:number;totalWithdrawn:number;paidPayoutCount:number;payoutRequestCount:number}>>([]);
   const [allocations, setAllocations] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -46,7 +47,7 @@ export default function AdminMarketplacePayouts() {
   }
   async function refresh() {
     setLoading(true); setError('');
-    try { const result: any = await apiFetch('/api/admin/marketplace-payouts'); setPayouts(Array.isArray(result.payouts) ? result.payouts : []); setRefunds(Array.isArray(result.refundsToReconcile) ? result.refundsToReconcile.filter((refund: any) => refund && typeof refund === 'object').map((refund: any) => ({ ...refund, sellerLines: Array.isArray(refund.sellerLines) ? refund.sellerLines : [] })) : []); }
+    try { const result: any = await apiFetch('/api/admin/marketplace-payouts'); setPayouts(Array.isArray(result.payouts) ? result.payouts : []); setSellerFinancials(Array.isArray(result.sellerFinancials) ? result.sellerFinancials : []); setRefunds(Array.isArray(result.refundsToReconcile) ? result.refundsToReconcile.filter((refund: any) => refund && typeof refund === 'object').map((refund: any) => ({ ...refund, sellerLines: Array.isArray(refund.sellerLines) ? refund.sellerLines : [] })) : []); }
     catch (err: any) { setError(err?.message || 'Could not load payout requests.'); }
     finally { setLoading(false); }
   }
@@ -109,6 +110,10 @@ export default function AdminMarketplacePayouts() {
     <Card className="p-4 mb-4"><p className="text-sm text-neutral-500">Payout wallet balance</p><p className="text-2xl font-bold">{printPayBalance ? money(printPayBalance.balance) : balanceLoading ? 'Checking…' : 'Unavailable'}</p><p className="text-xs text-neutral-500 mt-1">The wallet must cover the payout amount and transfer fees. A KSh 50 safety buffer is kept.</p>{printPayBalance && <p className="text-xs text-neutral-500 mt-1">This is a read-only balance check.</p>}</Card>
     {notice && <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 mb-4">{notice}</div>}
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">{error}</div>}
+    <section className="mb-8 space-y-3">
+      <div><h2 className="text-xl font-bold">Seller financial summaries</h2><p className="text-sm text-neutral-600 mt-1">Read-only totals from seller ledger entries and payout records. Available and pending values are ledger totals; refund holds may make some available ledger funds temporarily unavailable.</p></div>
+      {sellerFinancials.length === 0 ? <Card className="p-4 text-sm text-neutral-500">No seller financial records found.</Card> : <div className="overflow-x-auto rounded-lg border bg-white"><table className="w-full min-w-[760px] text-sm"><thead className="bg-neutral-50 text-left"><tr><th className="p-3">Seller</th><th className="p-3">Seller UID</th><th className="p-3 text-right">Ledger available</th><th className="p-3 text-right">Pending</th><th className="p-3 text-right">Total withdrawn</th><th className="p-3 text-right">Paid payouts</th><th className="p-3 text-right">Requests</th></tr></thead><tbody>{sellerFinancials.map(seller => <tr key={seller.sellerId} className="border-t"><td className="p-3 font-medium">{seller.sellerName}</td><td className="p-3 font-mono text-xs">{seller.sellerId}</td><td className="p-3 text-right">{money(seller.availableBalance)}</td><td className="p-3 text-right">{money(seller.pendingBalance)}</td><td className="p-3 text-right">{money(seller.totalWithdrawn)}</td><td className="p-3 text-right">{seller.paidPayoutCount}</td><td className="p-3 text-right">{seller.payoutRequestCount}</td></tr>)}</tbody></table></div>}
+    </section>
     {refunds.length > 0 && <section className="mb-8 space-y-4">
       <div><h2 className="text-xl font-bold">Confirmed refunds awaiting marketplace reconciliation</h2><p className="text-sm text-neutral-600 mt-1">Allocate only the marketplace sellers’ share. Any HerStep first-party portion stays outside seller ledgers. Leave every allocation at zero when the confirmed refund contains no marketplace seller share; add a note explaining the allocation.</p></div>
       {refunds.map(refund => <Card key={refund.id} className="min-w-0 p-3 sm:p-5">
