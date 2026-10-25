@@ -323,6 +323,16 @@ export default function SellerDashboard() {
           {(payoutData?.payouts || []).slice(0, 8).map((payout: any) => { const status = String(payout.status || '').toUpperCase(); const statusText = status === 'REQUESTED' || status === 'PENDING' ? 'Waiting for funds' : status === 'PROCESSING' || status === 'DISPATCHING' ? 'Processing' : status === 'PAID' ? 'Paid' : status === 'FAILED' ? 'Failed - balance returned' : status === 'PROVIDER_UNKNOWN' ? 'Being checked - balance reserved' : status.replace(/_/g, ' '); return <div key={payout.id} className="border-t pt-3 text-sm"><div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium">{formatMoney(Number(payout.amount) || 0)} · {payout.payoutPhoneMasked || 'M-Pesa'}</span><span className="text-neutral-600">{statusText}{payout.providerReference ? ` · ${payout.providerReference}` : ''}</span></div><div className="mt-2 grid gap-1 text-xs text-neutral-500 sm:grid-cols-2"><span>Requested: {formatDateTime(payout.requestedAt)}</span><span>Processing started: {formatDateTime(payout.processingStartedAt)}</span><span>Last checked: {formatDateTime(payout.lastCheckedAt)}</span><span>Paid: {formatDateTime(payout.paidAt)}</span></div></div>; })}
           {payoutData && !(payoutData.payouts || []).length && <p className="text-sm text-neutral-500">No payout requests yet.</p>}
         </div>
+        <div className="mt-6 border-t pt-5">
+          <h3 className="text-lg font-semibold text-neutral-900">Refund and reversal cases</h3>
+          <p className="text-sm text-neutral-600 mt-1">Cases linked to your marketplace orders. Refund decisions and ledger adjustments are handled by the marketplace admin.</p>
+          {(payoutData?.sellerRefundCases || []).length === 0 ? <p className="text-sm text-neutral-500 mt-3">No refund or reversal cases found for your orders.</p> : <div className="mt-3 space-y-3">{payoutData.sellerRefundCases.map((item: any) => <div key={item.id} className="rounded-lg border p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">Order {item.orderId}</p><p className="text-xs text-neutral-500 mt-1">Case: {item.id} · {formatDateTime(item.createdAt)}</p></div><span className="rounded-full bg-neutral-100 px-2 py-1 text-xs font-semibold">{String(item.status || 'REQUESTED').replace(/_/g, ' ')}</span></div>
+            <p className="text-sm mt-2">Amount: {formatMoney(Number(item.amount) || 0)}</p>
+            {item.reason && <p className="text-sm text-neutral-600 mt-1">Reason: {item.reason}</p>}
+            {item.resolution && <p className="text-sm text-neutral-600 mt-1">Admin update: {item.resolution}</p>}
+          </div>)}</div>}
+        </div>
       </Card>}
 
       <Card className="p-5 sm:p-6 mb-8">
