@@ -93,7 +93,7 @@ export default function SellerProducts() {
     try {
       const result: any = await apiFetch('/api/sellers/bulk-upload', { method: 'POST', body: JSON.stringify({ action: 'purchase', phone: bulkPhone.trim(), idempotencyKey: `bulk-${crypto.randomUUID()}` }) });
       setBulkPayment(result.payment);
-      setBulkMessage('Approve the KSh 100 M-Pesa prompt. Ten credits are added only after PrintPay confirms payment.');
+      setBulkMessage('Approve the KSh 100 M-Pesa prompt. Ten credits are added only after your payment is confirmed.');
     } catch (err: any) { setBulkError(err?.message || 'Could not start the credit purchase.'); }
     finally { setBulkBusy(false); }
   }
