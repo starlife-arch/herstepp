@@ -125,7 +125,7 @@ export default function SellerDashboard() {
         method: 'POST',
         body: JSON.stringify({ amount, payoutPhone: payoutPhone.trim(), idempotencyKey: `payout-${crypto.randomUUID()}` }),
       });
-      setPayoutNotice(result.message || 'Your payout was sent to PrintPay for processing.');
+      setPayoutNotice(result.message || 'Your payout request was received and is being processed.');
       setPayoutAmount('');
       const refreshed: any = await apiFetch('/api/sellers/payouts');
       setPayoutData(refreshed);
@@ -390,7 +390,7 @@ export default function SellerDashboard() {
           <BadgeCheck className="w-5 h-5 text-neutral-600 mt-0.5" />
           <div className="w-full">
             <h2 className="text-xl font-semibold text-neutral-900">Promote a marketplace listing</h2>
-            <p className="text-sm text-neutral-600 mt-1">KSh 100 per product for 7 days. Promotion starts only after PrintPay confirms the exact payment.</p>
+            <p className="text-sm text-neutral-600 mt-1">KSh 100 per product for 7 days. Promotion starts only after your payment is confirmed.</p>
             <label htmlFor="promotion-product" className="block text-sm font-medium text-neutral-800 mt-4 mb-2">Active product</label>
             <select id="promotion-product" value={promotionProductId} onChange={event => setPromotionProductId(event.target.value)} className="w-full max-w-xl rounded-lg border border-neutral-300 px-3 py-2 text-sm" disabled={!promotionProducts.length || promotionBusy}>
               <option value="">Choose a product</option>
@@ -418,7 +418,7 @@ export default function SellerDashboard() {
           <Clock3 className="w-5 h-5 text-neutral-500 mt-0.5" />
           <div>
             <h3 className="font-semibold text-neutral-900">Secure subscription payments</h3>
-            <p className="text-sm text-neutral-600 mt-1">Your subscription activates only after the payment provider confirms the exact amount. If a payment is pending, use “Check payment status” instead of starting a different payment. Seller payouts are available for eligible sellers, but requests are reviewed manually and funds are not sent automatically.</p>
+            <p className="text-sm text-neutral-600 mt-1">Your subscription activates after your payment is confirmed. If a payment is pending, use “Check payment status” instead of starting another payment. Eligible sellers can request payouts, which are processed automatically when funds are available.</p>
             <Link to="/support" className="inline-block text-sm font-medium text-neutral-900 underline mt-3">Contact support</Link>
           </div>
         </div>
