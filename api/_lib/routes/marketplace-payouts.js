@@ -103,7 +103,30 @@ export async function sellerPayouts(req, res) {
     const paidPayouts = payoutsSnap.docs.filter(doc => String(doc.data()?.status || '').toUpperCase() === 'PAID');
     const totalWithdrawn = paidPayouts.reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
     const pendingBalance = ledgerSnap.docs.reduce((sum, doc) => { const row = doc.data() || {}; return String(row.balanceBucket || '').toUpperCase() === 'PENDING' ? sum + Number(row.amount || 0) : sum; }, 0);
-    return res.json({ currency: 'KES', availableBalance: Math.max(0, eligibleAvailable - reserved), heldBalance, pendingBalance, totalWithdrawn, paidPayoutCount: paidPayouts.length, totalPayoutRequests: payouts.length, payouts });
+    const refundSnap = await adminDb.collection('refundRecords').limit(200).get().catch(() => ({ docs: [] }));
+    const sellerRefundCases = [];
+    for (const refundDoc of refundSnap.docs) {
+      const refund = refundDoc.data() || {};
+      if (refund.type !== 'REFUND' || !refund.orderDocumentId) continue;
+      const orderSnap = await adminDb.collection('orders').doc(refund.orderDocumentId).get();
+      if (!orderSnap.exists) continue;
+      const order = orderSnap.data() || {};
+      const sellerItems = (Array.isArray(order.items) ? order.items : []).filter(item => String(item.sellerId || item.sellerSnapshot?.sellerId || '') === user.uid);
+      if (!sellerItems.length) continue;
+      sellerRefundCases.push({
+        id: refundDoc.id,
+        orderId: String(refund.orderId || order.orderId || refund.orderDocumentId),
+        amount: Number(refund.amount) || 0,
+        currency: String(refund.currency || 'KES'),
+        status: String(refund.status || order.refundStatus || 'REQUESTED').toUpperCase(),
+        reason: String(refund.reason || order.refundReason || ''),
+        createdAt: iso(refund.createdAt || refund.requestedAt || order.refundRequestedAt),
+        updatedAt: iso(refund.updatedAt || refund.resolvedAt),
+        resolution: String(refund.resolution || refund.adminDecision || ''),
+      });
+    }
+    sellerRefundCases.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    return res.json({ currency: 'KES', availableBalance: Math.max(0, eligibleAvailable - reserved), heldBalance, pendingBalance, totalWithdrawn, paidPayoutCount: paidPayouts.length, totalPayoutRequests: payouts.length, payouts, sellerRefundCases });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const sellerSnap = await sellerRef.get();
@@ -246,6 +269,39 @@ export async function adminMarketplacePayouts(req, res) {
     ]);
     const payoutDocs = payoutSnapshot.docs
       .sort((a, b) => timeValue(b.data()?.createdAt || b.data()?.requestedAt) - timeValue(a.data()?.createdAt || a.data()?.requestedAt));
+    const [sellerSnap, ledgerSnap] = await Promise.all([
+      adminDb.collection('sellers').get(),
+      adminDb.collection('sellerLedger').get(),
+    ]);
+    const sellerFinancials = new Map();
+    const ensureSeller = (sellerId, name = '') => {
+      if (!sellerFinancials.has(sellerId)) sellerFinancials.set(sellerId, { sellerId, sellerName: name || 'Marketplace seller', availableBalance: 0, pendingBalance: 0, totalWithdrawn: 0, paidPayoutCount: 0, payoutRequestCount: 0 });
+      const row = sellerFinancials.get(sellerId);
+      if (name && row.sellerName === 'Marketplace seller') row.sellerName = name;
+      return row;
+    };
+    for (const doc of sellerSnap.docs) {
+      const seller = doc.data() || {};
+      ensureSeller(doc.id, String(seller.businessName || seller.displayName || 'Marketplace seller'));
+    }
+    for (const doc of ledgerSnap.docs) {
+      const row = doc.data() || {};
+      if (!row.sellerId) continue;
+      const summary = ensureSeller(String(row.sellerId));
+      const amount = Number(row.amount) || 0;
+      if (String(row.balanceBucket || '').toUpperCase() === 'AVAILABLE') summary.availableBalance += amount;
+      if (String(row.balanceBucket || '').toUpperCase() === 'PENDING') summary.pendingBalance += amount;
+    }
+    for (const doc of payoutDocs) {
+      const payout = doc.data() || {};
+      if (!payout.sellerId) continue;
+      const summary = ensureSeller(String(payout.sellerId), String(payout.sellerName || ''));
+      summary.payoutRequestCount += 1;
+      if (String(payout.status || '').toUpperCase() === 'PAID') {
+        summary.totalWithdrawn += Number(payout.amount) || 0;
+        summary.paidPayoutCount += 1;
+      }
+    }
     const refundsToReconcile = [];
     for (const doc of refundSnap.docs) {
       const refund = doc.data() || {};
@@ -266,7 +322,7 @@ export async function adminMarketplacePayouts(req, res) {
         providerReference: refund.providerReference || '', confirmedAt: iso(refund.confirmedAt), sellerLines,
       });
     }
-    return res.json({ payouts: payoutDocs.map(doc => safePayout(doc, true)), refundsToReconcile });
+    return res.json({ payouts: payoutDocs.map(doc => safePayout(doc, true)), refundsToReconcile, sellerFinancials: Array.from(sellerFinancials.values()).sort((a, b) => a.sellerName.localeCompare(b.sellerName)) });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const action = clean(req.body?.action, 30).toUpperCase();
