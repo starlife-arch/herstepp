@@ -371,7 +371,7 @@ export async function adminMarketplacePayouts(req, res) {
       ]);
       if (!sellerSnap.exists) throw clientError('Seller account not found.', 404);
       const ledger = ledgerSnap.docs.map(doc => doc.data() || {});
-      const available = ledger.filter(row => String(row.balanceBucket || '').toUpperCase() === 'AVAILABLE').reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+      const available = await availableAfterRefundHolds(ledgerSnap.docs, orderId => tx.get(adminDb.collection('orders').doc(orderId)));
       const held = holdsSnap.docs.reduce((sum, doc) => sum + Math.max(0, Number(doc.data()?.amount) || 0), 0);
       const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(String(doc.data()?.status || '').toUpperCase())).reduce((sum, doc) => sum + (Number(doc.data()?.amount) || 0), 0);
       if (action === 'HOLD_FUNDS' && amount > Math.max(0, available - held - reserved)) throw clientError('Hold amount exceeds unreserved available funds.', 409);
