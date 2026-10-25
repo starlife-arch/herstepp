@@ -8,8 +8,9 @@ const money = (value: unknown) => new Intl.NumberFormat('en-KE', { style: 'curre
 const dateTime = (value?: string) => { if (!value) return 'Not recorded'; const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Not recorded' : date.toLocaleString('en-KE', { timeZone: 'Africa/Nairobi', year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true }); };
 type Payout = { id: string; sellerId: string; amount: number; currency: string; status: string; sellerName?: string; payoutPhone?: string; payoutPhoneMasked?: string; reason?: string; providerReference?: string; requestedAt?: string; approvedAt?: string; processingStartedAt?: string; lastCheckedAt?: string; updatedAt?: string; paidAt?: string; rejectedAt?: string; printPayProviderRejectionMessage?: string; printPayDispatchError?: string; printPayProviderHttpStatus?: number | null; printPayWalletBalanceAtRequest?: number; };
 type SellerLine = { sellerId: string; sellerName: string; productName: string; lineTotal: number; itemIndex: number; };
-type Refund = { id: string; orderDocumentId: string; orderId: string; amount: number; currency: string; reason?: string; providerReference?: string; sellerLines: SellerLine[]; };
-const uniqueSellers = (refund: Refund) => Array.from(new Map<string, SellerLine>(refund.sellerLines.map(line => [line.sellerId, line] as [string, SellerLine])).values());
+type Refund = { id: string; orderDocumentId: string; orderId: string; amount: number; currency: string; reason?: string; providerReference?: string; sellerLines?: SellerLine[] | null; };
+const refundSellerLines = (refund: Refund): SellerLine[] => Array.isArray(refund.sellerLines) ? refund.sellerLines.filter((line): line is SellerLine => Boolean(line && typeof line.sellerId === 'string')) : [];
+const uniqueSellers = (refund: Refund) => Array.from(new Map<string, SellerLine>(refundSellerLines(refund).map(line => [line.sellerId, line] as [string, SellerLine])).values());
 export default function AdminMarketplacePayouts() {
   usePageMeta('Marketplace Payouts | HerStep Admin', 'Review and reconcile marketplace seller payouts.');
   const [payouts, setPayouts] = useState<Payout[]>([]);
@@ -45,7 +46,7 @@ export default function AdminMarketplacePayouts() {
   }
   async function refresh() {
     setLoading(true); setError('');
-    try { const result: any = await apiFetch('/api/admin/marketplace-payouts'); setPayouts(Array.isArray(result.payouts) ? result.payouts : []); setRefunds(Array.isArray(result.refundsToReconcile) ? result.refundsToReconcile : []); }
+    try { const result: any = await apiFetch('/api/admin/marketplace-payouts'); setPayouts(Array.isArray(result.payouts) ? result.payouts : []); setRefunds(Array.isArray(result.refundsToReconcile) ? result.refundsToReconcile.filter((refund: any) => refund && typeof refund === 'object').map((refund: any) => ({ ...refund, sellerLines: Array.isArray(refund.sellerLines) ? refund.sellerLines : [] })) : []); }
     catch (err: any) { setError(err?.message || 'Could not load payout requests.'); }
     finally { setLoading(false); }
   }
@@ -113,7 +114,7 @@ export default function AdminMarketplacePayouts() {
       {refunds.map(refund => <Card key={refund.id} className="min-w-0 p-3 sm:p-5">
         <div className="flex flex-wrap justify-between gap-3"><div><h3 className="font-semibold">Order {refund.orderId}</h3><p className="text-xs text-neutral-500">Refund record: {refund.id}</p><p className="text-sm mt-1">Provider reference: {refund.providerReference || 'Not provided'}</p></div><div className="text-right"><p className="text-xl font-bold">{money(refund.amount)}</p><p className="text-xs text-neutral-500">Confirmed refund total</p></div></div>
         <div className="mt-4 space-y-3">{uniqueSellers(refund).map(seller => <div key={seller.sellerId} className="grid grid-cols-1 sm:grid-cols-[1fr_180px] gap-2 items-center">
-          <div><p className="font-medium text-sm">{seller.sellerName}</p><p className="text-xs text-neutral-500">{seller.sellerId} · Marketplace items: {money(refund.sellerLines.filter(line => line.sellerId === seller.sellerId).reduce((sum, line) => sum + line.lineTotal, 0))}</p></div>
+          <div><p className="font-medium text-sm">{seller.sellerName}</p><p className="text-xs text-neutral-500">{seller.sellerId} · Marketplace items: {money(refundSellerLines(refund).filter(line => line.sellerId === seller.sellerId).reduce((sum, line) => sum + line.lineTotal, 0))}</p></div>
           <label className="text-xs">Refund allocated (KSh)<input type="number" min="0" step="1" value={allocations[`${refund.id}:${seller.sellerId}`] || ''} onChange={e => setAllocations(prev => ({ ...prev, [`${refund.id}:${seller.sellerId}`]: e.target.value }))} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="0 if none" /></label>
         </div>)}</div>
         <div className="mt-4"><label className="block text-xs font-medium mb-1">Reconciliation note<input value={notes[refund.id] || ''} onChange={e => setNotes(prev => ({ ...prev, [refund.id]: e.target.value }))} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Explain how the refund was allocated" /></label></div>
