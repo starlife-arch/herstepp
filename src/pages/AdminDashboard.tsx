@@ -715,7 +715,7 @@ function AdminMessages() {
 }
 
 export default function AdminDashboard() {
-  usePageMeta('Admin | HerStep Collection', undefined, true);
+  usePageMeta('Platform Operations | HerStep Collection', undefined, true);
   const { state, logout } = useApp();
   const navigate = useNavigate();
   const [activeSection, setActiveSection] = useState('overview');
