@@ -7,7 +7,7 @@ const FEE_BUFFER = 50;
 const clean = (value, max = 300) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 function authorized(req) {
   const expected = String(process.env.CRON_SECRET || '').trim();
-  const supplied = String(req.headers?.authorization || '').replace(/^Bearer\\s+/i, '').trim();
+  const supplied = String(req.headers?.authorization || '').replace(/^Bearer\s+/i, '').trim();
   return Boolean(expected && supplied.length === expected.length && supplied === expected);
 }
 function alertAdmin(message) {
