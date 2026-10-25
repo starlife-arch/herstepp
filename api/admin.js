@@ -8,6 +8,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'sellers/profile': lazyRoute(() => import('./_lib/routes/admin-seller-profile.js')),
   'marketplace-payouts': lazyRoute(() => import('./_lib/routes/marketplace-payouts.js').then(m => ({ default: m.adminMarketplacePayouts }))),
   'seller-products': lazyRoute(() => import('./_lib/routes/admin-seller-products.js')),
+  'marketplace-controls': lazyRoute(() => import('./_lib/routes/admin-marketplace-controls.js')),
   'marketplace-reports': lazyRoute(() => import('./_lib/routes/marketplace-reports.js').then(m => ({ default: m.admin }))),
   products: lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.products }))),
   'product-update': lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.productUpdate }))),
