@@ -96,9 +96,14 @@ export async function sellerPayouts(req, res) {
       throw clientError('An approved, active seller account is required.', 403);
     }
     const payouts = payoutsSnap.docs.map(safePayout);
-    const available = await availableAfterRefundHolds(ledgerSnap.docs, orderId => adminDb.collection('orders').doc(orderId).get());
+    const eligibleAvailable = await availableAfterRefundHolds(ledgerSnap.docs, orderId => adminDb.collection('orders').doc(orderId).get());
+    const allAvailable = ledgerSnap.docs.reduce((sum, doc) => { const row = doc.data() || {}; return String(row.balanceBucket || '').toUpperCase() === 'AVAILABLE' ? sum + Number(row.amount || 0) : sum; }, 0);
+    const heldBalance = Math.max(0, allAvailable - eligibleAvailable);
     const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(String(doc.data()?.status || '').toUpperCase())).reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
-    return res.json({ currency: 'KES', availableBalance: Math.max(0, available - reserved), pendingBalance: ledgerSnap.docs.reduce((sum, doc) => { const row = doc.data() || {}; return String(row.balanceBucket || '').toUpperCase() === 'PENDING' ? sum + Number(row.amount || 0) : sum; }, 0), payouts });
+    const paidPayouts = payoutsSnap.docs.filter(doc => String(doc.data()?.status || '').toUpperCase() === 'PAID');
+    const totalWithdrawn = paidPayouts.reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
+    const pendingBalance = ledgerSnap.docs.reduce((sum, doc) => { const row = doc.data() || {}; return String(row.balanceBucket || '').toUpperCase() === 'PENDING' ? sum + Number(row.amount || 0) : sum; }, 0);
+    return res.json({ currency: 'KES', availableBalance: Math.max(0, eligibleAvailable - reserved), heldBalance, pendingBalance, totalWithdrawn, paidPayoutCount: paidPayouts.length, totalPayoutRequests: payouts.length, payouts });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const sellerSnap = await sellerRef.get();
