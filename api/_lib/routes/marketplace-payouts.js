@@ -142,9 +142,9 @@ export async function sellerPayouts(req, res) {
     return res.status(200).json({
       ok: true, payoutId: payoutRef.id, status: creation.status,
       message: creation.status === 'PROCESSING'
-        ? 'Your payout has been sent to PrintPay for processing. Do not submit it again.'
+        ? 'Your payout has been sent for processing. Do not submit it again.'
         : creation.status === 'PROVIDER_UNKNOWN'
-          ? 'Your payout is being reconciled because PrintPay did not return a definite result. Do not submit it again.'
+          ? 'Your payout is being checked because the payment result was unclear. Do not submit it again.'
           : 'This payout request already exists.',
     });
   }
@@ -220,11 +220,11 @@ export async function sellerPayouts(req, res) {
     } catch (lockError) {
       console.error('[marketplace-payouts] CRITICAL: unable to persist unknown seller payout outcome; do not resend.', { payoutId: payoutRef.id, message: lockError?.message || String(lockError) });
     }
-    return res.status(202).json({ ok: true, payoutId: payoutRef.id, status: 'PROVIDER_UNKNOWN', message: 'PrintPay accepted the payout request, but the app could not save its final state. It is held for reconciliation; do not submit again.' });
+    return res.status(202).json({ ok: true, payoutId: payoutRef.id, status: 'PROVIDER_UNKNOWN', message: 'Your payout request was accepted, but its final status could not be saved. It is being checked; do not submit again.' });
   }
   return res.status(201).json({
     ok: true, payoutId: payoutRef.id, status: 'PROCESSING',
-    message: 'Your payout was sent to PrintPay automatically and is processing. Final delivery will be confirmed before it is marked paid.',
+    message: 'Your payout was sent automatically and is processing. It will be marked paid only after delivery is confirmed.',
   });
 }
 
@@ -313,7 +313,7 @@ export async function adminMarketplacePayouts(req, res) {
       const snap = await tx.get(ref);
       if (!snap.exists) throw clientError('Payout request not found.', 404);
       const payout = snap.data() || {};
-      if (!['APPROVED', 'REQUESTED', 'FAILED'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only approved, requested, or failed payouts can be sent with PrintPay.', 409);
+      if (!['APPROVED', 'REQUESTED', 'FAILED'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only approved, requested, or failed payouts can be sent.', 409);
       if (!Number.isSafeInteger(Number(payout.amount)) || Number(payout.amount) < MIN_B2C_AMOUNT) throw clientError('The minimum payout is KSh 10.');
       if (!payout.payoutPhone) throw clientError('This payout has no saved M-Pesa destination.', 409);
       tx.update(ref, { status: 'DISPATCHING', printPayDispatchStartedAt: FieldValue.serverTimestamp(), printPayDispatchStartedBy: admin.uid, updatedAt: FieldValue.serverTimestamp() });
@@ -395,7 +395,7 @@ export async function adminMarketplacePayouts(req, res) {
       ]);
       if (!snap.exists) throw clientError('Payout request not found.', 404);
       const payout = snap.data();
-      if (!['APPROVED', 'PROCESSING', 'PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only an approved or PrintPay-dispatched payout with a confirmed provider reference can be marked paid.', 409);
+      if (!['APPROVED', 'PROCESSING', 'PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase())) throw clientError('Only an approved payout or a payout with a confirmed transfer reference can be marked paid.', 409);
       if (debitSnap.exists) throw clientError('A payout ledger debit already exists.', 409);
       const ledgerRef = adminDb.collection('sellerLedger').doc(Buffer.from('marketplace-payout:' + payoutId).toString('base64url'));
       const fee = Number.isSafeInteger(payout.printPayFeeBreakdown?.fee) && payout.printPayFeeBreakdown.fee >= 0 ? payout.printPayFeeBreakdown.fee : 0;
