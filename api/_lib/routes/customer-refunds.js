@@ -133,7 +133,7 @@ export async function customerRefunds(req, res) {
     if (refundInbox) {
       const adminTemplate = buildEmail(
         `New refund request — ${orderNumber}`,
-        `A customer has submitted a refund request.\n\nOrder: ${orderNumber}\nCustomer: ${cleanText(user.displayName || order.customerName || order.delivery?.fullName || 'Customer', 120)}\nCustomer email: ${customerEmail || 'Not available'}\nRequested amount: ${amountText}\nReason: ${reason}\n\nReview this request in the HerStep Collection admin dashboard. No refund has been paid automatically.`,
+        `A customer has submitted a refund request.\n\nOrder: ${orderNumber}\nCustomer: ${cleanText(user.displayName || order.customerName || order.delivery?.fullName || 'Customer', 120)}\nCustomer email: ${customerEmail || 'Not available'}\nRequested amount: ${amountText}\nReason: ${reason}\n\nReview this request in the HerStep Collection Platform Operations. No refund has been paid automatically.`,
         { ctaLabel: 'Open HerStep Collection', ctaUrl: `${siteUrl()}/admin` },
       );
       const key = `${refundRef.id}-REFUND-TEAM-EMAIL`;
@@ -155,7 +155,7 @@ export async function customerRefunds(req, res) {
     }
   });
   // Run Telegram independently so slow email/SMS delivery cannot mask its result.
-  const telegramAlert = sendTelegramMessage(`🧾 New refund request\nOrder: ${alertOrderNumber}\nCustomer: ${alertCustomerName}\nEmail: ${alertCustomerEmail || 'not available'}\nAmount: KSh ${Number(alertAmount).toLocaleString('en-KE')}\nReason: ${reason}\nEvidence files: ${evidence.length}\nReview in the admin dashboard.`).then(sent => {
+  const telegramAlert = sendTelegramMessage(`🧾 New refund request\nOrder: ${alertOrderNumber}\nCustomer: ${alertCustomerName}\nEmail: ${alertCustomerEmail || 'not available'}\nAmount: KSh ${Number(alertAmount).toLocaleString('en-KE')}\nReason: ${reason}\nEvidence files: ${evidence.length}\nReview in the Platform Operations.`).then(sent => {
     if (!sent) console.error('[customer-refunds] Telegram refund alert was not delivered; verify TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID.');
     return sent;
   }).catch(error => { console.error('[customer-refunds] Telegram refund alert failed:', error?.message || error); return false; });
