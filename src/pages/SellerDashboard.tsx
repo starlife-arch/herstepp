@@ -305,10 +305,13 @@ export default function SellerDashboard() {
         </div>
         {payoutError && <p role="alert" className="mt-3 text-sm text-red-700">{payoutError}</p>}
         {payoutNotice && <p role="status" className="mt-3 text-sm text-emerald-700">{payoutNotice}</p>}
-        <div className="grid gap-3 sm:grid-cols-3 mt-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 mt-4">
           <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Available balance</p><p className="text-2xl font-bold mt-1">{formatMoney(Number(payoutData?.availableBalance) || 0)}</p></div>
+          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Held for review</p><p className="text-2xl font-bold mt-1">{formatMoney(Number(payoutData?.heldBalance) || 0)}</p><p className="text-xs text-neutral-500 mt-1">Temporarily unavailable while refund cases are reviewed.</p></div>
           <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Pending earnings</p><p className="text-2xl font-bold mt-1">{formatMoney(Number(payoutData?.pendingBalance) || 0)}</p></div>
-          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Payout requests</p><p className="text-2xl font-bold mt-1">{Array.isArray(payoutData?.payouts) ? payoutData.payouts.length : 0}</p></div>
+          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Total withdrawn</p><p className="text-2xl font-bold mt-1">{formatMoney(Number(payoutData?.totalWithdrawn) || 0)}</p><p className="text-xs text-neutral-500 mt-1">Confirmed paid payouts only.</p></div>
+          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Payouts completed</p><p className="text-2xl font-bold mt-1">{Number(payoutData?.paidPayoutCount) || 0}</p></div>
+          <div className="rounded-lg bg-neutral-50 border p-4"><p className="text-xs text-neutral-500">Payout requests</p><p className="text-2xl font-bold mt-1">{Number(payoutData?.totalPayoutRequests) || (Array.isArray(payoutData?.payouts) ? payoutData.payouts.length : 0)}</p></div>
         </div>
         <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] mt-4 items-end">
           <div><label className="block text-sm font-medium mb-1" htmlFor="seller-payout-amount">Amount (KSh)</label><input id="seller-payout-amount" type="number" min="10" step="1" max={Number(payoutData?.availableBalance) || undefined} value={payoutAmount} onChange={e => setPayoutAmount(e.target.value)} className="w-full rounded-lg border border-neutral-300 px-3 py-2" placeholder="e.g. 1500" /><p className="mt-1 text-xs text-red-600">{payoutAmount && Number(payoutAmount) < 10 ? 'The minimum payout is KSh 10.' : ''}</p></div>
