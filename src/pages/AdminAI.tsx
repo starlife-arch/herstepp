@@ -31,7 +31,7 @@ const money = (value: number) => 'KSh ' + Number(value || 0).toLocaleString('en-
 
 export default function AdminAI() {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { role: 'assistant', content: 'Hello! I’m your private HerStep Admin AI. I can summarise sales, orders, payment statuses, stock, support tickets and paid tips using live records. I’m read-only: I won’t change orders or business records. I will not guess profit when cost data is missing.' },
+    { role: 'assistant', content: 'Hello! I’m your private HerStep Operations AI. I can summarise sales, orders, payment statuses, stock, support tickets and paid tips using live records. I’m read-only: I won’t change orders or business records. I will not guess profit when cost data is missing.' },
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -51,8 +51,8 @@ export default function AdminAI() {
       setMessages(current => [...current, { role: 'assistant', content: result.answer }]);
       setReport(result.report || null);
     } catch (e: any) {
-      setError(e?.message || 'Admin AI could not answer. Please try again.');
-      setMessages(current => [...current, { role: 'assistant', content: 'I couldn’t retrieve a report just now. Please try again, or use the existing admin dashboard for the live records.' }]);
+      setError(e?.message || 'Operations AI could not answer. Please try again.');
+      setMessages(current => [...current, { role: 'assistant', content: 'I couldn’t retrieve a report just now. Please try again, or use the existing Platform Operations for the live records.' }]);
     } finally {
       setSending(false);
     }
@@ -60,7 +60,7 @@ export default function AdminAI() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-5">
-      <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900"><ArrowLeft className="w-4 h-4" />Admin dashboard</Link>
+      <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900"><ArrowLeft className="w-4 h-4" />Platform Operations</Link>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div><div className="flex items-center gap-2"><Sparkles className="w-6 h-6" /><h1 className="text-2xl font-bold">Admin AI</h1></div><p className="text-sm text-neutral-500 mt-1">Private business insights from real HerStep records. Read-only in this phase.</p></div>
         <Button variant="outline" onClick={() => { setMessages([{ role: 'assistant', content: 'Ask me about sales, orders, payments, stock, best sellers, refunds, support tickets, tips, or whether cost records are sufficient to estimate gross profit.' }]); setError(''); }}><RefreshCw className="w-4 h-4 mr-2" />New chat</Button>
