@@ -32,7 +32,7 @@ const dateLabel = (value?: string) => {
 };
 
 export default function AdminMarketplaceReports() {
-  usePageMeta('Marketplace Reports | HerStep Admin', 'Review reports about marketplace seller listings.');
+  usePageMeta('Marketplace Reports | HerStep Operations', 'Review reports about marketplace seller listings.');
   const [reports, setReports] = useState<Report[]>([]);
   const [status, setStatus] = useState('OPEN');
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -90,7 +90,7 @@ export default function AdminMarketplaceReports() {
         </div>
         <div className="mt-4 rounded-lg bg-neutral-50 p-4"><p className="text-sm font-semibold text-neutral-800">{reasons[report.reasonCode] || report.reasonCode}</p>{report.details && <p className="text-sm text-neutral-700 mt-2 whitespace-pre-line">{report.details}</p>}</div>
         {report.adminNote && <p className="text-sm text-neutral-600 mt-3">Previous review note: {report.adminNote}</p>}
-        <label className="block text-sm font-medium text-neutral-800 mt-4 mb-2" htmlFor={`note-${report.id}`}>Admin note {report.status === 'DISMISSED' ? '(required to dismiss)' : '(optional)'}</label>
+        <label className="block text-sm font-medium text-neutral-800 mt-4 mb-2" htmlFor={`note-${report.id}`}>Operations note {report.status === 'DISMISSED' ? '(required to dismiss)' : '(optional)'}</label>
         <textarea id={`note-${report.id}`} value={notes[report.id] ?? report.adminNote ?? ''} onChange={event => setNotes(current => ({ ...current, [report.id]: event.target.value }))} rows={2} maxLength={1000} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Record the action taken or reason for dismissal…" />
         <div className="flex flex-wrap gap-2 mt-3">
           {report.status === 'OPEN' && <Button variant="outline" disabled={busyId === report.id} onClick={() => void updateReport(report, 'UNDER_REVIEW')}><ShieldCheck className="w-4 h-4 mr-2" /> Mark under review</Button>}
