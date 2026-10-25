@@ -103,7 +103,7 @@ export default function SellerProfile() {
         }
       } catch { /* Keep polling while the provider status is pending. */ }
       if (!cancelled && attempts < 24) timer = setTimeout(poll, 5000);
-      else if (!cancelled) setNotice('Payment is still pending. We will not change your business name until PrintPay confirms it.');
+      else if (!cancelled) setNotice('Payment is still pending. Your business name will be updated after your payment is confirmed.');
     };
     timer = setTimeout(poll, 3500);
     return () => { cancelled = true; if (timer) clearTimeout(timer); };
