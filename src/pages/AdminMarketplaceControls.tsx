@@ -6,7 +6,7 @@ import { usePageMeta } from '../hooks/usePageMeta';
 import { Button, Card, Input } from '../components/ui';
 
 export default function AdminMarketplaceControls() {
-  usePageMeta('Marketplace Controls | HerStep Admin', 'Manage seller plans and marketplace products.');
+  usePageMeta('Marketplace Controls | HerStep Operations', 'Manage seller plans and marketplace products.');
   const [data,setData] = useState<any>({sellers:[],products:[]});
   const [sellerUid,setSellerUid] = useState('');
   const [planCode,setPlanCode] = useState('STANDARD');

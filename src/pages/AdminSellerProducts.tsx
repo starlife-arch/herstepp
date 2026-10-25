@@ -20,7 +20,7 @@ const filters = [
 ];
 
 export default function AdminSellerProducts() {
-  usePageMeta('Seller Product Moderation | HerStep Admin', 'Review seller marketplace product listings.');
+  usePageMeta('Seller Product Moderation | HerStep Operations', 'Review seller marketplace product listings.');
   const [status, setStatus] = useState('PENDING_REVIEW');
   const [products, setProducts] = useState<SellerProduct[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -54,9 +54,9 @@ export default function AdminSellerProducts() {
   }
 
   return <div className="min-h-screen bg-neutral-50"><div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-    <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 mb-5"><ArrowLeft className="w-4 h-4" /> Back to admin dashboard</Link>
+    <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 mb-5"><ArrowLeft className="w-4 h-4" /> Back to Platform Operations</Link>
     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
-      <div><p className="text-xs font-semibold tracking-wide text-neutral-500 mb-2">MARKETPLACE ADMIN</p><h1 className="text-3xl font-bold text-neutral-900">Seller product moderation</h1>
+      <div><p className="text-xs font-semibold tracking-wide text-neutral-500 mb-2">MARKETPLACE OPERATIONS</p><h1 className="text-3xl font-bold text-neutral-900">Seller product moderation</h1>
       <p className="text-sm text-neutral-600 mt-2">Review each listing before it reaches the public catalogue. Publishing re-checks seller status, subscription expiry and plan limits.</p></div>
       <Link to="/admin/marketplace-controls" className="inline-flex items-center rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm font-medium hover:bg-neutral-50">Marketplace controls</Link><Button variant="outline" onClick={load} loading={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
     </div>

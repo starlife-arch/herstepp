@@ -30,7 +30,7 @@ const filters = [
 ];
 
 export default function AdminSellers() {
-  usePageMeta('Seller Applications | HerStep Admin', 'Review seller marketplace applications.');
+  usePageMeta('Seller Applications | HerStep Operations', 'Review seller marketplace applications.');
   const [status, setStatus] = useState('PENDING');
   const [applications, setApplications] = useState<SellerApplication[]>([]);
   const [reasons, setReasons] = useState<Record<string, string>>({});
@@ -69,7 +69,7 @@ export default function AdminSellers() {
           sellerUid: application.applicantUid,
           displayName: edit.displayName,
           businessName: edit.businessName,
-          reason: (reasons[application.applicantUid] || 'Admin profile correction').trim(),
+          reason: (reasons[application.applicantUid] || 'Operations profile correction').trim(),
         }),
       });
       setNotice(result.message || 'Seller business profile updated.');
@@ -86,7 +86,7 @@ export default function AdminSellers() {
     setNotice('');
     try {
       const suppliedReason = (reasons[application.applicantUid] || '').trim();
-      const reason = suppliedReason || (nextValue ? 'Verified after admin business review' : 'Verification badge revoked by admin');
+      const reason = suppliedReason || (nextValue ? 'Verified after team business review' : 'Verification badge revoked by the HerStep team');
       const result: any = await apiFetch('/api/admin/sellers/profile', {
         method: 'PATCH',
         body: JSON.stringify({ sellerUid: application.applicantUid, verificationBadge: nextValue, reason }),
@@ -129,10 +129,10 @@ export default function AdminSellers() {
   return (
     <div className="min-h-screen bg-neutral-50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
-        <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 mb-5"><ArrowLeft className="w-4 h-4" /> Back to admin dashboard</Link>
+        <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900 mb-5"><ArrowLeft className="w-4 h-4" /> Back to Platform Operations</Link>
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
           <div>
-            <p className="text-xs font-semibold tracking-wide text-neutral-500 mb-2">MARKETPLACE ADMIN</p>
+            <p className="text-xs font-semibold tracking-wide text-neutral-500 mb-2">MARKETPLACE OPERATIONS</p>
             <h1 className="text-3xl font-bold text-neutral-900">Seller applications</h1>
             <p className="text-sm text-neutral-600 mt-2">Review applicants before enabling their seller accounts.</p>
           </div>
@@ -185,9 +185,9 @@ export default function AdminSellers() {
                         <p className="text-sm font-semibold">Business profile details</p>
                         <Input label="Seller display name" value={(profileEdits[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }).displayName} onChange={e => setProfileEdits(current => ({ ...current, [application.applicantUid]: { ...(current[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }), displayName: e.target.value } }))} maxLength={60} />
                         <Input label="Business name" value={(profileEdits[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }).businessName} onChange={e => setProfileEdits(current => ({ ...current, [application.applicantUid]: { ...(current[application.applicantUid] || { displayName: application.displayName, businessName: application.businessName }), businessName: e.target.value } }))} maxLength={100} />
-                        <Button size="sm" variant="outline" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => void saveBusinessProfile(application)}><Save className="w-4 h-4 mr-1.5" /> Save profile (admin override)</Button>
+                        <Button size="sm" variant="outline" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => void saveBusinessProfile(application)}><Save className="w-4 h-4 mr-1.5" /> Save profile (operations override)</Button>
                       </div>
-                      <Input label="Admin note / decision reason" value={reasons[application.applicantUid] ?? application.adminReason ?? ''} onChange={e => setReasons(current => ({ ...current, [application.applicantUid]: e.target.value }))} placeholder="Add context for the applicant" maxLength={500} />
+                      <Input label="Operations note / decision reason" value={reasons[application.applicantUid] ?? application.adminReason ?? ''} onChange={e => setReasons(current => ({ ...current, [application.applicantUid]: e.target.value }))} placeholder="Add context for the applicant" maxLength={500} />
                       <div className="flex flex-wrap gap-2">
                         {application.status === 'PENDING' && <>
                           <Button size="sm" loading={busy} disabled={Boolean(busyId && !busy)} onClick={() => updateApplication(application, 'APPROVED')}><ShieldCheck className="w-4 h-4 mr-1.5" /> Approve</Button>
