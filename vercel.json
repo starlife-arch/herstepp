@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/api/cron/marketplace-payouts",
+      "destination": "/api/admin?route=cron/marketplace-payouts"
+    },
+    {
       "source": "/api/sellers/profile",
       "destination": "/api/users?route=sellers/profile"
     },
@@ -448,6 +452,10 @@
     {
       "path": "/api/cron/abandoned-carts",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/cron/marketplace-payouts",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
