@@ -325,7 +325,7 @@ export default function SellerDashboard() {
         </div>
         <div className="mt-6 border-t pt-5">
           <h3 className="text-lg font-semibold text-neutral-900">Refund and reversal cases</h3>
-          <p className="text-sm text-neutral-600 mt-1">Cases linked to your marketplace orders. Refund decisions and ledger adjustments are handled by the marketplace admin.</p>
+          <p className="text-sm text-neutral-600 mt-1">Cases linked to your marketplace orders. Refund decisions and account balance adjustments are handled by HerStep Marketplace Operations.</p>
           {(payoutData?.sellerRefundCases || []).length === 0 ? <p className="text-sm text-neutral-500 mt-3">No refund or reversal cases found for your orders.</p> : <div className="mt-3 space-y-3">{payoutData.sellerRefundCases.map((item: any) => <div key={item.id} className="rounded-lg border p-3">
             <div className="flex flex-wrap items-start justify-between gap-2"><div><p className="font-medium">Order {item.orderId}</p><p className="text-xs text-neutral-500 mt-1">Case: {item.id} · {formatDateTime(item.createdAt)}</p></div><span className="rounded-full bg-neutral-100 px-2 py-1 text-xs font-semibold">{String(item.status || 'REQUESTED').replace(/_/g, ' ')}</span></div>
             <p className="text-sm mt-2">Amount: {formatMoney(Number(item.amount) || 0)}</p>
