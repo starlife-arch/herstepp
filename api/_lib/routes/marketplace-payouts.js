@@ -96,9 +96,11 @@ export async function sellerPayouts(req, res) {
       throw clientError('An approved, active seller account is required.', 403);
     }
     const payouts = payoutsSnap.docs.map(safePayout);
+    const activeHoldsSnap = await adminDb.collection('sellerFundControls').where('sellerId', '==', user.uid).where('status', '==', 'ACTIVE').get().catch(() => ({ docs: [] }));
+    const manualHeldBalance = activeHoldsSnap.docs.reduce((sum, doc) => sum + Math.max(0, Number(doc.data()?.amount) || 0), 0);
     const eligibleAvailable = await availableAfterRefundHolds(ledgerSnap.docs, orderId => adminDb.collection('orders').doc(orderId).get());
     const allAvailable = ledgerSnap.docs.reduce((sum, doc) => { const row = doc.data() || {}; return String(row.balanceBucket || '').toUpperCase() === 'AVAILABLE' ? sum + Number(row.amount || 0) : sum; }, 0);
-    const heldBalance = Math.max(0, allAvailable - eligibleAvailable);
+    const heldBalance = Math.max(0, allAvailable - eligibleAvailable) + manualHeldBalance;
     const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(String(doc.data()?.status || '').toUpperCase())).reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
     const paidPayouts = payoutsSnap.docs.filter(doc => String(doc.data()?.status || '').toUpperCase() === 'PAID');
     const totalWithdrawn = paidPayouts.reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
@@ -126,7 +128,7 @@ export async function sellerPayouts(req, res) {
       });
     }
     sellerRefundCases.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
-    return res.json({ currency: 'KES', availableBalance: Math.max(0, eligibleAvailable - reserved), heldBalance, pendingBalance, totalWithdrawn, paidPayoutCount: paidPayouts.length, totalPayoutRequests: payouts.length, payouts, sellerRefundCases });
+    return res.json({ currency: 'KES', availableBalance: Math.max(0, eligibleAvailable - reserved - manualHeldBalance), heldBalance, pendingBalance, totalWithdrawn, paidPayoutCount: paidPayouts.length, totalPayoutRequests: payouts.length, payouts, sellerRefundCases });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, ['GET', 'POST']);
   const sellerSnap = await sellerRef.get();
@@ -151,9 +153,11 @@ export async function sellerPayouts(req, res) {
       if (prior.sellerId !== user.uid || Number(prior.amount) !== amount || prior.payoutPhone !== phone) throw clientError('This payout request key was already used for different details.', 409);
       return { created: false, status: String(prior.status || 'REQUESTED').toUpperCase() };
     }
+    const holdsSnap = await tx.get(adminDb.collection('sellerFundControls').where('sellerId', '==', user.uid).where('status', '==', 'ACTIVE'));
+    const manualHeldBalance = holdsSnap.docs.reduce((sum, doc) => sum + Math.max(0, Number(doc.data()?.amount) || 0), 0);
     const available = await availableAfterRefundHolds(ledgerSnap.docs, orderId => tx.get(adminDb.collection('orders').doc(orderId)));
     const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(String(doc.data()?.status || '').toUpperCase())).reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
-    if (amount > available - reserved) throw clientError('Payout amount exceeds your available balance.', 409);
+    if (amount > available - reserved - manualHeldBalance) throw clientError('Payout amount exceeds your available balance after holds and pending payouts.', 409);
     tx.create(payoutRef, {
       sellerId: user.uid, sellerName: String(sellerSnap.data()?.businessName || sellerSnap.data()?.displayName || 'Marketplace seller').slice(0, 100),
       amount, currency: 'KES', status: 'DISPATCHING', payoutPhone: phone, payoutPhoneMasked: maskPhone(phone),
@@ -329,6 +333,53 @@ export async function adminMarketplacePayouts(req, res) {
   const payoutId = clean(req.body?.payoutId, 180);
   const suppliedReason = clean(req.body?.reason, 500);
   const reason = suppliedReason || (action === 'APPROVE' ? 'Approved by admin' : action === 'REJECT' ? 'Rejected by admin' : '');
+  if (['HOLD_FUNDS', 'RELEASE_FUNDS', 'ADD_FUNDS', 'DEDUCT_FUNDS'].includes(action)) {
+    const sellerId = clean(req.body?.sellerId, 128);
+    const amount = req.body?.amount;
+    if (!/^[A-Za-z0-9_-]{1,128}$/.test(sellerId)) throw clientError('A valid seller ID is required.');
+    if (!reason || reason.length < 5) throw clientError('Enter a clear reason (at least 5 characters).');
+    const sellerRef = adminDb.collection('sellers').doc(sellerId);
+    const ledgerQuery = adminDb.collection('sellerLedger').where('sellerId', '==', sellerId);
+    const holdsQuery = adminDb.collection('sellerFundControls').where('sellerId', '==', sellerId).where('status', '==', 'ACTIVE');
+    if (action === 'RELEASE_FUNDS') {
+      const holdId = clean(req.body?.holdId, 180);
+      if (!holdId) throw clientError('Choose the active hold to release.');
+      const holdRef = adminDb.collection('sellerFundControls').doc(holdId);
+      await adminDb.runTransaction(async tx => {
+        const snap = await tx.get(holdRef);
+        if (!snap.exists || snap.data()?.sellerId !== sellerId || snap.data()?.status !== 'ACTIVE' || snap.data()?.controlType !== 'HOLD') throw clientError('Active seller hold not found.', 404);
+        tx.update(holdRef, { status: 'RELEASED', releasedBy: admin.uid, releaseReason: reason, releasedAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+        tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_FUNDS_RELEASED', entityType: 'SELLER_FUNDS_HOLD', entityId: holdId, sellerId, amount: snap.data()?.amount || 0, reason, createdAt: FieldValue.serverTimestamp() });
+        tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: sellerId, sellerId, actorUid: admin.uid, action: 'SELLER_FUNDS_RELEASED', controlId: holdId, amount: snap.data()?.amount || 0, reason, createdAt: FieldValue.serverTimestamp() });
+      });
+      return res.json({ ok: true, message: 'Seller funds hold released.' });
+    }
+    if (!money(amount)) throw clientError('Enter a positive whole-KSh amount.');
+    const controlRef = adminDb.collection('sellerFundControls').doc();
+    await adminDb.runTransaction(async tx => {
+      const [sellerSnap, ledgerSnap, holdsSnap, payoutsSnap] = await Promise.all([
+        tx.get(sellerRef), tx.get(ledgerQuery), tx.get(holdsQuery),
+        tx.get(adminDb.collection('sellerPayouts').where('sellerId', '==', sellerId)),
+      ]);
+      if (!sellerSnap.exists) throw clientError('Seller account not found.', 404);
+      const ledger = ledgerSnap.docs.map(doc => doc.data() || {});
+      const available = ledger.filter(row => String(row.balanceBucket || '').toUpperCase() === 'AVAILABLE').reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+      const held = holdsSnap.docs.reduce((sum, doc) => sum + Math.max(0, Number(doc.data()?.amount) || 0), 0);
+      const reserved = payoutsSnap.docs.filter(doc => RESERVED.has(String(doc.data()?.status || '').toUpperCase())).reduce((sum, doc) => sum + (Number(doc.data()?.amount) || 0), 0);
+      if (action === 'HOLD_FUNDS' && amount > Math.max(0, available - held - reserved)) throw clientError('Hold amount exceeds unreserved available funds.', 409);
+      if (action === 'DEDUCT_FUNDS' && amount > Math.max(0, available - held - reserved)) throw clientError('Deduction exceeds unreserved available funds.', 409);
+      if (action === 'HOLD_FUNDS') {
+        tx.create(controlRef, { sellerId, controlType: 'HOLD', amount, status: 'ACTIVE', reason, createdBy: admin.uid, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      } else if (action === 'ADD_FUNDS' || action === 'DEDUCT_FUNDS') {
+        const ledgerRef = adminDb.collection('sellerLedger').doc('admin-adjustment-' + controlRef.id);
+        tx.create(ledgerRef, { sellerId, type: 'ADMIN_BALANCE_ADJUSTMENT', status: 'POSTED', amount: action === 'ADD_FUNDS' ? amount : -amount, currency: 'KES', balanceBucket: 'AVAILABLE', controlId: controlRef.id, reason, actorUid: admin.uid, idempotencyKey: ledgerRef.id, createdAt: FieldValue.serverTimestamp() });
+        tx.create(controlRef, { sellerId, controlType: 'ADJUSTMENT', amount, adjustment: action === 'ADD_FUNDS' ? 'CREDIT' : 'DEBIT', status: 'POSTED', reason, createdBy: admin.uid, createdAt: FieldValue.serverTimestamp() });
+      }
+      tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'SELLER_' + action, entityType: 'SELLER_FUNDS', entityId: controlRef.id, sellerId, amount, reason, createdAt: FieldValue.serverTimestamp() });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { sellerUid: sellerId, sellerId, actorUid: admin.uid, action: 'SELLER_' + action, controlId: controlRef.id, amount, reason, createdAt: FieldValue.serverTimestamp() });
+    });
+    return res.json({ ok: true, message: action === 'HOLD_FUNDS' ? 'Funds held; seller payouts are blocked for this amount.' : action === 'ADD_FUNDS' ? 'Funds adjustment added to seller ledger.' : 'Funds deduction recorded in seller ledger.' });
+  }
   if (!payoutId && !['RECONCILE_REFUND', 'PRINTPAY_BALANCE', 'PRINTPAY_TOPUP'].includes(action)) throw clientError('Payout request ID is required.');
   const ref = payoutId ? adminDb.collection('sellerPayouts').doc(payoutId) : null;
   if (action === 'APPROVE' || action === 'REJECT') {
