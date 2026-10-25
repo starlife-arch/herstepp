@@ -828,7 +828,7 @@ export default function AdminDashboard() {
           </button>
         </div>
         {mobileNavOpen && <nav aria-label="Admin sections" className="mt-2 grid max-h-56 grid-cols-2 gap-1 overflow-y-auto rounded-xl border border-neutral-200 bg-white p-2 shadow-sm">
-          {navItems.map(item => <button type="button" key={item.id} onClick={() => { setActiveSection(item.id); setMobileNavOpen(false); }} className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === item.id ? 'bg-neutral-100 font-semibold text-neutral-900' : 'text-neutral-600 hover:bg-neutral-50'}`}><item.icon className="h-4 w-4 shrink-0" /><span>{item.label}</span></button>)}
+          {navItems.map(item => <button type="button" key={item.id} onClick={() => { setMobileNavOpen(false); if (item.id === 'marketplace-payouts') navigate('/admin/marketplace-payouts'); else setActiveSection(item.id); }} className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm ${activeSection === item.id ? 'bg-neutral-100 font-semibold text-neutral-900' : 'text-neutral-600 hover:bg-neutral-50'}`}><item.icon className="h-4 w-4 shrink-0" /><span>{item.label}</span></button>)}
         </nav>}
         <nav aria-label="Admin shortcuts" className="mt-2 flex items-center gap-2 overflow-x-auto whitespace-nowrap pb-0.5">
           <Link to="/admin/costs" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Cost &amp; Profit</Link>
