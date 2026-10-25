@@ -105,26 +105,67 @@ export async function sellerPayouts(req, res) {
     const paidPayouts = payoutsSnap.docs.filter(doc => String(doc.data()?.status || '').toUpperCase() === 'PAID');
     const totalWithdrawn = paidPayouts.reduce((sum, doc) => sum + Number(doc.data()?.amount || 0), 0);
     const pendingBalance = ledgerSnap.docs.reduce((sum, doc) => { const row = doc.data() || {}; return String(row.balanceBucket || '').toUpperCase() === 'PENDING' ? sum + Number(row.amount || 0) : sum; }, 0);
-    const refundSnap = await adminDb.collection('refundRecords').limit(200).get().catch(() => ({ docs: [] }));
+    const refundSnap = await adminDb.collection('refundRecords').limit(500).get().catch(error => {
+      console.error('[marketplace-payouts] Could not load refund records for seller cases:', error?.message || String(error));
+      return { docs: [] };
+    });
     const sellerRefundCases = [];
     for (const refundDoc of refundSnap.docs) {
       const refund = refundDoc.data() || {};
-      if (refund.type !== 'REFUND' || !refund.orderDocumentId) continue;
-      const orderSnap = await adminDb.collection('orders').doc(refund.orderDocumentId).get();
-      if (!orderSnap.exists) continue;
+      // Support both current refund request records and older records that
+      // used refundStatus/refundReason/refundRequestedAt instead of status/reason/createdAt.
+      const orderDocumentId = String(refund.orderDocumentId || refund.orderDocId || '').trim();
+      const looksLikeRefund = !refund.type || String(refund.type).toUpperCase() === 'REFUND' ||
+        Boolean(refund.refundStatus || refund.refundRequestedAt || refund.refundRequestedAmount);
+      if (!looksLikeRefund || !orderDocumentId || orderDocumentId.includes('/')) continue;
+      const orderSnap = await adminDb.collection('orders').doc(orderDocumentId).get().catch(error => {
+        console.error('[marketplace-payouts] Could not read refund case order:', orderDocumentId, error?.message || String(error));
+        return null;
+      });
+      if (!orderSnap?.exists) continue;
       const order = orderSnap.data() || {};
-      const sellerItems = (Array.isArray(order.items) ? order.items : []).filter(item => String(item.sellerId || item.sellerSnapshot?.sellerId || '') === user.uid);
+      const sellerItems = (Array.isArray(order.items) ? order.items : []).filter(item =>
+        String(item.sellerId || item.sellerSnapshot?.sellerId || item.sellerSnapshot?.ownerUid || '') === user.uid
+      );
       if (!sellerItems.length) continue;
       sellerRefundCases.push({
         id: refundDoc.id,
-        orderId: String(refund.orderId || order.orderId || refund.orderDocumentId),
-        amount: Number(refund.amount) || 0,
-        currency: String(refund.currency || 'KES'),
-        status: String(refund.status || order.refundStatus || 'REQUESTED').toUpperCase(),
-        reason: String(refund.reason || order.refundReason || ''),
-        createdAt: iso(refund.createdAt || refund.requestedAt || order.refundRequestedAt),
-        updatedAt: iso(refund.updatedAt || refund.resolvedAt),
-        resolution: String(refund.resolution || refund.adminDecision || ''),
+        orderId: String(refund.orderId || order.orderId || orderDocumentId),
+        amount: Number(refund.amount ?? refund.refundRequestedAmount ?? order.refundRequestedAmount) || 0,
+        currency: String(refund.currency || order.currency || 'KES'),
+        status: String(refund.status || refund.refundStatus || order.refundStatus || 'REQUESTED').toUpperCase(),
+        reason: String(refund.reason || refund.refundReason || order.refundReason || ''),
+        createdAt: iso(refund.createdAt || refund.requestedAt || refund.refundRequestedAt || order.refundRequestedAt),
+        updatedAt: iso(refund.updatedAt || refund.resolvedAt || order.updatedAt),
+        resolution: String(refund.resolution || refund.adminDecision || order.refundResolution || ''),
+      });
+    }
+    // Older requests may exist only on the order document, with no matching
+    // refundRecords document. Include those cases too so sellers can see them.
+    const seenRefundOrderIds = new Set(sellerRefundCases.map(item => item.orderId));
+    const sellerOrderIds = [...new Set(ledgerSnap.docs.map(doc => String(doc.data()?.orderDocumentId || '')).filter(Boolean))];
+    for (const orderDocumentId of sellerOrderIds) {
+      if (orderDocumentId.includes('/')) continue;
+      const orderSnap = await adminDb.collection('orders').doc(orderDocumentId).get().catch(() => null);
+      if (!orderSnap?.exists) continue;
+      const order = orderSnap.data() || {};
+      const sellerItems = (Array.isArray(order.items) ? order.items : []).filter(item =>
+        String(item.sellerId || item.sellerSnapshot?.sellerId || item.sellerSnapshot?.ownerUid || '') === user.uid
+      );
+      const status = String(order.refundStatus || '').toUpperCase();
+      if (!sellerItems.length || !['REQUESTED', 'APPROVED', 'CONFIRMED', 'PARTIALLY_REFUNDED', 'REJECTED', 'CANCELLED'].includes(status)) continue;
+      const orderId = String(order.orderId || orderDocumentId);
+      if (seenRefundOrderIds.has(orderId)) continue;
+      sellerRefundCases.push({
+        id: 'order-' + orderDocumentId,
+        orderId,
+        amount: Number(order.refundRequestedAmount) || 0,
+        currency: String(order.currency || 'KES'),
+        status,
+        reason: String(order.refundReason || ''),
+        createdAt: iso(order.refundRequestedAt || order.createdAt),
+        updatedAt: iso(order.updatedAt),
+        resolution: String(order.refundResolution || ''),
       });
     }
     sellerRefundCases.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
