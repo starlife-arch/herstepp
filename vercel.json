@@ -89,6 +89,10 @@
       "destination": "/api/admin?route=seller-products"
     },
     {
+      "source": "/api/admin/marketplace-controls",
+      "destination": "/api/admin?route=marketplace-controls"
+    },
+    {
       "source": "/api/refunds/sign-upload",
       "destination": "/api/users?route=refunds/sign-upload"
     },
