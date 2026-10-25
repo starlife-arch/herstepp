@@ -452,10 +452,6 @@
     {
       "path": "/api/cron/abandoned-carts",
       "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/cron/marketplace-payouts",
-      "schedule": "*/5 * * * *"
     }
   ]
 }
