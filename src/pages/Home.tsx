@@ -45,7 +45,7 @@ function SlideMedia({ slide, eager = false }: { slide: HeroSlide; eager?: boolea
         src={heroImageUrl(slide.media, 1600)}
         alt=""
         loading={eager ? 'eager' : 'lazy'}
-        className="absolute inset-0 h-full w-full object-cover opacity-20"
+        className="absolute inset-0 h-full w-full object-cover"
         style={position}
       />
     </picture>
@@ -134,7 +134,7 @@ function HeroCarousel({ hero }: { hero: HeroData }) {
     >
       <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black" />
       <SlideMedia key={`${index}-${slide.media.publicId}`} slide={slide} eager={index === 0} />
-      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/55 via-black/20 to-transparent sm:from-black/45 sm:via-black/10" />
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/30 via-black/10 to-transparent sm:from-black/25 sm:via-black/5" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
         <div className="max-w-2xl">
           <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
