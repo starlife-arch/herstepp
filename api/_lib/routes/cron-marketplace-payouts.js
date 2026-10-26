@@ -3,7 +3,7 @@ import { adminDb } from '../firebase-admin.js';
 import { getPrintPayB2CWalletBalance, initiatePrintPayB2CPayout } from '../printpay-b2c.js';
 import { sendTelegramMessage } from '../telegram.js';
 
-const FEE_BUFFER = 180;
+const FEE_BUFFER = 10;
 const clean = (value, max = 300) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 function authorized(req) {
   const expected = String(process.env.CRON_SECRET || '').trim();
