@@ -61,11 +61,11 @@ function StaticHero() {
       <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1560343090-f0409e92791a?w=1200&h=600&fit=crop)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
         <div className="max-w-2xl">
-          <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
+          <p className="text-sm font-bold text-white mb-3 uppercase tracking-wider drop-shadow-md">Premium Ladies Footwear</p>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
             Step Into<br />Your <span className="text-neutral-400">Style.</span>
           </h1>
-          <p className="text-lg text-neutral-300 mb-8 max-w-lg leading-relaxed">
+          <p className="text-lg text-white mb-8 max-w-lg leading-relaxed drop-shadow-md">
             Discover curated ladies' footwear at HerStep Collection. From elegant heels to comfortable flats, find your perfect pair in Juja Town.
           </p>
           <div className="flex flex-wrap gap-3">
@@ -137,9 +137,9 @@ function HeroCarousel({ hero }: { hero: HeroData }) {
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/30 via-black/10 to-transparent sm:from-black/25 sm:via-black/5" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
         <div className="max-w-2xl">
-          <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
+          <p className="text-sm font-bold text-white mb-3 uppercase tracking-wider drop-shadow-md">Premium Ladies Footwear</p>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">{slide.title}</h1>
-          <p className="text-lg text-neutral-300 mb-8 max-w-lg leading-relaxed">{slide.copy}</p>
+          <p className="text-lg text-white mb-8 max-w-lg leading-relaxed drop-shadow-md">{slide.copy}</p>
           <div className="flex flex-wrap gap-3">
             <CtaLink slide={slide}>
               <Button size="lg" variant="secondary">
