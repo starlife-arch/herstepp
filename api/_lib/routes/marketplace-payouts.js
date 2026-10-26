@@ -95,7 +95,11 @@ export async function sellerPayouts(req, res) {
     if (!sellerSnap.exists || (sellerSnap.data()?.ownerUid && sellerSnap.data()?.ownerUid !== user.uid) || sellerSnap.data()?.status !== 'ACTIVE') {
       throw clientError('An approved, active seller account is required.', 403);
     }
-    const payouts = payoutsSnap.docs.map(safePayout);
+    const payouts = payoutsSnap.docs.map(safePayout).sort((a, b) => {
+      const aTime = Date.parse(a.requestedAt || a.updatedAt || '') || 0;
+      const bTime = Date.parse(b.requestedAt || b.updatedAt || '') || 0;
+      return bTime - aTime;
+    });
     const activeHoldsSnap = await adminDb.collection('sellerFundControls').where('sellerId', '==', user.uid).where('status', '==', 'ACTIVE').get().catch(() => ({ docs: [] }));
     const manualHeldBalance = activeHoldsSnap.docs.reduce((sum, doc) => sum + Math.max(0, Number(doc.data()?.amount) || 0), 0);
     const eligibleAvailable = await availableAfterRefundHolds(ledgerSnap.docs, orderId => adminDb.collection('orders').doc(orderId).get());
