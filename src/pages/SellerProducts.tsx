@@ -52,6 +52,7 @@ export default function SellerProducts() {
   const [images, setImages] = useState<ImageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [publishingIds, setPublishingIds] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingPublished, setEditingPublished] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -209,15 +210,18 @@ export default function SellerProducts() {
 
   async function submitForReview(draft: Draft) {
     setError(''); setMessage('');
+    setPublishingIds(old => [...old, draft.id]);
     try {
       const result: any = await apiFetch('/api/sellers/products', {
         method: 'PATCH',
         body: JSON.stringify({ id: draft.id, action: 'PUBLISH' }),
       });
-      setDrafts(old => old.map(item => item.id === draft.id ? { ...item, status: result.product?.status || 'PUBLISHED' } : item));
-      setMessage(result.message || 'Product published successfully.');
+      setDrafts(old => old.map(item => item.id === draft.id ? { ...item, ...(result.product || {}), status: result.product?.status || 'PUBLISHED' } : item));
+      setMessage(result.message || `Published ${draft.name} successfully.`);
     } catch (err: any) {
-      setError(err?.message || 'Could not submit this product for review.');
+      setError(err?.message || `Could not publish ${draft.name}.`);
+    } finally {
+      setPublishingIds(old => old.filter(id => id !== draft.id));
     }
   }
 
@@ -228,7 +232,7 @@ export default function SellerProducts() {
           <Link to="/seller/dashboard" className="inline-flex items-center gap-2 text-sm text-neutral-600 hover:text-neutral-900 mb-3"><ArrowLeft className="w-4 h-4" /> Seller dashboard</Link>
           <p className="text-xs font-semibold tracking-wide text-neutral-500">HERSTEP MARKETPLACE</p>
           <h1 className="text-3xl font-bold text-neutral-900 mt-1">My products</h1>
-          <p className="text-sm text-neutral-600 mt-2">Save drafts, then submit them for admin review when your paid seller plan is active. Approved listings are published by marketplace admin after plan-limit checks.</p>
+          <p className="text-sm text-neutral-600 mt-2">Save private drafts, then publish eligible listings directly. Routine admin approval is not required; automated checks and marketplace moderation still apply.</p>
         </div>
         <Button variant="outline" onClick={() => void load()} disabled={loading}><RefreshCw className="w-4 h-4 mr-2" /> Refresh</Button>
       </div>
@@ -335,7 +339,7 @@ export default function SellerProducts() {
         <section className="lg:col-span-2">
           <Card className="p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3 mb-4"><h2 className="text-lg font-semibold">My saved drafts</h2><span className="text-xs rounded-full bg-neutral-100 px-2.5 py-1">{drafts.length}</span></div>
-            {loading ? <p className="text-sm text-neutral-500 py-6 text-center">Loading drafts…</p> : drafts.length === 0 ? <div className="text-center py-8 text-sm text-neutral-500"><Store className="w-8 h-8 mx-auto mb-2 opacity-50" />No products or drafts yet.</div> : <div className="space-y-3">{drafts.map(draft => <div key={draft.id} className="flex items-start gap-3 rounded-lg border border-neutral-200 p-3"><div className="rounded-lg bg-neutral-100 p-2"><PackagePlus className="w-5 h-5 text-neutral-600" /></div><div className="min-w-0 flex-1"><p className="font-medium text-sm break-words">{draft.name}</p><p className="text-xs text-neutral-500 mt-1">{money(draft.price)} · Seller listing</p><p className="text-xs text-neutral-500 mt-1">Status: {draft.status === 'PENDING_REVIEW' ? 'Legacy listing awaiting review' : draft.status === 'APPROVED' ? 'Approved — awaiting publication' : draft.status === 'PUBLISHED' ? 'Published' : draft.status === 'REJECTED' ? 'Changes requested' : 'Private draft'}</p>{draft.status === 'REJECTED' && <p className="text-xs text-red-700 mt-1">Reason: {(draft as any).moderationReason || 'Please review and update your listing.'}</p>}<div className="flex flex-wrap gap-3 mt-2"><button type="button" className="text-sm font-medium underline" disabled={['PENDING_REVIEW','APPROVED'].includes(draft.status) || (draft.status === 'PUBLISHED' && !publishingEnabled)} onClick={() => { setEditingId(draft.id); setEditingPublished(draft.status === 'PUBLISHED'); setName(draft.name); setDescription(draft.description || ''); setCategoryId(draft.categoryId); setSku(draft.sku || ''); setPrice(String(draft.price)); setSalePrice(draft.salePrice == null ? '' : String(draft.salePrice)); const first = draft.inventory?.[0]; setSize(first?.size || 'One Size'); setQuantity(String(first?.quantity ?? 1)); setCostPrice(first?.costPrice == null ? '' : String(first.costPrice)); setImages(draft.images || []); setError(''); setMessage(draft.status === 'PUBLISHED' ? 'Editing a live marketplace listing.' : 'Editing a private draft.'); }}>{draft.status === 'PUBLISHED' ? 'Edit published product' : 'Edit draft'}</button>{['DRAFT','REJECTED'].includes(draft.status) && <Button size="sm" disabled={!publishingEnabled} onClick={() => void submitForReview(draft)}>Publish listing</Button>}</div></div></div>)}</div>}
+            {loading ? <p className="text-sm text-neutral-500 py-6 text-center">Loading drafts…</p> : drafts.length === 0 ? <div className="text-center py-8 text-sm text-neutral-500"><Store className="w-8 h-8 mx-auto mb-2 opacity-50" />No products or drafts yet.</div> : <div className="space-y-3">{drafts.map(draft => <div key={draft.id} className="flex items-start gap-3 rounded-lg border border-neutral-200 p-3"><div className="rounded-lg bg-neutral-100 p-2"><PackagePlus className="w-5 h-5 text-neutral-600" /></div><div className="min-w-0 flex-1"><p className="font-medium text-sm break-words">{draft.name}</p><p className="text-xs text-neutral-500 mt-1">{money(draft.price)} · Seller listing</p><p className="text-xs text-neutral-500 mt-1">Status: {draft.status === 'PENDING_REVIEW' ? 'Legacy listing awaiting review' : draft.status === 'APPROVED' ? 'Approved — awaiting publication' : draft.status === 'PUBLISHED' ? 'Published' : draft.status === 'REJECTED' ? 'Changes requested' : 'Private draft'}</p>{draft.status === 'REJECTED' && <p className="text-xs text-red-700 mt-1">Reason: {(draft as any).moderationReason || 'Please review and update your listing.'}</p>}<div className="flex flex-wrap gap-3 mt-2"><button type="button" className="text-sm font-medium underline" disabled={['PENDING_REVIEW','APPROVED'].includes(draft.status) || (draft.status === 'PUBLISHED' && !publishingEnabled)} onClick={() => { setEditingId(draft.id); setEditingPublished(draft.status === 'PUBLISHED'); setName(draft.name); setDescription(draft.description || ''); setCategoryId(draft.categoryId); setSku(draft.sku || ''); setPrice(String(draft.price)); setSalePrice(draft.salePrice == null ? '' : String(draft.salePrice)); const first = draft.inventory?.[0]; setSize(first?.size || 'One Size'); setQuantity(String(first?.quantity ?? 1)); setCostPrice(first?.costPrice == null ? '' : String(first.costPrice)); setImages(draft.images || []); setError(''); setMessage(draft.status === 'PUBLISHED' ? 'Editing a live marketplace listing.' : 'Editing a private draft.'); }}>{draft.status === 'PUBLISHED' ? 'Edit published product' : 'Edit draft'}</button>{['DRAFT','REJECTED'].includes(draft.status) && <Button size="sm" disabled={!publishingEnabled || publishingIds.includes(draft.id)} onClick={() => void submitForReview(draft)}>{publishingIds.includes(draft.id) ? 'Publishing…' : 'Publish listing'}</Button>}</div></div></div>)}</div>}
           </Card>
           <p className="text-xs text-neutral-500 mt-3">AI bulk upload creates private drafts. Product editing, stock management, moderation and publishing remain separate guarded steps.</p>
         </section>
