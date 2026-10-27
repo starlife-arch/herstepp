@@ -248,16 +248,30 @@ export default function SellerProducts() {
           </div>
           <div className="w-full md:max-w-sm">
             <label htmlFor="seller-bulk-phone" className="block text-sm font-medium mb-1.5">M-Pesa phone number</label>
-            <label className="block text-sm font-medium text-neutral-700 mt-3" htmlFor="seller-bulk-package">Choose credit amount</label>
-            <select id="seller-bulk-package" className={fieldClass + " mt-1"} value={bulkPackage} onChange={e => setBulkPackage(e.target.value)}>
-              <option value="50">50 credits · KSh 500</option>
-              <option value="100">100 credits · KSh 1,000</option>
-              <option value="200">200 credits · KSh 2,000</option>
-              <option value="500">500 credits · KSh 5,000</option>
-              <option value="1000">1,000 credits · KSh 10,000</option>
-              <option value="custom">Custom amount</option>
-            </select>
-            {bulkPackage === 'custom' && <input className={fieldClass + " mt-2"} type="number" min="10" max="10000" step="1" value={customBulkCredits} onChange={e => setCustomBulkCredits(e.target.value)} placeholder="Enter credits (10–10,000)" />}
+            <div className="mt-3">
+              <p className="block text-sm font-semibold text-neutral-800 mb-2">Choose your AI token package</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" role="group" aria-label="AI token packages">
+                {[
+                  { credits: '50', price: 'KSh 500' },
+                  { credits: '100', price: 'KSh 1,000' },
+                  { credits: '200', price: 'KSh 2,000' },
+                  { credits: '500', price: 'KSh 5,000' },
+                  { credits: '1000', price: 'KSh 10,000' },
+                ].map(option => (
+                  <button key={option.credits} type="button" aria-pressed={bulkPackage === option.credits} onClick={() => setBulkPackage(option.credits)} className={`rounded-xl border-2 p-3 text-left transition-colors ${bulkPackage === option.credits ? 'border-orange-600 bg-orange-50 ring-2 ring-orange-100' : 'border-neutral-200 bg-white hover:border-orange-300'}`}>
+                    <span className="block text-base font-bold text-neutral-900">{Number(option.credits).toLocaleString('en-KE')} tokens</span>
+                    <span className="block text-sm text-neutral-600 mt-1">{option.price}</span>
+                    {bulkPackage === option.credits && <span className="block text-xs font-semibold text-orange-700 mt-1">Selected</span>}
+                  </button>
+                ))}
+                <button type="button" aria-pressed={bulkPackage === 'custom'} onClick={() => setBulkPackage('custom')} className={`rounded-xl border-2 border-dashed p-3 text-left transition-colors ${bulkPackage === 'custom' ? 'border-orange-600 bg-orange-50 ring-2 ring-orange-100' : 'border-neutral-300 bg-neutral-50 hover:border-orange-300'}`}>
+                  <span className="block text-base font-bold text-neutral-900">Custom amount</span>
+                  <span className="block text-sm text-neutral-600 mt-1">Choose your own</span>
+                  {bulkPackage === 'custom' && <span className="block text-xs font-semibold text-orange-700 mt-1">Selected</span>}
+                </button>
+              </div>
+              {bulkPackage === 'custom' && <input aria-label="Custom AI token amount" className={fieldClass + " mt-2"} type="number" min="10" max="10000" step="1" value={customBulkCredits} onChange={e => setCustomBulkCredits(e.target.value)} placeholder="Enter tokens (10–10,000)" />}
+            </div>
             <p className="text-sm text-neutral-600 mt-2">Total: <strong>{Number.isInteger(selectedBulkCredits) && selectedBulkCredits >= 10 && selectedBulkCredits <= 10000 ? money(selectedBulkAmount) : 'Enter a valid amount'}</strong></p>
             <input id="seller-bulk-phone" className={fieldClass + " mt-2"} type="tel" autoComplete="tel" value={bulkPhone} onChange={e => setBulkPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" />
             <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkBusy || bulkPayment?.status === 'PENDING'}><CreditCard className="w-4 h-4 mr-2" />{bulkBusy ? 'Please wait…' : `Buy ${Number.isInteger(selectedBulkCredits) && selectedBulkCredits > 0 ? selectedBulkCredits.toLocaleString('en-KE') : 'credits'} · ${money(selectedBulkAmount || 0)}`}</Button>
