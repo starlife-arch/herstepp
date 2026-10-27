@@ -82,33 +82,60 @@ export default async function sellerProducts(req, res) {
   }
   if (!['POST', 'PATCH'].includes(req.method)) return methodNotAllowed(res, 'GET, POST, PATCH');
 
-  if (req.method === 'PATCH' && String(req.body?.action || '').toUpperCase() === 'SUBMIT_FOR_REVIEW') {
+  if (req.method === 'PATCH' && ['SUBMIT_FOR_REVIEW', 'PUBLISH'].includes(String(req.body?.action || '').toUpperCase())) {
     const id = clean(req.body?.id);
     if (!id || id.length > 150) throw clientError('A valid product draft ID is required.');
-    const ref = adminDb.collection('sellerProducts').doc(id);
-    const [draftSnap, sellerFresh] = await Promise.all([ref.get(), sellerRef.get()]);
+    const draftRef = adminDb.collection('sellerProducts').doc(id);
+    const publicRef = adminDb.collection('products').doc(id);
+    const [draftSnap, sellerFresh] = await Promise.all([draftRef.get(), sellerRef.get()]);
     if (!draftSnap.exists || draftSnap.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
     const draft = draftSnap.data() || {};
-    if (!['DRAFT', 'REJECTED'].includes(String(draft.status || '').toUpperCase())) {
-      throw clientError('Only a private or rejected draft can be submitted for review.', 409);
+    if (!['DRAFT', 'REJECTED', 'PENDING_REVIEW', 'APPROVED'].includes(String(draft.status || '').toUpperCase())) {
+      throw clientError('This listing cannot be published from its current status.', 409);
     }
-    const seller = sellerFresh.data() || {};
-    const expiry = toDate(seller.subscriptionExpiresAt);
-    if (seller.status !== 'ACTIVE' || seller.billingStatus !== 'ACTIVE' || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
-      throw clientError('An active paid seller plan is required before submitting products for review.', 403);
-    }
-    const planCode = String(seller.planCode || '').toUpperCase();
-    if (!SELLER_PLANS[planCode] && planCode !== 'UNLIMITED') throw clientError('Your seller plan is invalid. Please contact support.', 409);
-    const now = FieldValue.serverTimestamp();
-    await ref.update({
-      status: 'PENDING_REVIEW', submittedAt: now, moderationReason: null,
-      reviewedBy: null, reviewedAt: null, updatedAt: now,
+    if (!(await adminDb.collection('categories').doc(clean(draft.categoryId)).get()).exists) throw clientError('The selected product category does not exist.');
+    const result = await adminDb.runTransaction(async tx => {
+      const [freshDraft, sellerSnapshot, publicSnapshot, existingProducts] = await Promise.all([
+        tx.get(draftRef), tx.get(sellerRef), tx.get(publicRef),
+        tx.get(adminDb.collection('products').where('sellerUid', '==', user.uid)),
+      ]);
+      if (!freshDraft.exists || freshDraft.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
+      if (publicSnapshot.exists) throw clientError('A public product already exists for this draft.', 409);
+      if (!sellerSnapshot.exists || sellerSnapshot.data()?.status !== 'ACTIVE') throw clientError('Your seller account must be active before publishing.', 403);
+      const seller = sellerSnapshot.data() || {};
+      const expiry = toDate(seller.subscriptionExpiresAt);
+      if (seller.billingStatus !== 'ACTIVE' || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+        throw clientError('An active paid seller plan is required before publishing.', 403);
+      }
+      const planCode = String(seller.planCode || 'STARTER').toUpperCase();
+      const plan = SELLER_PLANS[planCode];
+      if (!plan && planCode !== 'UNLIMITED') throw clientError('Your seller plan is invalid. Please contact support.', 409);
+      const limit = plan?.productLimit ?? null;
+      const activeCount = existingProducts.docs.reduce((count, doc) => count + (['ACTIVE', 'PUBLISHED'].includes(String(doc.data()?.status || '').toUpperCase()) ? 1 : 0), 0);
+      if (limit !== null && activeCount >= limit) throw clientError('You have reached the active product limit for your seller plan.', 409);
+      const current = freshDraft.data() || {};
+      const now = FieldValue.serverTimestamp();
+      const publicProduct = {
+        name: clean(current.name), description: String(current.description || ''), categoryId: clean(current.categoryId),
+        sku: clean(current.sku).toUpperCase(), price: current.price, salePrice: current.salePrice ?? null,
+        inventory: Array.isArray(current.inventory) ? current.inventory : [], images: Array.isArray(current.images) ? current.images : [],
+        video: current.video || null, status: 'ACTIVE', featured: false, bestseller: false, newArrival: false,
+        stockQuantity: Number.isInteger(current.stockQuantity) ? current.stockQuantity : 0,
+        availableSizes: Array.isArray(current.availableSizes) ? current.availableSizes : [],
+        sellerUid: user.uid, sellerId: user.uid,
+        sellerDisplayName: clean(seller.displayName || seller.businessName).slice(0, 60),
+        sellerBusinessName: clean(seller.businessName).slice(0, 100), marketplaceSeller: true,
+        moderationStatus: 'APPROVED', createdAt: now, updatedAt: now,
+      };
+      tx.create(publicRef, publicProduct);
+      tx.update(draftRef, { status: 'PUBLISHED', publishedProductId: id, publishedAt: now, moderationReason: null, updatedAt: now });
+      tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), {
+        action: 'SELLER_PRODUCT_AUTO_PUBLISHED', sellerUid: user.uid, productDraftId: id,
+        publicProductId: id, actorUid: user.uid, planCode, createdAt: now,
+      });
+      return { id, status: 'PUBLISHED', activeProductCount: activeCount + 1, limit };
     });
-    await adminDb.collection('sellerMarketplaceAudit').add({
-      action: 'SELLER_PRODUCT_SUBMITTED_FOR_REVIEW', sellerUid: user.uid,
-      productDraftId: id, actorUid: user.uid, createdAt: now,
-    });
-    return res.status(200).json({ success: true, product: { id, ...draft, status: 'PENDING_REVIEW' }, message: 'Product submitted for admin review. It will remain private until approved and published.' });
+    return res.status(200).json({ success: true, product: { id, ...draft, status: 'PUBLISHED', publishedProductId: id }, message: 'Listing published successfully and is now visible in the marketplace.', result });
   }
 
   if (req.method === 'PATCH' && String(req.body?.action || '').toUpperCase() === 'UPDATE_PUBLISHED') {
