@@ -94,7 +94,7 @@ export default function AdminMarketplacePayouts() {
       setNotice(result.message || 'Payout updated.');
       await refresh();
     } catch (err: any) { setError(err?.message || 'Could not update this payout.'); }
-    finally { stopBusy('seller:' + sellerId); }
+    finally { stopBusy('payout:' + payout.id); }
   }
   async function reconcile(refund: Refund) {
     const chosen = uniqueSellers(refund).map(seller => ({
