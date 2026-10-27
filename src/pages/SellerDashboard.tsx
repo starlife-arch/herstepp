@@ -399,30 +399,15 @@ export default function SellerDashboard() {
       </div>
 
       {subscriptionActive && approved && !suspended && <Card className="p-5 mt-6">
-        <div className="flex items-start gap-3">
-          <BadgeCheck className="w-5 h-5 text-neutral-600 mt-0.5" />
-          <div className="w-full">
-            <h2 className="text-xl font-semibold text-neutral-900">Promote a marketplace listing</h2>
-            <p className="text-sm text-neutral-600 mt-1">KSh 100 per product for 7 days. Promotion starts only after your payment is confirmed.</p>
-            <label htmlFor="promotion-product" className="block text-sm font-medium text-neutral-800 mt-4 mb-2">Active product</label>
-            <select id="promotion-product" value={promotionProductId} onChange={event => setPromotionProductId(event.target.value)} className="w-full max-w-xl rounded-lg border border-neutral-300 px-3 py-2 text-sm" disabled={!promotionProducts.length || promotionBusy}>
-              <option value="">Choose a product</option>
-              {promotionProducts.map(product => <option key={product.id} value={product.id}>{product.name}{product.promotedUntil ? ` — promoted until ${formatDate(product.promotedUntil)}` : ''}</option>)}
-            </select>
-            {!promotionProducts.length && <p className="text-xs text-neutral-500 mt-2">No active products are available to promote yet.</p>}
-            <label htmlFor="promotion-phone" className="block text-sm font-medium text-neutral-800 mt-4 mb-2">M-Pesa phone number</label>
-            <input id="promotion-phone" type="tel" autoComplete="tel" value={promotionPhone} onChange={event => setPromotionPhone(event.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" className="w-full max-w-md rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
-            {promotionError && <p role="alert" className="text-sm text-red-700 mt-3">{promotionError}</p>}
-            {promotionMessage && <p role="status" className="text-sm text-neutral-700 mt-3">{promotionMessage}</p>}
-            {promotionPayment && <div className="mt-3 rounded-lg border border-neutral-200 p-3 text-sm">
-              <p className="font-semibold text-neutral-900">Promotion payment: {promotionPayment.status}</p>
-              <p className="text-neutral-600 mt-1">KSh 100 · Payment reference {String(promotionPayment.paymentId || '').slice(0, 12)}…</p>
-              {promotionPayment.status === 'PENDING' && <Button className="mt-3" variant="outline" onClick={checkPromotionPayment} disabled={promotionBusy}><RefreshCw className="w-4 h-4 mr-2" />{promotionBusy ? 'Checking…' : 'Check payment status'}</Button>}
-            </div>}
-            <Button className="mt-4" onClick={startPromotion} disabled={!promotionProducts.length || !promotionProductId || promotionBusy || promotionPayment?.status === 'PENDING'}>
-              <CreditCard className="w-4 h-4 mr-2" />{promotionBusy ? 'Please wait…' : 'Pay KSh 100 and promote'}
-            </Button>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <BadgeCheck className="w-5 h-5 text-neutral-600 mt-0.5" />
+            <div>
+              <h2 className="text-xl font-semibold text-neutral-900">Promote your products</h2>
+              <p className="text-sm text-neutral-600 mt-1">Open your promotion wallet to top up once, choose multiple products, and manage your campaigns and advertising balance.</p>
+            </div>
           </div>
+          <Link to="/seller/promotions"><Button>Open promotion wallet <ArrowRight className="w-4 h-4 ml-2" /></Button></Link>
         </div>
       </Card>}
 
