@@ -20,7 +20,9 @@ export default function AdminMarketplacePayouts() {
   const [fundReasons, setFundReasons] = useState<Record<string, string>>({});
   const [allocations, setAllocations] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState<string | null>(null);
+  const [busyKeys, setBusyKeys] = useState<Set<string>>(new Set());
+  const startBusy = (key: string) => setBusyKeys(old => new Set(old).add(key));
+  const stopBusy = (key: string) => setBusyKeys(old => { const next = new Set(old); next.delete(key); return next; });
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [notes, setNotes] = useState<Record<string, string>>({});
@@ -53,14 +55,14 @@ export default function AdminMarketplacePayouts() {
     if (!reason || reason.length < 5) { setError('Enter a clear reason of at least 5 characters for every seller funds action.'); return; }
     if (action !== 'RELEASE_FUNDS' && (!Number.isSafeInteger(amount) || amount <= 0)) { setError('Enter a positive whole-KSh amount.'); return; }
     if (!window.confirm(action === 'RELEASE_FUNDS' ? 'Release this seller funds hold?' : `Confirm ${action.replace('_', ' ').toLowerCase()} of KSh ${amount} for this seller?`)) return;
-    setBusy(sellerId); setError(''); setNotice('');
+    startBusy('seller:' + sellerId); setError(''); setNotice('');
     try {
       const result: any = await apiFetch('/api/admin/marketplace-payouts', { method: 'POST', body: JSON.stringify({ action, sellerId, amount, reason, holdId }) });
       setNotice(result.message || 'Seller funds action recorded.');
       setFundReasons(prev => ({ ...prev, [sellerId]: '' }));
       await refresh();
     } catch (err: any) { setError(err?.message || 'Could not update seller funds.'); }
-    finally { setBusy(null); }
+    finally { stopBusy('seller:' + sellerId); }
   }
   async function refresh() {
     setLoading(true); setError('');
@@ -86,13 +88,13 @@ export default function AdminMarketplacePayouts() {
     if (action === 'SEND_PRINTPAY' && confirmSendId !== payout.id) { setConfirmSendId(payout.id); setError(''); return; }
     if (action === 'SEND_PRINTPAY') setConfirmSendId(null);
     if (action === 'MARK_PAID' && !references[payout.id]?.trim()) { setError('Enter the confirmed M-Pesa/provider reference after sending the money.'); return; }
-    setBusy(payout.id); setError(''); setNotice('');
+    startBusy('payout:' + payout.id); setError(''); setNotice('');
     try {
       const result: any = await apiFetch('/api/admin/marketplace-payouts', { method: 'POST', body: JSON.stringify({ payoutId: payout.id, action, reason: notes[payout.id]?.trim() || '', providerReference: references[payout.id]?.trim() || '' }) });
       setNotice(result.message || 'Payout updated.');
       await refresh();
     } catch (err: any) { setError(err?.message || 'Could not update this payout.'); }
-    finally { setBusy(null); }
+    finally { stopBusy('seller:' + sellerId); }
   }
   async function reconcile(refund: Refund) {
     const chosen = uniqueSellers(refund).map(seller => ({
@@ -102,7 +104,7 @@ export default function AdminMarketplacePayouts() {
     const total = chosen.reduce((sum, row) => sum + row.amount, 0);
     if (total > refund.amount) { setError('Seller allocations cannot exceed the confirmed refund amount.'); return; }
     if (!notes[refund.id]?.trim()) { setError('Enter a reconciliation note.'); return; }
-    setBusy(refund.id); setError(''); setNotice('');
+    startBusy('refund:' + refund.id); setError(''); setNotice('');
     try {
       const result: any = await apiFetch('/api/admin/marketplace-payouts', { method: 'POST', body: JSON.stringify({
         action: 'RECONCILE_REFUND', refundRecordId: refund.id, allocations: chosen, reason: notes[refund.id].trim(),
@@ -110,7 +112,7 @@ export default function AdminMarketplacePayouts() {
       setNotice(result.message || 'Refund reconciled.');
       await refresh();
     } catch (err: any) { setError(err?.message || 'Could not reconcile this refund.'); }
-    finally { setBusy(null); }
+    finally { stopBusy('refund:' + refund.id); }
   }
   const filteredPayouts = payouts.filter(payout => {
     const status = String(payout.status || 'REQUESTED').toUpperCase();
@@ -129,7 +131,7 @@ export default function AdminMarketplacePayouts() {
     {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 mb-4">{error}</div>}
     <section className="mb-8 space-y-3">
       <div><h2 className="text-xl font-bold">Seller financial summaries</h2><p className="text-sm text-neutral-600 mt-1">Read-only totals from seller ledger entries and payout records. Available and pending values are ledger totals; refund holds may make some available ledger funds temporarily unavailable.</p></div>
-      {sellerFinancials.length === 0 ? <Card className="p-4 text-sm text-neutral-500">No seller financial records found.</Card> : <div className="overflow-x-auto rounded-lg border bg-white"><table className="w-full min-w-[760px] text-sm"><thead className="bg-neutral-50 text-left"><tr><th className="p-3">Seller</th><th className="p-3">Seller UID</th><th className="p-3 text-right">Ledger available</th><th className="p-3 text-right">Pending</th><th className="p-3 text-right">Total withdrawn</th><th className="p-3 text-right">Paid payouts</th><th className="p-3 text-right">Requests</th><th className="p-3">Operations controls</th></tr></thead><tbody>{sellerFinancials.map(seller => <tr key={seller.sellerId} className="border-t"><td className="p-3 font-medium">{seller.sellerName}</td><td className="p-3 font-mono text-xs">{seller.sellerId}</td><td className="p-3 text-right">{money(seller.availableBalance)}</td><td className="p-3 text-right">{money(seller.pendingBalance)}</td><td className="p-3 text-right">{money(seller.totalWithdrawn)}</td><td className="p-3 text-right">{seller.paidPayoutCount}</td><td className="p-3 text-right">{seller.payoutRequestCount}</td><td className="p-3 min-w-[290px]"><div className="space-y-2"><input type="number" min="1" step="1" value={fundAmounts[seller.sellerId] || ''} onChange={e => setFundAmounts(prev => ({ ...prev, [seller.sellerId]: e.target.value }))} className="w-full rounded border px-2 py-1.5" placeholder="Amount (KSh)" /><input value={fundReasons[seller.sellerId] || ''} onChange={e => setFundReasons(prev => ({ ...prev, [seller.sellerId]: e.target.value }))} className="w-full rounded border px-2 py-1.5" placeholder="Required reason / audit note" /><div className="flex flex-wrap gap-1"><Button size="sm" disabled={busy === seller.sellerId} onClick={() => void controlSellerFunds(seller.sellerId, 'HOLD_FUNDS')}>Hold</Button><Button size="sm" variant="outline" disabled={busy === seller.sellerId} onClick={() => void controlSellerFunds(seller.sellerId, 'ADD_FUNDS')}>Add</Button><Button size="sm" variant="outline" disabled={busy === seller.sellerId} onClick={() => void controlSellerFunds(seller.sellerId, 'DEDUCT_FUNDS')}>Deduct</Button></div>{(seller.activeHolds || []).map(hold => <div key={hold.id} className="rounded border p-2 text-xs"><p>Held {money(hold.amount)} · {hold.reason}</p><Button size="sm" variant="outline" disabled={busy === seller.sellerId} onClick={() => void controlSellerFunds(seller.sellerId, 'RELEASE_FUNDS', hold.id)}>Release hold</Button></div>)}</div></td></tr>)}</tbody></table></div>}
+      {sellerFinancials.length === 0 ? <Card className="p-4 text-sm text-neutral-500">No seller financial records found.</Card> : <div className="overflow-x-auto rounded-lg border bg-white"><table className="w-full min-w-[760px] text-sm"><thead className="bg-neutral-50 text-left"><tr><th className="p-3">Seller</th><th className="p-3">Seller UID</th><th className="p-3 text-right">Ledger available</th><th className="p-3 text-right">Pending</th><th className="p-3 text-right">Total withdrawn</th><th className="p-3 text-right">Paid payouts</th><th className="p-3 text-right">Requests</th><th className="p-3">Operations controls</th></tr></thead><tbody>{sellerFinancials.map(seller => <tr key={seller.sellerId} className="border-t"><td className="p-3 font-medium">{seller.sellerName}</td><td className="p-3 font-mono text-xs">{seller.sellerId}</td><td className="p-3 text-right">{money(seller.availableBalance)}</td><td className="p-3 text-right">{money(seller.pendingBalance)}</td><td className="p-3 text-right">{money(seller.totalWithdrawn)}</td><td className="p-3 text-right">{seller.paidPayoutCount}</td><td className="p-3 text-right">{seller.payoutRequestCount}</td><td className="p-3 min-w-[290px]"><div className="space-y-2"><input type="number" min="1" step="1" value={fundAmounts[seller.sellerId] || ''} onChange={e => setFundAmounts(prev => ({ ...prev, [seller.sellerId]: e.target.value }))} className="w-full rounded border px-2 py-1.5" placeholder="Amount (KSh)" /><input value={fundReasons[seller.sellerId] || ''} onChange={e => setFundReasons(prev => ({ ...prev, [seller.sellerId]: e.target.value }))} className="w-full rounded border px-2 py-1.5" placeholder="Required reason / audit note" /><div className="flex flex-wrap gap-1"><Button size="sm" disabled={busyKeys.has('seller:' + seller.sellerId)} onClick={() => void controlSellerFunds(seller.sellerId, 'HOLD_FUNDS')}>Hold</Button><Button size="sm" variant="outline" disabled={busyKeys.has('seller:' + seller.sellerId)} onClick={() => void controlSellerFunds(seller.sellerId, 'ADD_FUNDS')}>Add</Button><Button size="sm" variant="outline" disabled={busyKeys.has('seller:' + seller.sellerId)} onClick={() => void controlSellerFunds(seller.sellerId, 'DEDUCT_FUNDS')}>Deduct</Button></div>{(seller.activeHolds || []).map(hold => <div key={hold.id} className="rounded border p-2 text-xs"><p>Held {money(hold.amount)} · {hold.reason}</p><Button size="sm" variant="outline" disabled={busyKeys.has('seller:' + seller.sellerId)} onClick={() => void controlSellerFunds(seller.sellerId, 'RELEASE_FUNDS', hold.id)}>Release hold</Button></div>)}</div></td></tr>)}</tbody></table></div>}
     </section>
     {refunds.length > 0 && <section className="mb-8 space-y-4">
       <div><h2 className="text-xl font-bold">Confirmed refunds awaiting marketplace reconciliation</h2><p className="text-sm text-neutral-600 mt-1">Allocate only the marketplace sellers’ share. Any HerStep first-party portion stays outside seller ledgers. Leave every allocation at zero when the confirmed refund contains no marketplace seller share; add a note explaining the allocation.</p></div>
@@ -140,7 +142,7 @@ export default function AdminMarketplacePayouts() {
           <label className="text-xs">Refund allocated (KSh)<input type="number" min="0" step="1" value={allocations[`${refund.id}:${seller.sellerId}`] || ''} onChange={e => setAllocations(prev => ({ ...prev, [`${refund.id}:${seller.sellerId}`]: e.target.value }))} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="0 if none" /></label>
         </div>)}</div>
         <div className="mt-4"><label className="block text-xs font-medium mb-1">Reconciliation note<input value={notes[refund.id] || ''} onChange={e => setNotes(prev => ({ ...prev, [refund.id]: e.target.value }))} className="mt-1 w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Explain how the refund was allocated" /></label></div>
-        <Button className="mt-3" disabled={busy === refund.id} onClick={() => void reconcile(refund)}>{busy === refund.id ? 'Reconciling…' : 'Reconcile seller refund'}</Button>
+        <Button className="mt-3" disabled={busyKeys.has('refund:' + refund.id)} onClick={() => void reconcile(refund)}>{busyKeys.has('refund:' + refund.id) ? 'Reconciling…' : 'Reconcile seller refund'}</Button>
       </Card>)}
     </section>}
     {!loading && <div className="flex flex-wrap gap-2 mb-4">{[['ALL','All'],['REQUESTED','Requested'],['PROCESSING','Processing'],['FAILED','Failed'],['PAID','Paid']].map(([key,label]) => <Button key={key} size="sm" variant={statusFilter === key ? 'primary' : 'outline'} onClick={() => setStatusFilter(key)}>{label}</Button>)}</div>}
@@ -154,7 +156,7 @@ export default function AdminMarketplacePayouts() {
       {['REQUESTED','PENDING','APPROVED','PROCESSING','PROVIDER_UNKNOWN','DISPATCHING','FAILED'].includes(String(payout.status || 'REQUESTED').toUpperCase()) && <div className="mt-4 grid min-w-0 gap-3">
         <div><label className="block text-xs font-medium mb-1" htmlFor={`payout-note-${payout.id}`}>Review note / reason</label><input id={`payout-note-${payout.id}`} value={notes[payout.id] || ''} onChange={e => setNotes(prev => ({ ...prev, [payout.id]: e.target.value }))} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="Reason for approval or rejection" /></div>
         {['APPROVED','PROCESSING','PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase()) && <div><label className="block text-xs font-medium mb-1" htmlFor={`payout-ref-${payout.id}`}>Confirmed provider reference (only after verifying payment)</label><input id={`payout-ref-${payout.id}`} value={references[payout.id] || ''} onChange={e => setReferences(prev => ({ ...prev, [payout.id]: e.target.value }))} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" placeholder="M-Pesa transaction reference after payment" /></div>}
-        <div className="flex flex-wrap items-center gap-2">{['REQUESTED','PENDING'].includes(String(payout.status || 'REQUESTED').toUpperCase()) && <><Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'APPROVE')}><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button><Button size="sm" variant="outline" disabled={busy === payout.id} onClick={() => void act(payout,'REJECT')}><XCircle className="w-4 h-4 mr-1" /> Reject</Button></>}{['APPROVED','FAILED','REQUESTED','PENDING'].includes(String(payout.status || '').toUpperCase()) && <><Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'SEND_PRINTPAY')}><Banknote className="w-4 h-4 mr-1" /> {busy === payout.id ? 'Sending…' : ['FAILED','REQUESTED','PENDING'].includes(String(payout.status).toUpperCase()) ? 'Retry transfer' : 'Send payout'}</Button>{confirmSendId === payout.id && <div className="w-full rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm"><p>Confirm sending {money(payout.amount)} to {payout.payoutPhone || payout.payoutPhoneMasked || 'the saved seller phone'}. This initiates a real transfer.</p><div className="mt-2 flex gap-2"><Button size="sm" onClick={() => void act(payout,'SEND_PRINTPAY')}>Confirm transfer</Button><Button size="sm" variant="outline" onClick={() => setConfirmSendId(null)}>Cancel</Button></div></div>}{String(payout.status).toUpperCase() === 'APPROVED' && <Button size="sm" variant="outline" disabled={busy === payout.id} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record external payment</Button>}</>}{['PROCESSING','PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase()) && <Button size="sm" disabled={busy === payout.id} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record verified payment</Button>}</div>
+        <div className="flex flex-wrap items-center gap-2">{['REQUESTED','PENDING'].includes(String(payout.status || 'REQUESTED').toUpperCase()) && <><Button size="sm" disabled={busyKeys.has('payout:' + payout.id)} onClick={() => void act(payout,'APPROVE')}><CheckCircle2 className="w-4 h-4 mr-1" /> Approve</Button><Button size="sm" variant="outline" disabled={busyKeys.has('payout:' + payout.id)} onClick={() => void act(payout,'REJECT')}><XCircle className="w-4 h-4 mr-1" /> Reject</Button></>}{['APPROVED','FAILED','REQUESTED','PENDING'].includes(String(payout.status || '').toUpperCase()) && <><Button size="sm" disabled={busyKeys.has('payout:' + payout.id)} onClick={() => void act(payout,'SEND_PRINTPAY')}><Banknote className="w-4 h-4 mr-1" /> {busyKeys.has('payout:' + payout.id) ? 'Sending…' : ['FAILED','REQUESTED','PENDING'].includes(String(payout.status).toUpperCase()) ? 'Retry transfer' : 'Send payout'}</Button>{confirmSendId === payout.id && <div className="w-full rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm"><p>Confirm sending {money(payout.amount)} to {payout.payoutPhone || payout.payoutPhoneMasked || 'the saved seller phone'}. This initiates a real transfer.</p><div className="mt-2 flex gap-2"><Button size="sm" onClick={() => void act(payout,'SEND_PRINTPAY')}>Confirm transfer</Button><Button size="sm" variant="outline" onClick={() => setConfirmSendId(null)}>Cancel</Button></div></div>}{String(payout.status).toUpperCase() === 'APPROVED' && <Button size="sm" variant="outline" disabled={busyKeys.has('payout:' + payout.id)} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record external payment</Button>}</>}{['PROCESSING','PROVIDER_UNKNOWN'].includes(String(payout.status || '').toUpperCase()) && <Button size="sm" disabled={busyKeys.has('payout:' + payout.id)} onClick={() => void act(payout,'MARK_PAID')}><CheckCircle2 className="w-4 h-4 mr-1" /> Record verified payment</Button>}</div>
       </div>}
     </Card>)}</div>}
   </main>;
