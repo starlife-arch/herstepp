@@ -11,6 +11,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'marketplace/messages': lazyRoute(() => import('./_lib/routes/marketplace-messages.js')),
   'sellers/subscription': lazyRoute(() => import('./_lib/routes/seller-subscription.js')),
   'sellers/promotions': lazyRoute(() => import('./_lib/routes/seller-promotions.js')),
+  'sellers/promotion-wallet': lazyRoute(() => import('./_lib/routes/seller-promotion-wallet.js')),
   'sellers/bulk-upload': lazyRoute(() => import('./_lib/routes/seller-bulk-upload.js')),
   'sellers/entitlements': lazyRoute(() => import('./_lib/routes/seller-entitlements.js')),
   'sellers/products': lazyRoute(() => import('./_lib/routes/seller-products.js')),
@@ -33,6 +34,5 @@ export default (req, res) => dispatchRoute(req, res, {
   'support/create': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.create }))),
   'support/messages': lazyRoute(() => import('./_lib/routes/support.js').then(m => ({ default: m.message }))),
   'support/sign-upload': lazyRoute(() => import('./_lib/routes/support-sign-upload.js')),
-  // POST /api/contact — public contact form (no login required)
   contact: lazyRoute(() => import('./_lib/routes/contact.js')),
 });
