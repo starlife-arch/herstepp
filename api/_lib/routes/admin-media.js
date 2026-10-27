@@ -34,9 +34,10 @@ export default async function signUpload(req, res) {
   const timestamp = Math.floor(Date.now() / 1000);
   const allowedFormats = config.formats.join(',');
 
-  // Cloudinary's reported canonical string for this upload contains only
-  // folder, public_id, and timestamp. Sign precisely those parameters.
-  const toSign = `folder=${folder}&public_id=${publicId}&timestamp=${timestamp}`;
+  // Sign every upload parameter that the client sends to Cloudinary.
+  // Keep the parameter names and alphabetical order identical to Cloudinary's
+  // canonical string; omitting allowed_formats causes an Invalid Signature.
+  const toSign = `allowed_formats=${allowedFormats}&folder=${folder}&public_id=${publicId}&timestamp=${timestamp}`;
   const signature = crypto.createHash('sha1')
     .update(toSign + process.env.CLOUDINARY_API_SECRET.trim())
     .digest('hex');
