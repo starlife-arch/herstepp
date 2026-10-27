@@ -80,7 +80,7 @@ export default function SellerProducts() {
     if (!files?.length) return;
     setBulkError(''); setBulkMessage('');
     const selected = Array.from(files);
-    if (bulkImages.length + selected.length > 10) { setBulkError('A paid batch supports up to 10 product images. Remove some images before adding more.'); return; }
+    if (bulkImages.length + selected.length > 100) { setBulkError('You can queue up to 100 product images at a time. Remove some images before adding more.'); return; }
     if (selected.some(file => !/\.(jpe?g|png|webp)$/i.test(file.name) || file.size > 8 * 1024 * 1024)) { setBulkError('Use JPG, PNG, or WEBP images up to 8 MB each.'); return; }
     setBulkBusy(true);
     try {
