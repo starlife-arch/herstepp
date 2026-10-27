@@ -4,8 +4,9 @@ import { adminDb, requireUser } from '../firebase-admin.js';
 import { getMpesaProvider } from '../mpesa-provider.js';
 import { clientError, methodNotAllowed } from '../http.js';
 
-const BATCH_PRICE = 100;
-const BATCH_CREDITS = 10;
+const PRICE_PER_CREDIT = 10;
+const MIN_CREDITS_PER_PURCHASE = 10;
+const MAX_CREDITS_PER_PURCHASE = 10000;
 const ALLOWED_SIZES = new Set([...Array.from({ length: 16 }, (_, i) => String(i + 30)), 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size', 'Free Size']);
 const DEFAULT_CATEGORIES = ['Block Heels', 'Flats', 'Heels', 'Loafers', 'Platforms', 'Sandals', 'Slides', 'Dresses', 'Clothing', 'Watches', 'Necklaces', 'Bags'];
 const TERMINAL = new Set(['PAID', 'FAILED', 'CANCELLED', 'TIMEOUT']);
@@ -34,7 +35,10 @@ export async function applyBulkCreditPayment(db, deps, input) {
     if (!snap.exists) return { applied: false, unknown: true };
     const payment = snap.data();
     if (payment.status === 'PAID' || (TERMINAL.has(payment.status) && status !== 'PAID')) return { applied: false, duplicate: true };
-    if (status === 'PAID' && (Number(input.amount) !== BATCH_PRICE || Number(payment.amount) !== BATCH_PRICE)) throw clientError('Payment amount does not match KSh 100.', 409);
+    const expectedCredits = Number(payment.credits);
+    const expectedAmount = Number(payment.amount);
+    if (!Number.isInteger(expectedCredits) || expectedCredits < MIN_CREDITS_PER_PURCHASE || expectedCredits > MAX_CREDITS_PER_PURCHASE || expectedAmount !== expectedCredits * PRICE_PER_CREDIT) throw clientError('Stored bulk-credit purchase amount is invalid.', 409);
+    if (status === 'PAID' && Number(input.amount) !== expectedAmount) throw clientError(`Payment amount does not match KSh ${expectedAmount}.`, 409);
     const patch = { status, transactionReference: input.transactionReference || null, failureReason: status === 'PAID' ? null : (input.reason || status), updatedAt: deps.serverTimestamp(), completedAt: status === 'PENDING' ? null : deps.serverTimestamp(), providerEventId: input.eventId || null };
     if (status === 'PAID') {
       const sellerRef = db.collection('sellers').doc(payment.sellerId);
@@ -43,10 +47,10 @@ export async function applyBulkCreditPayment(db, deps, input) {
         patch.status = 'PAID';
         patch.creditGrantIssue = 'Seller record missing or owner mismatch; support review required.';
       } else {
-        tx.update(sellerRef, { bulkUploadCredits: (Number(sellerSnap.data()?.bulkUploadCredits) || 0) + BATCH_CREDITS, updatedAt: deps.serverTimestamp() });
+        tx.update(sellerRef, { bulkUploadCredits: (Number(sellerSnap.data()?.bulkUploadCredits) || 0) + expectedCredits, updatedAt: deps.serverTimestamp() });
         const ledgerRef = db.collection('sellerBulkCreditLedger').doc(paymentRef.id);
-        tx.create(ledgerRef, { sellerId: payment.sellerId, paymentId: paymentRef.id, providerReference, type: 'PURCHASE', credits: BATCH_CREDITS, amount: BATCH_PRICE, currency: 'KES', createdAt: deps.serverTimestamp() });
-        patch.creditsGranted = BATCH_CREDITS;
+        tx.create(ledgerRef, { sellerId: payment.sellerId, paymentId: paymentRef.id, providerReference, type: 'PURCHASE', credits: expectedCredits, amount: expectedAmount, currency: 'KES', createdAt: deps.serverTimestamp() });
+        patch.creditsGranted = expectedCredits;
       }
     }
     tx.update(paymentRef, patch);
@@ -117,11 +121,14 @@ export default async function sellerBulkUpload(req, res) {
       const freshSeller = await sellerRef.get();
       return res.json({ payment: publicPayment(paymentId, data), credits: Number(freshSeller.data()?.bulkUploadCredits) || 0 });
     }
-    return res.json({ credits: Number(seller.bulkUploadCredits) || 0, batchPrice: BATCH_PRICE, batchSize: BATCH_CREDITS });
+    return res.json({ credits: Number(seller.bulkUploadCredits) || 0, pricePerCredit: PRICE_PER_CREDIT, minPurchaseCredits: MIN_CREDITS_PER_PURCHASE, maxPurchaseCredits: MAX_CREDITS_PER_PURCHASE });
   }
   if (req.method !== 'POST') return methodNotAllowed(res, 'GET, POST');
   const action = String(req.body?.action || '');
   if (action === 'purchase') {
+    const credits = Number(req.body?.credits ?? MIN_CREDITS_PER_PURCHASE);
+    if (!Number.isInteger(credits) || credits < MIN_CREDITS_PER_PURCHASE || credits > MAX_CREDITS_PER_PURCHASE) throw clientError(`Choose between ${MIN_CREDITS_PER_PURCHASE} and ${MAX_CREDITS_PER_PURCHASE} credits.`);
+    const amount = credits * PRICE_PER_CREDIT;
     const phone = String(req.body?.phone || '').trim();
     const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
     if (!/^[A-Za-z0-9_-]{12,100}$/.test(idempotencyKey)) throw clientError('A valid idempotency key is required.');
@@ -136,7 +143,7 @@ export default async function sellerBulkUpload(req, res) {
         if (data.sellerId !== user.uid || data.phone !== phoneDigits) throw clientError('This idempotency key was used for another request.', 409);
         return { existing: true, data };
       }
-      const data = { paymentId, sellerId: user.uid, ownerUid: user.uid, amount: BATCH_PRICE, credits: BATCH_CREDITS, currency: 'KES', phone: phoneDigits, method: 'MPESA', status: 'PENDING', providerReference: null, transactionReference: null, failureReason: null, idempotencyKey, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), initiatedAt: FieldValue.serverTimestamp() };
+      const data = { paymentId, sellerId: user.uid, ownerUid: user.uid, amount, credits, currency: 'KES', phone: phoneDigits, method: 'MPESA', status: 'PENDING', providerReference: null, transactionReference: null, failureReason: null, idempotencyKey, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(), initiatedAt: FieldValue.serverTimestamp() };
       tx.create(paymentRef, data); return { existing: false, data };
     });
     if (created.existing) {
@@ -144,9 +151,9 @@ export default async function sellerBulkUpload(req, res) {
       throw clientError('This payment request is already being prepared. Check status or contact support before retrying.', 409);
     }
     try {
-      const stk = await getMpesaProvider().initiateStk({ phone: phoneDigits, amount: BATCH_PRICE });
+      const stk = await getMpesaProvider().initiateStk({ phone: phoneDigits, amount });
       await paymentRef.update({ providerReference: stk.providerReference, updatedAt: FieldValue.serverTimestamp() });
-      return res.status(202).json({ payment: { paymentId, status: 'PENDING', amount: BATCH_PRICE, credits: BATCH_CREDITS, providerReference: stk.providerReference } });
+      return res.status(202).json({ payment: { paymentId, status: 'PENDING', amount, credits, providerReference: stk.providerReference } });
     } catch (error) { await paymentRef.update({ initiationError: true, updatedAt: FieldValue.serverTimestamp() }).catch(() => {}); throw error; }
   }
   if (action === 'analyze') {
