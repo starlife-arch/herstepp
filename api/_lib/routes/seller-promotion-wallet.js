@@ -7,8 +7,8 @@ import { clientError, methodNotAllowed } from '../http.js';
 const DAY_MS = 7 * 24 * 60 * 60 * 1000;
 const money = value => Number.isSafeInteger(value) && value > 0;
 const clean = value => String(value ?? '').trim();
-const phoneClean = value => clean(value).replace(/[\\s()+-]/g, '');
-const validPhone = value => /^(?:254[17]\\d{8}|0[17]\\d{8})$/.test(value);
+const phoneClean = value => clean(value).replace(/[\s()+-]/g, '');
+const validPhone = value => /^(?:254[17]\d{8}|0[17]\d{8})$/.test(value);
 const serialize = value => {
   if (value?.toDate) return value.toDate().toISOString();
   if (Array.isArray(value)) return value.map(serialize);
