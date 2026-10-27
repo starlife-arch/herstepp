@@ -66,7 +66,10 @@ export default function SellerProducts() {
   const selectedBulkAmount = selectedBulkCredits * 10;
   const [bulkPayment, setBulkPayment] = useState<any>(null);
   const [bulkImages, setBulkImages] = useState<BulkImage[]>([]);
-  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkUploadBusy, setBulkUploadBusy] = useState(false);
+  const [bulkPaymentBusy, setBulkPaymentBusy] = useState(false);
+  const [bulkCheckBusy, setBulkCheckBusy] = useState(false);
+  const [bulkAnalyseBusy, setBulkAnalyseBusy] = useState(false);
   const [bulkError, setBulkError] = useState('');
   const [bulkMessage, setBulkMessage] = useState('');
 
@@ -83,43 +86,43 @@ export default function SellerProducts() {
     const selected = Array.from(files);
     if (bulkImages.length + selected.length > 100) { setBulkError('You can queue up to 100 product images at a time. Remove some images before adding more.'); return; }
     if (selected.some(file => !/\.(jpe?g|png|webp)$/i.test(file.name) || file.size > 8 * 1024 * 1024)) { setBulkError('Use JPG, PNG, or WEBP images up to 8 MB each.'); return; }
-    setBulkBusy(true);
+    setBulkUploadBusy(true);
     try {
       const uploaded = await Promise.all(selected.map(async file => ({ ...(await uploadProductImage(file)), key: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`, fileName: file.name, state: 'ready' as const })));
       setBulkImages(old => [...old, ...uploaded]);
       setBulkMessage(`${uploaded.length} image(s) uploaded. Review them, then run AI analysis. Images are saved as private drafts only after successful analysis.`);
     } catch (err: any) { setBulkError(err?.message || 'Could not upload the batch images.'); }
-    finally { setBulkBusy(false); }
+    finally { setBulkUploadBusy(false); }
   }
 
   async function buyBulkCredits() {
     if (!Number.isInteger(selectedBulkCredits) || selectedBulkCredits < 10 || selectedBulkCredits > 10000) { setBulkError('Choose at least 10 credits and no more than 10,000 credits.'); return; }
     if (!bulkPhone.trim()) { setBulkError(`Enter the M-Pesa number that should receive the KSh ${selectedBulkAmount.toLocaleString('en-KE')} prompt.`); return; }
-    setBulkBusy(true); setBulkError(''); setBulkMessage('');
+    setBulkPaymentBusy(true); setBulkError(''); setBulkMessage('');
     try {
       const result: any = await apiFetch('/api/sellers/bulk-upload', { method: 'POST', body: JSON.stringify({ action: 'purchase', phone: bulkPhone.trim(), credits: selectedBulkCredits, idempotencyKey: `bulk-${crypto.randomUUID()}` }) });
       setBulkPayment(result.payment);
       setBulkMessage(`Approve the KSh ${selectedBulkAmount.toLocaleString('en-KE')} M-Pesa prompt. ${selectedBulkCredits.toLocaleString('en-KE')} credits are added only after payment is confirmed.`);
     } catch (err: any) { setBulkError(err?.message || 'Could not start the credit purchase.'); }
-    finally { setBulkBusy(false); }
+    finally { setBulkPaymentBusy(false); }
   }
 
   async function checkBulkPayment() {
     if (!bulkPayment?.paymentId) return;
-    setBulkBusy(true); setBulkError('');
+    setBulkCheckBusy(true); setBulkError('');
     try {
       const result: any = await apiFetch(`/api/sellers/bulk-upload?paymentId=${encodeURIComponent(bulkPayment.paymentId)}`);
       setBulkPayment(result.payment); setBulkCredits(Number(result.credits) || 0);
       setBulkMessage(result.payment?.status === 'PAID' ? `Payment verified. ${Number(result.payment?.credits || selectedBulkCredits).toLocaleString('en-KE')} AI bulk-upload credits are available.` : ['FAILED','CANCELLED','TIMEOUT'].includes(result.payment?.status) ? (result.payment.failureReason || `Payment status: ${result.payment.status}`) : 'Payment is still pending. Approve the prompt, then check again.');
     } catch (err: any) { setBulkError(err?.message || 'Could not check the payment status.'); }
-    finally { setBulkBusy(false); }
+    finally { setBulkCheckBusy(false); }
   }
 
   async function analyseBulkImages() {
     const queue = bulkImages.filter(item => item.state === 'ready' || item.state === 'error');
     if (!queue.length) { setBulkError('Upload at least one image first.'); return; }
     if (queue.length > bulkCredits) { setBulkError(`You have ${bulkCredits} credits but selected ${queue.length} images. Purchase another batch or select fewer images.`); return; }
-    setBulkBusy(true); setBulkError(''); setBulkMessage('');
+    setBulkAnalyseBusy(true); setBulkError(''); setBulkMessage('');
     let completed = 0;
     let attempted = 0;
     try {
@@ -140,7 +143,7 @@ export default function SellerProducts() {
       }
       setBulkMessage(completed ? `Finished: ${completed} private draft(s) created. Failed images remain available to retry; unsuccessful AI analysis does not consume credits.` : 'No drafts were created. Check the errors and retry later; failed analysis does not consume credits.');
       await refreshBulkCredits();
-    } finally { setBulkBusy(false); }
+    } finally { setBulkAnalyseBusy(false); }
   }
 
   async function load() {
@@ -278,19 +281,19 @@ export default function SellerProducts() {
             </div>
             <p className="text-sm text-neutral-600 mt-2">Total: <strong>{Number.isInteger(selectedBulkCredits) && selectedBulkCredits >= 10 && selectedBulkCredits <= 10000 ? money(selectedBulkAmount) : 'Enter a valid amount'}</strong></p>
             <input id="seller-bulk-phone" className={fieldClass + " mt-2"} type="tel" autoComplete="tel" value={bulkPhone} onChange={e => setBulkPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" />
-            <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkBusy || bulkPayment?.status === 'PENDING'}><CreditCard className="w-4 h-4 mr-2" />{bulkBusy ? 'Please wait…' : `Buy ${Number.isInteger(selectedBulkCredits) && selectedBulkCredits > 0 ? selectedBulkCredits.toLocaleString('en-KE') : 'credits'} · ${money(selectedBulkAmount || 0)}`}</Button>
-            {bulkPayment && <div className="mt-2 rounded-lg border p-3 text-sm"><p>Payment status: <strong>{bulkPayment.status}</strong></p>{bulkPayment.status === 'PENDING' && <Button variant="outline" className="w-full mt-2" onClick={checkBulkPayment} disabled={bulkBusy}><RefreshCw className="w-4 h-4 mr-2" />Check payment</Button>}</div>}
+            <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkPaymentBusy || bulkPayment?.status === 'PENDING'}><CreditCard className="w-4 h-4 mr-2" />{bulkPaymentBusy ? 'Please wait…' : `Buy ${Number.isInteger(selectedBulkCredits) && selectedBulkCredits > 0 ? selectedBulkCredits.toLocaleString('en-KE') : 'credits'} · ${money(selectedBulkAmount || 0)}`}</Button>
+            {bulkPayment && <div className="mt-2 rounded-lg border p-3 text-sm"><p>Payment status: <strong>{bulkPayment.status}</strong></p>{bulkPayment.status === 'PENDING' && <Button variant="outline" className="w-full mt-2" onClick={checkBulkPayment} disabled={bulkCheckBusy}><RefreshCw className="w-4 h-4 mr-2" />Check payment</Button>}</div>}
           </div>
         </div>
-        <label className={`flex items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 p-5 mt-5 text-sm cursor-pointer hover:bg-neutral-50 ${bulkBusy ? 'opacity-60 pointer-events-none' : ''}`}>
-          {bulkBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImagePlus className="w-5 h-5" />}
-          {bulkBusy ? 'Processing…' : `Choose product photos (${bulkImages.length}/10)`}
-          <input type="file" className="sr-only" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple disabled={bulkBusy || bulkImages.length >= 10} onChange={e => { void addBulkImages(e.target.files); e.currentTarget.value = ''; }} />
+        <label className={`flex items-center justify-center gap-2 rounded-lg border border-dashed border-neutral-300 p-5 mt-5 text-sm cursor-pointer hover:bg-neutral-50 ${bulkUploadBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+          {bulkUploadBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : <ImagePlus className="w-5 h-5" />}
+          {bulkUploadBusy ? 'Processing…' : `Choose product photos (${bulkImages.length}/10)`}
+          <input type="file" className="sr-only" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" multiple disabled={bulkUploadBusy || bulkImages.length >= 10} onChange={e => { void addBulkImages(e.target.files); e.currentTarget.value = ''; }} />
         </label>
-        {bulkImages.length > 0 && <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">{bulkImages.map(item => <div key={item.key} className="rounded-lg border p-2 min-w-0"><img src={item.url} alt={item.fileName} className="aspect-square w-full object-cover rounded" /><p className="text-xs font-medium truncate mt-2" title={item.fileName}>{item.fileName}</p><p className="text-xs text-neutral-500 mt-1">{item.state === 'working' ? 'Analysing…' : item.state === 'error' ? 'Needs retry' : 'Ready'}</p>{item.error && <p className="text-xs text-red-700 mt-1">{item.error}</p>}<button type="button" className="text-xs underline mt-1" disabled={bulkBusy} onClick={() => setBulkImages(old => old.filter(row => row.key !== item.key))}>Remove</button></div>)}</div>}
+        {bulkImages.length > 0 && <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-4">{bulkImages.map(item => <div key={item.key} className="rounded-lg border p-2 min-w-0"><img src={item.url} alt={item.fileName} className="aspect-square w-full object-cover rounded" /><p className="text-xs font-medium truncate mt-2" title={item.fileName}>{item.fileName}</p><p className="text-xs text-neutral-500 mt-1">{item.state === 'working' ? 'Analysing…' : item.state === 'error' ? 'Needs retry' : 'Ready'}</p>{item.error && <p className="text-xs text-red-700 mt-1">{item.error}</p>}<button type="button" className="text-xs underline mt-1" disabled={bulkUploadBusy} onClick={() => setBulkImages(old => old.filter(row => row.key !== item.key))}>Remove</button></div>)}</div>}
         {bulkError && <p role="alert" className="text-sm text-red-700 mt-3">{bulkError}</p>}
         {bulkMessage && <p role="status" className="text-sm text-neutral-700 mt-3">{bulkMessage}</p>}
-        <Button className="w-full mt-4" onClick={analyseBulkImages} disabled={bulkBusy || bulkImages.length === 0 || bulkCredits === 0}><Sparkles className="w-4 h-4 mr-2" />{bulkBusy ? 'Processing batch…' : 'Analyse photos and create private drafts'}</Button>
+        <Button className="w-full mt-4" onClick={analyseBulkImages} disabled={bulkAnalyseBusy || bulkImages.length === 0 || bulkCredits === 0}><Sparkles className="w-4 h-4 mr-2" />{bulkAnalyseBusy ? 'Processing batch…' : 'Analyse photos and create private drafts'}</Button>
         <p className="text-xs text-neutral-500 mt-2">AI-created drafts stay private until you choose Publish listing. Check the name, category, price, sizes and stock first. Eligible listings publish immediately; admins can still moderate listings that break marketplace rules.</p>
       </Card>
 
