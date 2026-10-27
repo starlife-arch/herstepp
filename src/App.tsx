@@ -32,6 +32,7 @@ import AdminMarketplaceReports from './pages/AdminMarketplaceReports';
 import AdminPromotionWallets from './pages/AdminPromotionWallets';
 import AdminMarketplacePayouts from './pages/AdminMarketplacePayouts';
 import AdminMarketplaceControls from './pages/AdminMarketplaceControls';
+import AdminPromotionWallets from './pages/AdminPromotionWallets';
 import SellerDashboard from './pages/SellerDashboard';
 import SellerProfile from './pages/SellerProfile';
 import SellerProducts from './pages/SellerProducts';
