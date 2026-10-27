@@ -31,6 +31,7 @@ import AdminSellerProducts from './pages/AdminSellerProducts';
 import AdminMarketplaceReports from './pages/AdminMarketplaceReports';
 import AdminMarketplacePayouts from './pages/AdminMarketplacePayouts';
 import AdminMarketplaceControls from './pages/AdminMarketplaceControls';
+import AdminPromotionWallets from './pages/AdminPromotionWallets';
 import SellerDashboard from './pages/SellerDashboard';
 import SellerProfile from './pages/SellerProfile';
 import SellerProducts from './pages/SellerProducts';
@@ -56,6 +57,7 @@ function AppRoutes() {
   <Route path="/admin/marketplace-reports" element={<Wrap><RequireAdmin><AdminMarketplaceReports /></RequireAdmin></Wrap>} />
   <Route path="/admin/marketplace-payouts" element={<Wrap><RequireAdmin><AdminMarketplacePayouts /></RequireAdmin></Wrap>} />
   <Route path="/admin/marketplace-controls" element={<Wrap><RequireAdmin><AdminMarketplaceControls /></RequireAdmin></Wrap>} />
+  <Route path="/admin/promotion-wallets" element={<Wrap><RequireAdmin><AdminPromotionWallets /></RequireAdmin></Wrap>} />
   <Route path="/admin" element={<Wrap><RequireAdmin><AdminDashboard /></RequireAdmin></Wrap>} />
   <Route path="/admin/*" element={<Wrap><RequireAdmin><AdminDashboard /></RequireAdmin></Wrap>} />
  </Routes>;

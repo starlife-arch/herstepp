@@ -212,7 +212,7 @@ export default function SellerProducts() {
     try {
       const result: any = await apiFetch('/api/sellers/products', {
         method: 'PATCH',
-        body: JSON.stringify({ id: draft.id, action: 'SUBMIT_FOR_REVIEW' }),
+        body: JSON.stringify({ id: draft.id, action: 'PUBLISH' }),
       });
       setDrafts(old => old.map(item => item.id === draft.id ? { ...item, status: 'PENDING_REVIEW' } : item));
       setMessage(result.message || 'Product submitted for admin review.');
@@ -287,7 +287,7 @@ export default function SellerProducts() {
         {bulkError && <p role="alert" className="text-sm text-red-700 mt-3">{bulkError}</p>}
         {bulkMessage && <p role="status" className="text-sm text-neutral-700 mt-3">{bulkMessage}</p>}
         <Button className="w-full mt-4" onClick={analyseBulkImages} disabled={bulkBusy || bulkImages.length === 0 || bulkCredits === 0}><Sparkles className="w-4 h-4 mr-2" />{bulkBusy ? 'Processing batch…' : 'Analyse photos and create private drafts'}</Button>
-        <p className="text-xs text-neutral-500 mt-2">AI-created drafts are not published automatically. Verify the name, category, price and sizes, add inventory, and submit through the normal review process.</p>
+        <p className="text-xs text-neutral-500 mt-2">AI-created drafts stay private until you choose Publish listing. Check the name, category, price, sizes and stock first. Eligible listings publish immediately; admins can still moderate listings that break marketplace rules.</p>
       </Card>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6 items-start">

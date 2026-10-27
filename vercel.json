@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/admin/promotion-wallets",
+      "destination": "/api/admin?route=promotion-wallets"
+    },
+    {
+      "source": "/api/sellers/promotion-wallet",
+      "destination": "/api/users?route=sellers/promotion-wallet"
+    },
+    {
       "source": "/api/cron/marketplace-payouts",
       "destination": "/api/admin?route=cron/marketplace-payouts"
     },
