@@ -193,6 +193,7 @@ export async function adminPromotionWallets(req, res) {
   const campaigns = campaignsSnap.docs.map(d => ({ id: d.id, ...(d.data() || {}) }));
   const paidTopups = topups.filter(p => p.status === 'PAID');
   const activeCampaigns = campaigns.filter(c => c.status === 'ACTIVE' && (c.promotedUntil?.toDate?.() || new Date(c.promotedUntil)).getTime() > Date.now());
+  const sellerNames = new Map(sellersSnap.docs.map(d => { const s = d.data() || {}; return [d.id, s.businessName || s.displayName || s.ownerName || 'Seller']; }));
   return res.status(200).json({
     summary: {
       totalAvailableBalance: sum(wallets, w => w.availableBalance),
@@ -203,7 +204,7 @@ export async function adminPromotionWallets(req, res) {
       sellersWithWallets: wallets.length,
     },
     wallets,
-    recentTransactions: ledger.sort((a,b) => String(serialize(b.createdAt) || '').localeCompare(String(serialize(a.createdAt) || ''))).slice(0, 100).map(serialize),
-    campaigns: campaigns.slice(0, 200).map(serialize),
+    recentTransactions: ledger.sort((a,b) => String(serialize(b.createdAt) || '').localeCompare(String(serialize(a.createdAt) || ''))).slice(0, 100).map(item => ({ ...serialize(item), sellerName: sellerNames.get(item.sellerUid) || 'Seller' })),
+    campaigns: campaigns.slice(0, 200).map(item => ({ ...serialize(item), sellerName: sellerNames.get(item.sellerUid) || 'Seller' })),
   });
 }
