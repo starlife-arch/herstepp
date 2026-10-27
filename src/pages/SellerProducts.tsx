@@ -212,7 +212,7 @@ export default function SellerProducts() {
     try {
       const result: any = await apiFetch('/api/sellers/products', {
         method: 'PATCH',
-        body: JSON.stringify({ id: draft.id, action: 'SUBMIT_FOR_REVIEW' }),
+        body: JSON.stringify({ id: draft.id, action: 'PUBLISH' }),
       });
       setDrafts(old => old.map(item => item.id === draft.id ? { ...item, status: 'PUBLISHED', publishedProductId: draft.id } : item));
       setMessage(result.message || 'Product published successfully.');
