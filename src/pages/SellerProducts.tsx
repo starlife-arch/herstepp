@@ -59,6 +59,10 @@ export default function SellerProducts() {
   const [message, setMessage] = useState('');
   const [bulkCredits, setBulkCredits] = useState(0);
   const [bulkPhone, setBulkPhone] = useState('');
+  const [bulkPackage, setBulkPackage] = useState('50');
+  const [customBulkCredits, setCustomBulkCredits] = useState('');
+  const selectedBulkCredits = bulkPackage === 'custom' ? Number(customBulkCredits) : Number(bulkPackage);
+  const selectedBulkAmount = selectedBulkCredits * 10;
   const [bulkPayment, setBulkPayment] = useState<any>(null);
   const [bulkImages, setBulkImages] = useState<BulkImage[]>([]);
   const [bulkBusy, setBulkBusy] = useState(false);
@@ -88,12 +92,13 @@ export default function SellerProducts() {
   }
 
   async function buyBulkCredits() {
-    if (!bulkPhone.trim()) { setBulkError('Enter the M-Pesa number that should receive the KSh 100 prompt.'); return; }
+    if (!Number.isInteger(selectedBulkCredits) || selectedBulkCredits < 10 || selectedBulkCredits > 10000) { setBulkError('Choose at least 10 credits and no more than 10,000 credits.'); return; }
+    if (!bulkPhone.trim()) { setBulkError(`Enter the M-Pesa number that should receive the KSh ${selectedBulkAmount.toLocaleString('en-KE')} prompt.`); return; }
     setBulkBusy(true); setBulkError(''); setBulkMessage('');
     try {
-      const result: any = await apiFetch('/api/sellers/bulk-upload', { method: 'POST', body: JSON.stringify({ action: 'purchase', phone: bulkPhone.trim(), idempotencyKey: `bulk-${crypto.randomUUID()}` }) });
+      const result: any = await apiFetch('/api/sellers/bulk-upload', { method: 'POST', body: JSON.stringify({ action: 'purchase', phone: bulkPhone.trim(), credits: selectedBulkCredits, idempotencyKey: `bulk-${crypto.randomUUID()}` }) });
       setBulkPayment(result.payment);
-      setBulkMessage('Approve the KSh 100 M-Pesa prompt. Ten credits are added only after your payment is confirmed.');
+      setBulkMessage(`Approve the KSh ${selectedBulkAmount.toLocaleString('en-KE')} M-Pesa prompt. ${selectedBulkCredits.toLocaleString('en-KE')} credits are added only after payment is confirmed.`);
     } catch (err: any) { setBulkError(err?.message || 'Could not start the credit purchase.'); }
     finally { setBulkBusy(false); }
   }
@@ -104,7 +109,7 @@ export default function SellerProducts() {
     try {
       const result: any = await apiFetch(`/api/sellers/bulk-upload?paymentId=${encodeURIComponent(bulkPayment.paymentId)}`);
       setBulkPayment(result.payment); setBulkCredits(Number(result.credits) || 0);
-      setBulkMessage(result.payment?.status === 'PAID' ? 'Payment verified. Ten AI bulk-upload credits are available.' : ['FAILED','CANCELLED','TIMEOUT'].includes(result.payment?.status) ? (result.payment.failureReason || `Payment status: ${result.payment.status}`) : 'Payment is still pending. Approve the prompt, then check again.');
+      setBulkMessage(result.payment?.status === 'PAID' ? `Payment verified. ${Number(result.payment?.credits || selectedBulkCredits).toLocaleString('en-KE')} AI bulk-upload credits are available.` : ['FAILED','CANCELLED','TIMEOUT'].includes(result.payment?.status) ? (result.payment.failureReason || `Payment status: ${result.payment.status}`) : 'Payment is still pending. Approve the prompt, then check again.');
     } catch (err: any) { setBulkError(err?.message || 'Could not check the payment status.'); }
     finally { setBulkBusy(false); }
   }
@@ -238,13 +243,24 @@ export default function SellerProducts() {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2"><Sparkles className="w-5 h-5" /> AI bulk upload</h2>
-            <p className="text-sm text-neutral-600 mt-1">KSh 100 buys 10 AI analysis credits. Upload up to 10 product photos, review the AI suggestions in private drafts, and set stock before submitting for moderation. Failed AI analysis does not use a credit.</p>
+            <p className="text-sm text-neutral-600 mt-1">Buy AI analysis credits at KSh 10 per credit. Each credit analyses one product photo. Review AI suggestions in private drafts; failed AI analysis does not use a credit.</p>
             <p className="text-sm font-semibold mt-3">Available credits: {bulkCredits}</p>
           </div>
           <div className="w-full md:max-w-sm">
             <label htmlFor="seller-bulk-phone" className="block text-sm font-medium mb-1.5">M-Pesa phone number</label>
-            <input id="seller-bulk-phone" className={fieldClass} type="tel" autoComplete="tel" value={bulkPhone} onChange={e => setBulkPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" />
-            <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkBusy || bulkPayment?.status === 'PENDING'}><CreditCard className="w-4 h-4 mr-2" />{bulkBusy ? 'Please wait…' : 'Buy 10 credits · KSh 100'}</Button>
+            <label className="block text-sm font-medium text-neutral-700 mt-3" htmlFor="seller-bulk-package">Choose credit amount</label>
+            <select id="seller-bulk-package" className={fieldClass + " mt-1"} value={bulkPackage} onChange={e => setBulkPackage(e.target.value)}>
+              <option value="50">50 credits · KSh 500</option>
+              <option value="100">100 credits · KSh 1,000</option>
+              <option value="200">200 credits · KSh 2,000</option>
+              <option value="500">500 credits · KSh 5,000</option>
+              <option value="1000">1,000 credits · KSh 10,000</option>
+              <option value="custom">Custom amount</option>
+            </select>
+            {bulkPackage === 'custom' && <input className={fieldClass + " mt-2"} type="number" min="10" max="10000" step="1" value={customBulkCredits} onChange={e => setCustomBulkCredits(e.target.value)} placeholder="Enter credits (10–10,000)" />}
+            <p className="text-sm text-neutral-600 mt-2">Total: <strong>{Number.isInteger(selectedBulkCredits) && selectedBulkCredits >= 10 && selectedBulkCredits <= 10000 ? money(selectedBulkAmount) : 'Enter a valid amount'}</strong></p>
+            <input id="seller-bulk-phone" className={fieldClass + " mt-2"} type="tel" autoComplete="tel" value={bulkPhone} onChange={e => setBulkPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" />
+            <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkBusy || bulkPayment?.status === 'PENDING'}><CreditCard className="w-4 h-4 mr-2" />{bulkBusy ? 'Please wait…' : `Buy ${Number.isInteger(selectedBulkCredits) && selectedBulkCredits > 0 ? selectedBulkCredits.toLocaleString('en-KE') : 'credits'} · ${money(selectedBulkAmount || 0)}`}</Button>
             {bulkPayment && <div className="mt-2 rounded-lg border p-3 text-sm"><p>Payment status: <strong>{bulkPayment.status}</strong></p>{bulkPayment.status === 'PENDING' && <Button variant="outline" className="w-full mt-2" onClick={checkBulkPayment} disabled={bulkBusy}><RefreshCw className="w-4 h-4 mr-2" />Check payment</Button>}</div>}
           </div>
         </div>
