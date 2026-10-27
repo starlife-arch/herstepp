@@ -127,7 +127,7 @@ export default async function sellerProducts(req, res) {
         adminDb.collection('products').where('sellerUid', '==', user.uid).get(),
       ]);
       const activeCount = publicProducts.docs.filter(d => String(d.data()?.status || '').toUpperCase() === 'ACTIVE').length;
-      const limit = plan?.maxProducts ?? (planCode === 'UNLIMITED' ? Infinity : 0);
+      const limit = plan?.productLimit ?? (planCode === 'UNLIMITED' ? Infinity : 0);
       if (activeCount >= limit) throw clientError('You have reached the active product limit for your seller plan.', 409);
       if (publicProducts.docs.some(d => String(d.data()?.status || '').toUpperCase() === 'ACTIVE' && String(d.data()?.sku || '').toUpperCase() === product.sku)) {
         throw clientError('Another published product already uses this SKU.', 409);
