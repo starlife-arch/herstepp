@@ -82,6 +82,66 @@ export default async function sellerProducts(req, res) {
   }
   if (!['POST', 'PATCH'].includes(req.method)) return methodNotAllowed(res, 'GET, POST, PATCH');
 
+  if (req.method === 'PATCH' && String(req.body?.action || '').toUpperCase() === 'PUBLISH') {
+    const id = clean(req.body?.id);
+    if (!id || id.length > 150) throw clientError('A valid product draft ID is required.');
+    const draftRef = adminDb.collection('sellerProducts').doc(id);
+    const draftSnap = await draftRef.get();
+    if (!draftSnap.exists || draftSnap.data()?.sellerUid !== user.uid) throw clientError('Product draft not found.', 404);
+    const draft = draftSnap.data() || {};
+    if (!['DRAFT', 'REJECTED'].includes(String(draft.status || '').toUpperCase())) {
+      if (String(draft.status || '').toUpperCase() === 'PUBLISHED') throw clientError('This product is already published.', 409);
+      throw clientError('Only a private or rejected draft can be published.', 409);
+    }
+    // Validate the saved draft, not the small action request. The request contains
+    // only {id, action}, which previously caused the misleading empty-name error.
+    const product = validateDraft(draft);
+    if (!(await adminDb.collection('categories').doc(product.categoryId).get()).exists) throw clientError('The selected category does not exist.');
+    const seller = sellerSnap.data() || {};
+    const expiry = toDate(seller.subscriptionExpiresAt);
+    if (seller.status !== 'ACTIVE' || seller.billingStatus !== 'ACTIVE' || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
+      throw clientError('An active paid seller plan is required to publish listings.', 403);
+    }
+    const planCode = String(seller.planCode || '').toUpperCase();
+    const plan = SELLER_PLANS[planCode];
+    if (!plan && planCode !== 'UNLIMITED') throw clientError('Your seller plan is invalid. Please contact support.', 409);
+    const publicRef = adminDb.collection('products').doc();
+    const now = FieldValue.serverTimestamp();
+    const publicProduct = {
+      ...product, status: 'ACTIVE', sellerUid: user.uid, sellerId: user.uid,
+      sellerDisplayName: clean(seller.displayName || seller.businessName).slice(0, 60),
+      sellerBusinessName: clean(seller.businessName).slice(0, 100),
+      marketplaceSeller: true, moderationStatus: 'APPROVED',
+      createdAt: now, updatedAt: now, publishedAt: now,
+    };
+    await adminDb.runTransaction(async tx => {
+      const [freshDraft, freshSeller] = await Promise.all([tx.get(draftRef), tx.get(sellerRef)]);
+      if (!freshDraft.exists || freshDraft.data()?.sellerUid !== user.uid || !['DRAFT', 'REJECTED'].includes(String(freshDraft.data()?.status || '').toUpperCase())) {
+        throw clientError('This draft was changed or published in another request. Refresh your products.', 409);
+      }
+      if (!freshSeller.exists || freshSeller.data()?.status !== 'ACTIVE' || freshSeller.data()?.billingStatus !== 'ACTIVE') {
+        throw clientError('Seller account is no longer active.', 403);
+      }
+      const [sellerProducts, publicProducts] = await Promise.all([
+        adminDb.collection('sellerProducts').where('sellerUid', '==', user.uid).get(),
+        adminDb.collection('products').where('sellerUid', '==', user.uid).get(),
+      ]);
+      const activeCount = publicProducts.docs.filter(d => String(d.data()?.status || '').toUpperCase() === 'ACTIVE').length;
+      const limit = plan?.productLimit ?? (planCode === 'UNLIMITED' ? Infinity : 0);
+      if (activeCount >= limit) throw clientError('You have reached the active product limit for your seller plan.', 409);
+      if (publicProducts.docs.some(d => String(d.data()?.status || '').toUpperCase() === 'ACTIVE' && String(d.data()?.sku || '').toUpperCase() === product.sku)) {
+        throw clientError('Another published product already uses this SKU.', 409);
+      }
+      tx.create(publicRef, publicProduct);
+      tx.update(draftRef, { ...product, status: 'PUBLISHED', publishedProductId: publicRef.id, moderationStatus: 'APPROVED', publishedAt: now, updatedAt: now });
+      tx.create(adminDb.collection('sellerMarketplaceAudit').doc(), {
+        action: 'SELLER_PRODUCT_PUBLISHED', sellerUid: user.uid, productDraftId: id,
+        publicProductId: publicRef.id, actorUid: user.uid, createdAt: now,
+      });
+    });
+    return res.status(200).json({ success: true, product: serialize({ id, ...product, status: 'PUBLISHED', publishedProductId: publicRef.id, sellerUid: user.uid, sellerBusinessName: seller.businessName || '', publishedAt: new Date().toISOString() }), message: 'Product published successfully. Admin approval is not required for routine listings; marketplace moderation still applies.' });
+  }
+
   if (req.method === 'PATCH' && String(req.body?.action || '').toUpperCase() === 'SUBMIT_FOR_REVIEW') {
     const id = clean(req.body?.id);
     if (!id || id.length > 150) throw clientError('A valid product draft ID is required.');
