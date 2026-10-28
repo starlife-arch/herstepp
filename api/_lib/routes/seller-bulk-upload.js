@@ -169,7 +169,7 @@ export default async function sellerBulkUpload(req, res) {
     const draftId = randomUUID().replace(/-/g, '');
     const sku = `AI-${draftId.slice(0,18).toUpperCase()}`;
     const sizes = analysed.sizes.slice(0, 40);
-    const inventory = sizes.map(size => ({ size, quantity: 0, costPrice: null }));
+    const inventory = sizes.map(size => ({ size, quantity: 1, costPrice: null }));
     const productRef = adminDb.collection('sellerProducts').doc(draftId);
     const ledgerRef = adminDb.collection('sellerBulkCreditLedger').doc();
     await adminDb.runTransaction(async tx => {
@@ -178,10 +178,10 @@ export default async function sellerBulkUpload(req, res) {
       const credits = Number(freshSeller.data()?.bulkUploadCredits) || 0;
       if (credits < 1) throw clientError('No AI bulk-upload credits remain. Purchase a KSh 100 batch of 10 credits to continue.', 402);
       tx.update(sellerRef, { bulkUploadCredits: credits - 1, updatedAt: FieldValue.serverTimestamp() });
-      tx.create(productRef, { name: analysed.name, description: analysed.description, categoryId: analysed.categoryId, categoryName: analysed.categoryName, sku, price: analysed.price ?? 0, salePrice: null, inventory, images: [{ url: imageUrl, publicId, resourceType: 'image' }], video: null, status: 'DRAFT', featured: false, bestseller: false, newArrival: false, stockQuantity: 0, availableSizes: [], sellerUid: user.uid, sellerDisplayName: String(seller.displayName || seller.businessName || '').slice(0,60), aiBulkUpload: true, aiNeedsReview: analysed.needsReview, aiOriginalFileName: fileName, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+      tx.create(productRef, { name: analysed.name, description: analysed.description, categoryId: analysed.categoryId, categoryName: analysed.categoryName, sku, price: analysed.price ?? 0, salePrice: null, inventory, images: [{ url: imageUrl, publicId, resourceType: 'image' }], video: null, status: 'DRAFT', featured: false, bestseller: false, newArrival: false, stockQuantity: inventory.reduce((total, item) => total + item.quantity, 0), availableSizes: inventory.filter(item => item.quantity > 0).map(item => item.size), sellerUid: user.uid, sellerDisplayName: String(seller.displayName || seller.businessName || '').slice(0,60), aiBulkUpload: true, aiNeedsReview: analysed.needsReview, aiOriginalFileName: fileName, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
       tx.create(ledgerRef, { sellerId: user.uid, type: 'CONSUME', credits: -1, productId: draftId, createdAt: FieldValue.serverTimestamp() });
     });
-    return res.status(201).json({ product: { id: draftId, name: analysed.name, description: analysed.description, categoryId: analysed.categoryId, categoryName: analysed.categoryName, sku, price: analysed.price, sizes: inventory.map(i => i.size), needsReview: analysed.needsReview, status: 'DRAFT' }, creditsRemaining: Math.max(0, (Number(seller.bulkUploadCredits) || 0) - 1), message: 'AI suggestion saved as a private draft. Review the name, price, category, sizes and stock before submitting it for moderation.' });
+    return res.status(201).json({ product: { id: draftId, name: analysed.name, description: analysed.description, categoryId: analysed.categoryId, categoryName: analysed.categoryName, sku, price: analysed.price, sizes: inventory.map(i => i.size), needsReview: analysed.needsReview, status: 'DRAFT' }, creditsRemaining: Math.max(0, (Number(seller.bulkUploadCredits) || 0) - 1), message: 'AI suggestion saved as a private draft with quantity 1 for each detected size. Review the name, price, category, sizes and stock before publishing.' });
   }
   throw clientError('Choose a valid bulk-upload action.');
 }
