@@ -152,7 +152,7 @@ export function requireInventoryArray(productDocId, productData) {
 // POST /api/orders/create — all reads happen before all writes inside ONE
 // transaction; order numbers come from orderCounters/{year}.sequence.
 // ---------------------------------------------------------------------------
-export async function createOrderCore(db, deps, { uid, email, emailVerified, cart, delivery, promoCode }) {
+export async function createOrderCore(db, deps, { uid, email, emailVerified, cart, delivery, promoCode, rewardPoints = 0 }) {
   const { now = () => new Date(), constants } = deps;
   const LOCATION = constants?.LOCATION ?? 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12';
 
@@ -186,6 +186,9 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
   const year = now().getUTCFullYear();
   const groups = groupByProduct(lines);
   const requestedPromo = promoCode == null || promoCode === '' ? null : normalisePromoCode(promoCode);
+  const requestedRewardPoints = Number(rewardPoints || 0);
+  if (!Number.isSafeInteger(requestedRewardPoints) || requestedRewardPoints < 0 || requestedRewardPoints > 1000000) throw clientError('Reward points must be a whole number between 0 and 1,000,000.');
+  const orderRef = db.collection('orders').doc();
 
   return db.runTransaction(async tx => {
     // ---- ALL READS FIRST -------------------------------------------------
@@ -262,7 +265,42 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       const calculated = calculatePromoDiscount(promo, items, subtotal, now()); discount = Math.min(calculated.discount, Math.max(0, subtotal + deliveryFee - 1));
       promotion = { code: requestedPromo, name: promo.name, discountType: promo.discountType, discountValue: promo.discountValue };
     }
-    const total = subtotal + deliveryFee - discount;
+    const totalBeforeRewards = subtotal + deliveryFee - discount;
+    let rewardDiscountKes = 0;
+    let rewardPointsRedeemed = 0;
+    let rewardConfig = null;
+    let rewardAccountRef = null;
+    let rewardAccountSnap = null;
+    let rewardReservationRef = null;
+    if (requestedRewardPoints > 0) {
+      const rewardConfigSnap = await tx.get(db.collection('rewardsConfig').doc('current'));
+      rewardConfig = rewardConfigSnap.data() || {};
+      if (rewardConfig.enabled !== true || rewardConfig.buyer?.enabled === false || rewardConfig.buyer?.redemptionEnabled !== true) throw clientError('Reward redemption is not available.');
+      const pointValue = Math.max(0.001, Number(rewardConfig.pointValueKes) || 0.1);
+      const minPoints = Math.max(1, Math.floor(Number(rewardConfig.buyer?.minRedeemPoints) || 1));
+      if (requestedRewardPoints < minPoints) throw clientError(`Redeem at least ${minPoints} points.`);
+      const rewardLedgerSnap = await tx.get(db.collection('rewardLedger').where('uid', '==', uid).where('status', '==', 'POSTED'));
+      const nowMs = now().getTime();
+      const balance = Math.max(0, rewardLedgerSnap.docs.reduce((sum, doc) => {
+        const entry = doc.data() || {};
+        const points = Number(entry.points) || 0;
+        const expires = entry.expiresAt?.toMillis?.() ?? entry.expiresAt?.toDate?.()?.getTime?.() ?? (entry.expiresAt instanceof Date ? entry.expiresAt.getTime() : null);
+        if (points > 0 && expires != null && expires <= nowMs) return sum;
+        return sum + points;
+      }, 0));
+      if (requestedRewardPoints > balance) throw clientError('You do not have enough available reward points.', 409);
+      const maxPercent = Math.min(80, Math.max(0, Number(rewardConfig.buyer?.maxRedemptionPercent) || 0));
+      const maxDiscount = Math.max(0, Math.min(totalBeforeRewards - 1, Math.floor(totalBeforeRewards * maxPercent / 100)));
+      rewardPointsRedeemed = Math.min(requestedRewardPoints, Math.floor(maxDiscount / pointValue));
+      rewardDiscountKes = Math.floor(rewardPointsRedeemed * pointValue);
+      if (rewardPointsRedeemed < minPoints || rewardDiscountKes < 1) throw clientError('The selected points cannot be applied to this order.');
+      rewardAccountRef = db.collection('rewardAccounts').doc(uid);
+      rewardAccountSnap = await tx.get(rewardAccountRef);
+      rewardReservationRef = db.collection('rewardLedger').doc(Buffer.from(`checkout-redeem:${orderRef.id}`).toString('base64url'));
+      const existingReservation = await tx.get(rewardReservationRef);
+      if (existingReservation.exists) throw clientError('These reward points have already been reserved for this order.', 409);
+    }
+    const total = totalBeforeRewards - rewardDiscountKes;
     if (!Number.isInteger(total) || total < 1) throw clientError('We could not calculate the order total.');
 
     // ---- ALL WRITES SECOND -----------------------------------------------
@@ -272,7 +310,6 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
     }
     tx.set(counterRef, { sequence, year }, { merge: true });
 
-    const orderRef = db.collection('orders').doc();
     tx.set(orderRef, {
       orderId,
       customerId: uid,
@@ -287,6 +324,9 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       subtotal,
       deliveryFee,
       discount,
+      rewardPointsRedeemed,
+      rewardDiscountKes,
+      rewardReservationLedgerId: rewardReservationRef?.id || null,
       promoCode: requestedPromo,
       promotion,
       marketplaceOrder: marketplaceCheckout,
@@ -312,6 +352,19 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       createdAt: deps.serverTimestamp(),
       updatedAt: deps.serverTimestamp(),
     });
+
+    if (rewardReservationRef && rewardAccountRef) {
+      const previousBalance = Math.max(0, Number(rewardAccountSnap?.data()?.pointsBalance) || 0);
+      tx.create(rewardReservationRef, {
+        uid, accountType: 'BUYER', type: 'REDEEM_RESERVE', points: -rewardPointsRedeemed,
+        amountKes: rewardDiscountKes, reason: 'Reward points reserved for checkout',
+        orderId, orderDocumentId: orderRef.id, status: 'POSTED', idempotencyKey: rewardReservationRef.id,
+        createdAt: deps.serverTimestamp(),
+      });
+      tx.set(rewardAccountRef, { uid, pointsBalance: Math.max(0, previousBalance - rewardPointsRedeemed), updatedAt: deps.serverTimestamp() }, { merge: true });
+      const pointValue = Math.max(0.001, Number(rewardConfig?.pointValueKes) || 0.1);
+      tx.set(db.collection('rewardsConfig').doc('current'), { outstandingLiabilityKes: Math.max(0, Number(rewardConfig?.outstandingLiabilityKes) || 0) - rewardDiscountKes, liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
+    }
 
     for (const p of plan) {
       const derived = deriveStock(p.inventory);
@@ -382,6 +435,8 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
         subtotal,
         deliveryFee,
         discount,
+        rewardPointsRedeemed,
+        rewardDiscountKes,
         total,
         currency: 'KES',
         orderStatus: ORDER_STATUS.PENDING,
