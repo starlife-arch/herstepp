@@ -182,7 +182,7 @@ export default function Checkout() {
   const rewardPointsBelowMinimum = rewardPoints > 0 && rewardPoints < minimumRewardPoints;
   const appliedRewardPoints = rewardPointsApplied && !rewardPointsBelowMinimum ? rewardPoints : 0;
   const estimatedRewardDiscount = rewardInfo?.redemptionEnabled && appliedRewardPoints >= minimumRewardPoints
-    ? Math.min(Math.floor(appliedRewardPoints * (Number(rewardInfo.pointValueKes) || 0)), Math.floor(totalBeforeRewards * Math.min(80, Math.max(0, Number(rewardInfo.maxRedemptionPercent) || 0)) / 100), Math.max(0, totalBeforeRewards - 1))
+    ? Math.min(Math.floor(appliedRewardPoints * (Number(rewardInfo.pointValueKes) || 0)), Math.floor(totalBeforeRewards * Math.min(80, Math.max(1, Number(rewardInfo.maxRedemptionPercent) || 20)) / 100), Math.max(0, totalBeforeRewards - 1))
     : 0;
   const estimatedTotal = totalBeforeRewards - estimatedRewardDiscount;
   // Once the order exists, the server total is the only number we pay.

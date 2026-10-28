@@ -292,7 +292,10 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
         return sum + points;
       }, 0));
       if (requestedRewardPoints > balance) throw clientError('You do not have enough available reward points.', 409);
-      const maxPercent = Math.min(80, Math.max(0, Number(rewardConfig.buyer?.maxRedemptionPercent) || 0));
+      const configuredMaxPercent = Number(rewardConfig.buyer?.maxRedemptionPercent);
+      // If redemption is enabled but the cap is absent/zero in older configs,
+      // use the documented 20% default. Admins can turn redemption off entirely.
+      const maxPercent = Math.min(80, Math.max(1, Number.isFinite(configuredMaxPercent) && configuredMaxPercent > 0 ? configuredMaxPercent : 20));
       const maxDiscount = Math.max(0, Math.min(totalBeforeRewards - 1, Math.floor(totalBeforeRewards * maxPercent / 100)));
       rewardPointsRedeemed = Math.min(requestedRewardPoints, Math.floor(maxDiscount / pointValue));
       rewardDiscountKes = Math.floor(rewardPointsRedeemed * pointValue);

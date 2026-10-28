@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { getMpesaProvider } from '../mpesa-provider.js';
@@ -8,6 +9,62 @@ import { RECONCILE_TIMEOUT_MS } from '../order-core.js';
 export default async function sellerSubscription(req, res) {
   const user = await requireUser(req);
   if (req.method === 'POST') {
+    const action = String(req.body?.action || '').trim().toUpperCase();
+    if (action === 'REDEEM_REWARDS') {
+      const planCode = String(req.body?.planCode || '').trim().toUpperCase();
+      const plan = SELLER_PLANS[planCode];
+      if (!plan) throw clientError('Choose a valid seller subscription plan.');
+      const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
+      if (!/^[A-Za-z0-9_-]{12,100}$/.test(idempotencyKey)) throw clientError('A valid idempotency key is required.');
+      const paymentId = sellerSubscriptionPaymentId(user.uid, 'rewards:' + idempotencyKey);
+      const paymentRef = adminDb.collection('sellerSubscriptionPayments').doc(paymentId);
+      const sellerRef = adminDb.collection('sellers').doc(user.uid);
+      const configRef = adminDb.collection('rewardsConfig').doc('current');
+      const rewardRef = adminDb.collection('rewardLedger').doc(paymentId);
+      const result = await adminDb.runTransaction(async tx => {
+        const [existingSnap, sellerFresh, configSnap, userLedger, allLedger] = await Promise.all([
+          tx.get(paymentRef), tx.get(sellerRef), tx.get(configRef),
+          tx.get(adminDb.collection('rewardLedger').where('uid', '==', user.uid)),
+          tx.get(adminDb.collection('rewardLedger').where('status', '==', 'POSTED')),
+        ]);
+        if (existingSnap.exists) {
+          const existing = existingSnap.data() || {};
+          if (existing.planCode !== planCode || existing.method !== 'REWARDS') throw clientError('This redemption key was already used for a different request.', 409);
+          return { duplicate: true, paymentId, status: existing.status, amount: existing.amount, planCode };
+        }
+        const currentSeller = sellerFresh.data() || {};
+        if (!sellerFresh.exists || currentSeller.ownerUid !== user.uid || currentSeller.status !== 'ACTIVE') throw clientError('An approved, active seller account is required.', 403);
+        const config = configSnap.data() || {};
+        if (config.enabled !== true || config.seller?.enabled === false || config.seller?.redemptionEnabled !== true || !Array.isArray(config.seller?.redemptionTargets) || !config.seller.redemptionTargets.includes('SELLER_PLAN')) throw clientError('Seller plan reward redemption is not enabled by the administrator.');
+        const amount = plan.amount + SELLER_BADGE_MONTHLY_FEE;
+        const pointValue = Math.max(0.001, Number(config.pointValueKes) || 0.1);
+        const points = Math.ceil(amount / pointValue);
+        const minPoints = Math.max(1, Math.floor(Number(config.seller?.minRedeemPoints) || 100));
+        if (points < minPoints || Math.abs(points * pointValue - amount) > 0.000001) throw clientError('This plan cannot be paid exactly with the current reward-point conversion.');
+        const nowMs = Date.now();
+        const balance = userLedger.docs.reduce((sum, doc) => {
+          const e = doc.data() || {}; if (String(e.status || 'POSTED').toUpperCase() !== 'POSTED') return sum;
+          const expires = e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null);
+          const p = Number(e.points) || 0; if (p > 0 && expires != null && expires <= nowMs) return sum; return sum + p;
+        }, 0);
+        if (balance < points) throw clientError(`You need ${points} available reward points to pay for this plan and badge.`, 409);
+        const now = new Date(); const periodEnd = new Date(now); periodEnd.setMonth(periodEnd.getMonth() + 1);
+        const timestamp = FieldValue.serverTimestamp();
+        tx.create(paymentRef, { paymentId, sellerId: user.uid, ownerUid: user.uid, planCode, planAmount: plan.amount, badgeAmount: SELLER_BADGE_MONTHLY_FEE, amount, currency: 'KES', method: 'REWARDS', status: 'PAID', providerReference: null, transactionReference: null, failureReason: null, idempotencyKey, rewardPointsRedeemed: points, createdAt: timestamp, updatedAt: timestamp, completedAt: timestamp });
+        tx.create(rewardRef, { uid: user.uid, accountType: 'SELLER', type: 'REDEEM', points: -points, amountKes: amount, reason: 'Redeemed reward points for seller plan and verified-business badge', status: 'POSTED', idempotencyKey: paymentId, target: 'SELLER_PLAN', paymentId, createdAt: timestamp });
+        tx.set(adminDb.collection('sellerSubscriptions').doc(paymentId), { sellerId: user.uid, ownerUid: user.uid, planCode, planAmount: plan.amount, badgeAmount: SELLER_BADGE_MONTHLY_FEE, amount, currency: 'KES', status: 'ACTIVE', productLimit: plan.productLimit, periodStart: now, periodEnd, paymentId, paymentMethod: 'REWARDS', createdAt: timestamp, updatedAt: timestamp });
+        tx.update(sellerRef, { planCode, productLimit: plan.productLimit, planAmount: plan.amount, billingStatus: 'ACTIVE', subscriptionId: paymentId, subscriptionExpiresAt: periodEnd, badgeSubscriptionStatus: 'ACTIVE', badgeSubscriptionExpiresAt: periodEnd, verificationBadge: true, verificationBadgeGrantedBy: 'SUBSCRIPTION_PAYMENT', updatedAt: timestamp });
+        const entries = allLedger.docs.map(doc => doc.data() || {}); entries.push({ status: 'POSTED', points: -points });
+        const liability = entries.reduce((sum, e) => {
+          const p = Number(e.points) || 0; const expires = e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null);
+          if (p > 0 && expires != null && expires <= nowMs) return sum; return sum + p;
+        }, 0) * pointValue;
+        tx.set(configRef, { outstandingLiabilityKes: Math.max(0, Math.round(liability * 100) / 100), liabilityUpdatedAt: timestamp }, { merge: true });
+        tx.set(adminDb.collection('sellerMarketplaceAudit').doc(), { action: 'SELLER_SUBSCRIPTION_REDEEMED_WITH_REWARDS', sellerId: user.uid, actorUid: user.uid, paymentId, planCode, amount, rewardPointsRedeemed: points, createdAt: timestamp });
+        return { duplicate: false, paymentId, status: 'PAID', amount, currency: 'KES', planCode, rewardPointsRedeemed: points };
+      });
+      return res.status(200).json({ payment: result, message: result.duplicate ? 'This reward redemption was already processed.' : 'Seller plan activated using reward points.' });
+    }
     const planCode = String(req.body?.planCode || '').trim().toUpperCase();
     const plan = SELLER_PLANS[planCode];
     if (!plan) throw clientError('Choose a valid seller subscription plan.');
