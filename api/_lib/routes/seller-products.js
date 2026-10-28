@@ -182,16 +182,36 @@ export default async function sellerProducts(req, res) {
     if (seller.status !== 'ACTIVE' || seller.billingStatus !== 'ACTIVE' || !expiry || !Number.isFinite(expiry.getTime()) || expiry.getTime() <= Date.now()) {
       throw clientError('An active paid seller plan is required to edit a published listing.', 403);
     }
-    const publicRef = adminDb.collection('products').doc(id);
+    // A published listing can be represented in sellerProducts by a draft
+    // document whose ID differs from products/{publishedProductId}. Resolve that
+    // link before checking/updating the public listing, while keeping the
+    // original draft ref so its mirror can also be updated.
+    let publicProductId = id;
+    const productsCollection = adminDb.collection('products');
+    const initialPublicSnap = await productsCollection.doc(id).get();
+    const isOwnedActiveListing = snap => snap.exists
+      && (snap.data()?.sellerUid === user.uid || (!snap.data()?.sellerUid && snap.data()?.sellerId === user.uid))
+      && String(snap.data()?.status || '').toUpperCase() === 'ACTIVE';
+    if (!isOwnedActiveListing(initialPublicSnap)) {
+      const linkedDraftSnap = await adminDb.collection('sellerProducts').doc(id).get();
+      const linkedPublicId = clean(linkedDraftSnap.data()?.publishedProductId);
+      if (linkedDraftSnap.exists && linkedDraftSnap.data()?.sellerUid === user.uid && linkedPublicId) {
+        const linkedPublicSnap = await productsCollection.doc(linkedPublicId).get();
+        if (isOwnedActiveListing(linkedPublicSnap)) publicProductId = linkedPublicId;
+      }
+    }
+    const publicRef = productsCollection.doc(publicProductId);
     const draftRef = adminDb.collection('sellerProducts').doc(id);
-    const duplicateSnap = await adminDb.collection('products').where('sellerUid', '==', user.uid).get();
-    if (duplicateSnap.docs.some(doc => doc.id !== id && String(doc.data()?.status || '').toUpperCase() === 'ACTIVE' && String(doc.data()?.sku || '').toUpperCase() === product.sku)) {
+    const duplicateSnap = await productsCollection.where('sellerUid', '==', user.uid).get();
+    const legacyDuplicateSnap = await productsCollection.where('sellerId', '==', user.uid).get();
+    const allSellerProducts = new Map([...duplicateSnap.docs, ...legacyDuplicateSnap.docs].map(doc => [doc.id, doc]));
+    if ([...allSellerProducts.values()].some(doc => doc.id !== publicProductId && String(doc.data()?.status || '').toUpperCase() === 'ACTIVE' && String(doc.data()?.sku || '').toUpperCase() === product.sku)) {
       throw clientError('Another published product already uses this SKU.');
     }
     let responseProduct = null;
     await adminDb.runTransaction(async tx => {
       const [publicSnap, draftSnap] = await Promise.all([tx.get(publicRef), tx.get(draftRef)]);
-      if (!publicSnap.exists || publicSnap.data()?.sellerUid !== user.uid || String(publicSnap.data()?.status || '').toUpperCase() !== 'ACTIVE') {
+      if (!isOwnedActiveListing(publicSnap)) {
         throw clientError('Published product not found or no longer editable.', 404);
       }
       const current = publicSnap.data() || {};
