@@ -43,4 +43,37 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     tx.set(sellerAccountRef, { uid: sellerUid, pointsBalance: oldBalance + points, updatedAt: now }, { merge: true });
 
   });
+  // Buyer points are awarded in a separate idempotent transaction only after
+  // every seller on the paid order has marked their fulfilment delivered.
+  const orderRef = adminDb.collection('orders').doc(orderDocumentId);
+  const buyerLedgerRef = adminDb.collection('rewardLedger').doc(Buffer.from(`buyer-order-delivery:${orderDocumentId}`).toString('base64url'));
+  await adminDb.runTransaction(async tx => {
+    const orderSnap = await tx.get(orderRef);
+    if (!orderSnap.exists) return;
+    const order = orderSnap.data() || {};
+    const buyerUid = String(order.customerId || '').trim();
+    if (!buyerUid || String(order.paymentStatus || '').toUpperCase() !== 'PAID') return;
+    const items = Array.isArray(order.items) ? order.items : [];
+    const sellers = [...new Set(items.map(sellerOf).filter(Boolean))];
+    if (!sellers.length || !sellers.every(uid => String(order.sellerFulfilment?.[uid]?.status || '').toUpperCase() === 'DELIVERED')) return;
+    const buyerAccountRef = adminDb.collection('rewardAccounts').doc(buyerUid);
+    const configRef = adminDb.collection('rewardsConfig').doc('current');
+    const [configSnap, accountSnap, entrySnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef)]);
+    if (entrySnap.exists) return;
+    const config = configSnap.data() || {};
+    if (config.enabled !== true || config.buyer?.enabled === false) return;
+    const spend = items.reduce((sum, item) => sum + lineAmount(item), 0);
+    const points = safePoints(spend, config.pointsPerKes, config.buyer?.maxPointsPerOrder);
+    if (!points) return;
+    const now = FieldValue.serverTimestamp();
+    const expiry = expiration(config.expiryDays);
+    tx.create(buyerLedgerRef, {
+      uid: buyerUid, accountType: 'BUYER', type: 'EARN', points, amountKes: spend,
+      reason: 'Completed, paid marketplace order', orderId: order.orderId || orderDocumentId,
+      orderDocumentId, status: 'POSTED', idempotencyKey: buyerLedgerRef.id, createdAt: now,
+      ...(expiry ? { expiresAt: expiry } : {})
+    });
+    tx.set(buyerAccountRef, { uid: buyerUid, pointsBalance: Math.max(0, Number(accountSnap.data()?.pointsBalance) || 0) + points, updatedAt: now }, { merge: true });
+  });
+}
 }
