@@ -64,8 +64,15 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const buyerUid = String(order.customerId || '').trim();
     if (!buyerUid || String(order.paymentStatus || '').toUpperCase() !== 'PAID') return;
     const items = Array.isArray(order.items) ? order.items : [];
-    const sellers = [...new Set(items.map(sellerOf).filter(Boolean))];
-    if (!sellers.length || !sellers.every(uid => String(order.sellerFulfilment?.[uid]?.status || '').toUpperCase() === 'DELIVERED')) return;
+    if (!items.length) return;
+    const sellerIds = [...new Set(items.map(sellerOf).filter(Boolean))];
+    const sellerItemsDelivered = sellerIds.every(uid =>
+      String(order.sellerFulfilment?.[uid]?.status || '').toUpperCase() === 'DELIVERED'
+    );
+    const hasFirstPartyItems = items.some(item => !sellerOf(item));
+    const firstPartyDelivered = !hasFirstPartyItems
+      || String(order.firstPartyFulfilment?.status || '').toUpperCase() === 'DELIVERED';
+    if (!sellerItemsDelivered || !firstPartyDelivered) return;
     const buyerAccountRef = adminDb.collection('rewardAccounts').doc(buyerUid);
     const configRef = adminDb.collection('rewardsConfig').doc('current');
     const [configSnap, accountSnap, entrySnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef)]);
