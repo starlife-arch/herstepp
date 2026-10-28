@@ -655,6 +655,16 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       // Customer may retry: drop the pointer to the dead payment attempt.
       orderUpdate.activePaymentId = null;
     }
+    if (status !== PAYMENT_STATUS.PAID && rewardReservation?.type === 'REDEEM_RESERVE' && rewardReservation.status === 'POSTED' && !rewardRestoreSnap?.exists) {
+      orderUpdate.total = Number(order.total) + Math.max(0, Number(order.rewardDiscountKes) || 0);
+      orderUpdate.rewardPointsReleased = true;
+    }
+    if (status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true) {
+      orderUpdate.total = Math.max(1, Number(order.total) - Math.max(0, Number(order.rewardDiscountKes) || 0));
+      orderUpdate.rewardPointsReleased = false;
+      orderUpdate.rewardRedemptionLateSuccess = true;
+      orderUpdate.rewardReservationLedgerId = lateRedemptionRef?.id || order.rewardReservationLedgerId || null;
+    }
     tx.update(orderRef, orderUpdate);
 
     const previousPaymentStatus = payment.status;
