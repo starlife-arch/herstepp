@@ -25,7 +25,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
   const configRef = adminDb.collection('rewardsConfig').doc('current');
   const sellerAccountRef = adminDb.collection('rewardAccounts').doc(sellerUid);
   const sellerLedgerRef = adminDb.collection('rewardLedger').doc(Buffer.from(`seller-delivery:${orderDocumentId}:${sellerUid}`).toString('base64url'));
-  await adminDb.runTransaction(async tx => {
+  await db.runTransaction(async tx => {
     const [orderSnap, configSnap, sellerAccountSnap, sellerEntrySnap] = await Promise.all([
       tx.get(orderRef), tx.get(configRef), tx.get(sellerAccountRef), tx.get(sellerLedgerRef)
     ]);
