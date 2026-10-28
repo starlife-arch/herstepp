@@ -867,6 +867,9 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       await reverseMarketplaceOrderRewards(result.orderDocumentId, db).catch(error => {
         console.error('[order-core] reward refund reversal failed:', error?.message || error);
       });
+      await restoreRedeemedPointsAfterRefund(result.orderDocumentId, db).catch(error => {
+        console.error('[order-core] redemption refund restore failed:', error?.message || error);
+      });
     }
     return { ...result, emailFlush: flushPaymentEmails(db, result) };
   });
