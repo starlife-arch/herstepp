@@ -9,6 +9,7 @@ import { adminDb, requireAdmin, requireUser } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { ALLOWED_ORDER_TRANSITIONS, adminOrderTransitionCore, expireStaleOrders, reconcileBestEffort, deriveEffectiveOrderStatus } from '../order-core.js';
 import { deliverEmailAfterCommit } from '../notify.js';
+import { awardMarketplaceDeliveryRewards } from '../rewards-events.js';
 import { retryPendingEmails } from '../email-service.js';
 import { retryPendingSms } from '../sms-service.js';
 
@@ -370,5 +371,12 @@ export async function adminOrders(req, res) {
   // without this line customers would never get "Your order is being
   // processed" emails). NEVER throws, NEVER blocks the response.
   if (result?.emailKey) waitUntil(deliverEmailAfterCommit(adminDb, result.emailKey));
+  // First-party fulfilment can be the final delivery event for Collection-only
+  // orders or mixed baskets. The reward helper checks every seller and
+  // first-party fulfilment status before posting buyer points.
+  if (String(orderStatus || '').toUpperCase() === 'DELIVERED') {
+    try { await awardMarketplaceDeliveryRewards(orderDocumentId, a.uid); }
+    catch (error) { console.error('[rewards] Buyer delivery reward check failed:', error?.message || String(error)); }
+  }
   return res.json({ ok: true });
 }
