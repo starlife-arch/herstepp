@@ -97,6 +97,7 @@ export default function Checkout() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [rewardInfo, setRewardInfo] = useState<any>(null);
   const [rewardPoints, setRewardPoints] = useState(0);
+  const [rewardPointsApplied, setRewardPointsApplied] = useState(false);
   // "save to my profile" for the delivery/M-Pesa phone (used when the signed-in
   // profile has no phone yet — e.g. Google sign-ups).
   const [savePhoneToProfile, setSavePhoneToProfile] = useState(true);
@@ -179,8 +180,9 @@ export default function Checkout() {
   const totalBeforeRewards = subtotal + deliveryFee - (promo?.discount || 0);
   const minimumRewardPoints = Math.max(100, Number(rewardInfo?.minRedeemPoints) || 100);
   const rewardPointsBelowMinimum = rewardPoints > 0 && rewardPoints < minimumRewardPoints;
-  const estimatedRewardDiscount = rewardInfo?.redemptionEnabled && rewardPoints >= minimumRewardPoints
-    ? Math.min(Math.floor(rewardPoints * (Number(rewardInfo.pointValueKes) || 0)), Math.floor(totalBeforeRewards * Math.min(80, Math.max(0, Number(rewardInfo.maxRedemptionPercent) || 0)) / 100), Math.max(0, totalBeforeRewards - 1))
+  const appliedRewardPoints = rewardPointsApplied && !rewardPointsBelowMinimum ? rewardPoints : 0;
+  const estimatedRewardDiscount = rewardInfo?.redemptionEnabled && appliedRewardPoints >= minimumRewardPoints
+    ? Math.min(Math.floor(appliedRewardPoints * (Number(rewardInfo.pointValueKes) || 0)), Math.floor(totalBeforeRewards * Math.min(80, Math.max(0, Number(rewardInfo.maxRedemptionPercent) || 0)) / 100), Math.max(0, totalBeforeRewards - 1))
     : 0;
   const estimatedTotal = totalBeforeRewards - estimatedRewardDiscount;
   // Once the order exists, the server total is the only number we pay.
@@ -342,7 +344,7 @@ export default function Checkout() {
               instructions: form.instructions,
             },
             promoCode: promo?.code || null,
-            rewardPoints: rewardInfo?.redemptionEnabled ? rewardPoints : 0,
+            rewardPoints: rewardInfo?.redemptionEnabled ? appliedRewardPoints : 0,
           }),
         });
         currentDocId = created?.order?.orderDocumentId ?? created?.order?.id ?? null;
@@ -711,10 +713,12 @@ export default function Checkout() {
                     <label htmlFor="reward-points" className="text-sm font-medium text-neutral-800">Use reward points</label>
                     <span className="text-xs text-neutral-500">{Number(rewardInfo.pointsBalance).toLocaleString()} available</span>
                   </div>
-                  <input id="reward-points" type="number" min={minimumRewardPoints} max={Number(rewardInfo.pointsBalance)} step={1} value={rewardPoints || ''} onChange={event => setRewardPoints(Math.max(0, Math.min(Number(rewardInfo.pointsBalance) || 0, Math.floor(Number(event.target.value) || 0))))} placeholder={`Minimum ${minimumRewardPoints} points`} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
+                  <input id="reward-points" type="number" min={minimumRewardPoints} max={Number(rewardInfo.pointsBalance)} step={1} value={rewardPoints || ''} onChange={event => { setRewardPointsApplied(false); setRewardPoints(Math.max(0, Math.min(Number(rewardInfo.pointsBalance) || 0, Math.floor(Number(event.target.value) || 0)))); }} placeholder={`Minimum ${minimumRewardPoints} points`} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
                   <p className="text-xs text-neutral-500">100 points = KSh 10. Promo codes are separate and do not use reward points.</p>
                   {rewardPointsBelowMinimum && <p role="alert" className="text-xs text-amber-700">Use at least {minimumRewardPoints} points to redeem. No reward discount has been applied.</p>}
-                  {estimatedRewardDiscount > 0 && <p className="text-xs text-emerald-700">Estimated reward discount: -{formatCurrency(estimatedRewardDiscount)}. The promo discount is separate; the server confirms the final amount.</p>}
+                  <button type="button" disabled={rewardPoints < minimumRewardPoints || rewardPoints > Number(rewardInfo.pointsBalance) || !rewardInfo?.redemptionEnabled} onClick={() => setRewardPointsApplied(true)} className="w-full rounded-lg bg-neutral-900 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50">Apply reward points</button>
+                  {rewardPointsApplied && estimatedRewardDiscount > 0 && <p role="status" className="text-xs text-emerald-700">Reward discount applied: -{formatCurrency(estimatedRewardDiscount)}. Your checkout total has been updated. Promo discounts remain separate.</p>}
+                  {rewardPointsApplied && estimatedRewardDiscount === 0 && <p role="alert" className="text-xs text-amber-700">These points cannot be applied to this order. Try a smaller valid amount.</p>}
                 </div>
               )}
               <div className="pt-2">
