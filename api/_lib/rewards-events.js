@@ -1,7 +1,16 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { adminDb } from './firebase-admin.js';
 
-const safePoints = (amount, rate, cap) => Math.max(0, Math.min(Math.floor(Math.max(0, Number(amount) || 0) * Math.max(0, Number(rate) || 0)), Math.max(0, Math.floor(Number(cap) || 0))));
+const safePoints = (amount, rate, cap) => Math.max(0, Math.min(
+  Math.floor(Math.max(0, Number(amount) || 0) * Math.max(0, Number(rate) || 0)),
+  Math.max(0, Math.floor(Number(cap) || 0))
+));
+const liabilityPoints = (requested, config, outstandingKes) => {
+  const pointValue = Math.max(0.001, Number(config.pointValueKes) || 0.1);
+  const capKes = Math.max(0, Number(config.maxLiabilityKes) || 0);
+  const availableKes = Math.max(0, capKes - Math.max(0, Number(outstandingKes) || 0));
+  return Math.max(0, Math.min(Math.floor(Number(requested) || 0), Math.floor((availableKes + 1e-9) / pointValue)));
+};
 const expiration = days => Number(days) > 0 ? Timestamp.fromDate(new Date(Date.now() + Number(days) * 86400000)) : null;
 const sellerOf = item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim();
 const lineAmount = item => Math.max(0, Number(item?.lineTotal ?? item?.total ?? ((Number(item?.unitPrice) || 0) * (Number(item?.quantity) || 0))) || 0);
@@ -29,7 +38,8 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const ownItems = (Array.isArray(order.items) ? order.items : []).filter(item => sellerOf(item) === sellerUid);
     if (!ownItems.length) return;
     const gross = ownItems.reduce((sum, item) => sum + lineAmount(item), 0);
-    const points = safePoints(gross, config.pointsPerKes, config.seller?.maxPointsPerOrder);
+    const requestedPoints = safePoints(gross, config.pointsPerKes, config.seller?.maxPointsPerOrder);
+    const points = liabilityPoints(requestedPoints, config, config.outstandingLiabilityKes);
     if (!points) return;
     const now = FieldValue.serverTimestamp();
     const expiry = expiration(config.expiryDays);
@@ -41,6 +51,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
       createdAt: now, ...(expiry ? { expiresAt: expiry } : {})
     });
     tx.set(sellerAccountRef, { uid: sellerUid, pointsBalance: oldBalance + points, updatedAt: now }, { merge: true });
+    tx.set(configRef, { outstandingLiabilityKes: Math.max(0, Number(config.outstandingLiabilityKes) || 0) + points * Math.max(0.001, Number(config.pointValueKes) || 0.1), liabilityUpdatedAt: now }, { merge: true });
 
   });
   // Buyer points are awarded in a separate idempotent transaction only after
@@ -62,7 +73,8 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const config = configSnap.data() || {};
     if (config.enabled !== true || config.buyer?.enabled === false) return;
     const spend = items.reduce((sum, item) => sum + lineAmount(item), 0);
-    const points = safePoints(spend, config.pointsPerKes, config.buyer?.maxPointsPerOrder);
+    const requestedPoints = safePoints(spend, config.pointsPerKes, config.buyer?.maxPointsPerOrder);
+    const points = liabilityPoints(requestedPoints, config, config.outstandingLiabilityKes);
     if (!points) return;
     const now = FieldValue.serverTimestamp();
     const expiry = expiration(config.expiryDays);
@@ -73,5 +85,6 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
       ...(expiry ? { expiresAt: expiry } : {})
     });
     tx.set(buyerAccountRef, { uid: buyerUid, pointsBalance: Math.max(0, Number(accountSnap.data()?.pointsBalance) || 0) + points, updatedAt: now }, { merge: true });
+    tx.set(configRef, { outstandingLiabilityKes: Math.max(0, Number(config.outstandingLiabilityKes) || 0) + points * Math.max(0.001, Number(config.pointValueKes) || 0.1), liabilityUpdatedAt: now }, { merge: true });
   });
 }
