@@ -59,6 +59,9 @@ export default function SellerProducts() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [bulkCredits, setBulkCredits] = useState(0);
+  const [sellerRewardInfo, setSellerRewardInfo] = useState<any>(null);
+  const [rewardPointsToRedeem, setRewardPointsToRedeem] = useState('100');
+  const [rewardRedeemBusy, setRewardRedeemBusy] = useState(false);
   const [bulkPhone, setBulkPhone] = useState('');
   const [bulkPackage, setBulkPackage] = useState('50');
   const [customBulkCredits, setCustomBulkCredits] = useState('');
@@ -75,9 +78,42 @@ export default function SellerProducts() {
 
   async function refreshBulkCredits() {
     try {
-      const result: any = await apiFetch('/api/sellers/bulk-upload');
+      const [result, rewards]: any[] = await Promise.all([
+        apiFetch('/api/sellers/bulk-upload'),
+        apiFetch('/api/rewards'),
+      ]);
       setBulkCredits(Number(result.credits) || 0);
+      setSellerRewardInfo(rewards);
     } catch { /* subscription or seller approval may not be active yet */ }
+  }
+
+  async function redeemSellerPointsForAiCredits() {
+    const points = Number(rewardPointsToRedeem);
+    if (!Number.isSafeInteger(points) || points < 100 || points % 100 !== 0) {
+      setBulkError('Enter at least 100 points, in multiples of 100.');
+      return;
+    }
+    if (!sellerRewardInfo?.redemptionEnabled || !sellerRewardInfo?.enabled) {
+      setBulkError('Seller reward redemption is not enabled yet. Contact the administrator.');
+      return;
+    }
+    if (points > Number(sellerRewardInfo.pointsBalance || 0)) {
+      setBulkError('You do not have enough available reward points.');
+      return;
+    }
+    setRewardRedeemBusy(true); setBulkError(''); setBulkMessage('');
+    try {
+      const result: any = await apiFetch('/api/sellers/bulk-upload', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'redeemRewards', points, idempotencyKey: `ai-reward-${crypto.randomUUID()}` }),
+      });
+      setBulkCredits(Number(result.credits) || bulkCredits);
+      setRewardPointsToRedeem('100');
+      setBulkMessage(result.message || 'Reward points redeemed for AI credits.');
+      await refreshBulkCredits();
+    } catch (err: any) {
+      setBulkError(err?.message || 'Could not redeem reward points for AI credits.');
+    } finally { setRewardRedeemBusy(false); }
   }
 
   async function addBulkImages(files: FileList | null) {
@@ -288,6 +324,18 @@ export default function SellerProducts() {
             <p className="text-sm text-neutral-600 mt-2">Total: <strong>{Number.isInteger(selectedBulkCredits) && selectedBulkCredits >= 10 && selectedBulkCredits <= 10000 ? money(selectedBulkAmount) : 'Enter a valid amount'}</strong></p>
             <input id="seller-bulk-phone" className={fieldClass + " mt-2"} type="tel" autoComplete="tel" value={bulkPhone} onChange={e => setBulkPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" />
             <Button className="w-full mt-2" onClick={buyBulkCredits} disabled={bulkPaymentBusy || bulkPayment?.status === 'PENDING'}><CreditCard className="w-4 h-4 mr-2" />{bulkPaymentBusy ? 'Please wait…' : `Buy ${Number.isInteger(selectedBulkCredits) && selectedBulkCredits > 0 ? selectedBulkCredits.toLocaleString('en-KE') : 'credits'} · ${money(selectedBulkAmount || 0)}`}</Button>
+            <div className="mt-3 rounded-lg border border-neutral-200 p-3">
+              <p className="text-sm font-semibold text-neutral-900">Use seller reward points</p>
+              <p className="mt-1 text-xs text-neutral-600">100 points = KSh 10 = 1 AI credit. This is separate from M-Pesa purchases.</p>
+              <p className="mt-1 text-xs text-neutral-600">Available: {Number(sellerRewardInfo?.pointsBalance || 0).toLocaleString('en-KE')} points ({money(Number(sellerRewardInfo?.estimatedValueKes || 0))} estimated value)</p>
+              <div className="mt-2 flex gap-2">
+                <input aria-label="Reward points to redeem for AI credits" type="number" min="100" step="100" value={rewardPointsToRedeem} onChange={e => setRewardPointsToRedeem(e.target.value)} className={fieldClass + " min-w-0"} />
+                <Button onClick={redeemSellerPointsForAiCredits} disabled={rewardRedeemBusy || !sellerRewardInfo?.redemptionEnabled || Number(sellerRewardInfo?.pointsBalance || 0) < 100}>
+                  {rewardRedeemBusy ? 'Redeeming…' : 'Redeem points'}
+                </Button>
+              </div>
+              {!sellerRewardInfo?.redemptionEnabled && <p className="mt-2 text-xs text-amber-700">Reward redemption is currently disabled by the administrator.</p>}
+            </div>
             {bulkPayment && <div className="mt-2 rounded-lg border p-3 text-sm"><p>Payment status: <strong>{bulkPayment.status}</strong></p>{bulkPayment.status === 'PENDING' && <Button variant="outline" className="w-full mt-2" onClick={checkBulkPayment} disabled={bulkCheckBusy}><RefreshCw className="w-4 h-4 mr-2" />Check payment</Button>}</div>}
           </div>
         </div>
