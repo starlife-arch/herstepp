@@ -2,6 +2,8 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { adminDb } from './firebase-admin.js';
 import { calculateOutstandingLiability, pointsAllowedUnderLiabilityCap } from './rewards-liability.js';
 
+const rewardTimestamp = db => typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : FieldValue.serverTimestamp();
+
 const safePoints = (amount, rate, cap) => Math.max(0, Math.min(
   Math.floor(Math.max(0, Number(amount) || 0) * Math.max(0, Number(rate) || 0)),
   Math.max(0, Math.floor(Number(cap) || 0))
@@ -37,7 +39,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
     const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
     if (!points) return;
-    const now = typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : FieldValue.serverTimestamp();
+    const now = typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : rewardTimestamp(db);
     const expiry = expiration(config.expiryDays);
     const oldBalance = Math.max(0, Number(sellerAccountSnap.data()?.pointsBalance) || 0);
     tx.create(sellerLedgerRef, {
@@ -80,7 +82,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
     const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
     if (!points) return;
-    const now = FieldValue.serverTimestamp();
+    const now = rewardTimestamp(db);
     const expiry = expiration(config.expiryDays);
     tx.create(buyerLedgerRef, {
       uid: buyerUid, accountType: 'BUYER', type: 'EARN', points, amountKes: spend,
