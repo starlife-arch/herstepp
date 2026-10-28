@@ -22,7 +22,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
   const sellerLedgerRef = db.collection('rewardLedger').doc(Buffer.from(`seller-delivery:${orderDocumentId}:${sellerUid}`).toString('base64url'));
   await db.runTransaction(async tx => {
     const [orderSnap, configSnap, sellerAccountSnap, sellerEntrySnap, ledgerSnap] = await Promise.all([
-      tx.get(orderRef), tx.get(configRef), tx.get(sellerAccountRef), tx.get(sellerLedgerRef), tx.get(db.collection('rewardLedger'))
+      tx.get(orderRef), tx.get(configRef), tx.get(sellerAccountRef), tx.get(sellerLedgerRef), tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED'))
     ]);
     if (!orderSnap.exists || sellerEntrySnap.exists) return;
     const order = orderSnap.data() || {};
