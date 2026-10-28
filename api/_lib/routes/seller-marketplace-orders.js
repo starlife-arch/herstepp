@@ -6,6 +6,7 @@ import { queueEmail } from '../email-service.js';
 import { emailHtml } from '../email-templates.js';
 import { siteUrl } from '../site-url.js';
 import { deliverEmailAfterCommit } from '../notify.js';
+import { awardMarketplaceDeliveryRewards } from '../rewards-events.js';
 
 const clean = (value, max = 500) => typeof value === 'string' ? value.trim().slice(0, max) : '';
 const iso = value => value?.toDate?.().toISOString?.() ?? (typeof value === 'string' ? value : null);
@@ -188,6 +189,10 @@ export default async function sellerMarketplaceOrders(req, res) {
     return { previous, status: requestedStatus, emailKey, released: requestedStatus === 'DELIVERED' ? releaseWrites.find(row => row.balanceBucket === 'AVAILABLE')?.amount || 0 : 0 };
   });
   if (result.emailKey) waitUntil(deliverEmailAfterCommit(adminDb, result.emailKey));
+  if (result.status === 'DELIVERED') {
+    try { await awardMarketplaceDeliveryRewards(orderDocumentId, user.uid); }
+    catch (error) { console.error('[rewards] Seller delivery reward award failed:', error?.message || String(error)); }
+  }
   return res.status(200).json({
     success: true, ...result,
     message: result.status === 'DELIVERED'
