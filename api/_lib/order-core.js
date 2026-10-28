@@ -667,6 +667,46 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     }
     tx.update(orderRef, orderUpdate);
 
+    if (rewardReservationRef && rewardReservation?.type === 'REDEEM_RESERVE') {
+      if (status === PAYMENT_STATUS.PAID && rewardReservation.status === 'POSTED') {
+        tx.update(rewardReservationRef, { type: 'REDEEM', reason: 'Reward points redeemed on verified paid checkout', updatedAt: deps.serverTimestamp() });
+      } else if (status !== PAYMENT_STATUS.PAID && rewardReservation.status === 'POSTED' && !rewardRestoreSnap?.exists) {
+        const pointsToRestore = Math.abs(Math.floor(Number(rewardReservation.points) || 0));
+        if (pointsToRestore > 0) {
+          tx.update(rewardReservationRef, { status: 'REVERSED', reversedAt: deps.serverTimestamp(), updatedAt: deps.serverTimestamp() });
+          tx.create(rewardRestoreRef, {
+            uid: rewardReservation.uid, accountType: 'BUYER', type: 'REDEEM_RESTORE', points: pointsToRestore,
+            amountKes: Number(rewardReservation.amountKes) || 0, reason: 'Checkout payment failed; reserved reward points restored',
+            orderId: order.orderId || payment.orderDocumentId, orderDocumentId: payment.orderDocumentId,
+            status: 'POSTED', idempotencyKey: rewardRestoreRef.id, createdAt: deps.serverTimestamp(),
+          });
+          const account = rewardAccountSnap?.data() || {};
+          tx.set(rewardAccountRef, { uid: rewardReservation.uid, pointsBalance: Math.max(0, Number(account.pointsBalance) || 0) + pointsToRestore, updatedAt: deps.serverTimestamp() }, { merge: true });
+          const config = rewardConfigSnap?.data() || {};
+          const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).filter(doc => doc.id !== rewardReservationRef.id).map(doc => doc.data());
+          liabilityEntries.push({ status: 'POSTED', points: pointsToRestore });
+          tx.set(rewardConfigRef, { outstandingLiabilityKes: calculateOutstandingLiability(liabilityEntries, config.pointValueKes), liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
+        }
+      }
+    }
+    if (lateRedemptionRef && !lateRedemptionSnap?.exists && rewardReservation) {
+      const pointsToRedeem = Math.max(0, Math.floor(Number(order.rewardPointsRedeemed) || 0));
+      if (pointsToRedeem > 0) {
+        const account = rewardAccountSnap?.data() || {};
+        tx.create(lateRedemptionRef, {
+          uid: rewardReservation.uid, accountType: 'BUYER', type: 'REDEEM', points: -pointsToRedeem,
+          amountKes: Number(order.rewardDiscountKes) || 0, reason: 'Reward points re-reserved after late verified payment',
+          orderId: order.orderId || payment.orderDocumentId, orderDocumentId: payment.orderDocumentId,
+          status: 'POSTED', idempotencyKey: lateRedemptionRef.id, createdAt: deps.serverTimestamp(),
+        });
+        tx.set(rewardAccountRef, { uid: rewardReservation.uid, pointsBalance: Math.max(0, Number(account.pointsBalance) - pointsToRedeem), updatedAt: deps.serverTimestamp() }, { merge: true });
+        const config = rewardConfigSnap?.data() || {};
+        const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).map(doc => doc.data());
+        liabilityEntries.push({ status: 'POSTED', points: -pointsToRedeem });
+        tx.set(rewardConfigRef, { outstandingLiabilityKes: calculateOutstandingLiability(liabilityEntries, config.pointValueKes), liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
+      }
+    }
+
     const previousPaymentStatus = payment.status;
     tx.set(db.collection('orderStatusHistory').doc(`${payment.orderDocumentId}-PAYMENT_${status}_${idempotencyId}`), {
       orderId: order.orderId,
