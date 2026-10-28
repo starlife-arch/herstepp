@@ -15,7 +15,8 @@ const statusText = value => String(value || 'UNKNOWN').replace(/_/g, ' ').toLowe
 const money = value => 'KSh ' + (Number(value) || 0).toLocaleString('en-KE');
 
 export async function resolveAriaAccountIntent({ db, user, message, sendVerification, confirmVerification, sendInvoice, conversationState = {} }) {
-  const intent = detectAriaAccountIntent(message);
+  const detectedIntent = detectAriaAccountIntent(message);
+  const intent = detectedIntent || (conversationState.pendingAccountAction === 'verify_email' && /^\d{6}$/.test(String(message || '').trim()) ? 'verification' : null);
   if (!intent) return null;
   const topic = String(message || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/^(help with )?orders?$/.test(topic)) return { intent, reply: 'Of course! What would you like help with for your orders — tracking an order, checking delivery, viewing order details, or something else?', actions: [] };
