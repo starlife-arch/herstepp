@@ -45,7 +45,6 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
   });
   // Buyer points are awarded in a separate idempotent transaction only after
   // every seller on the paid order has marked their fulfilment delivered.
-  const orderRef = adminDb.collection('orders').doc(orderDocumentId);
   const buyerLedgerRef = adminDb.collection('rewardLedger').doc(Buffer.from(`buyer-order-delivery:${orderDocumentId}`).toString('base64url'));
   await adminDb.runTransaction(async tx => {
     const orderSnap = await tx.get(orderRef);
@@ -75,5 +74,4 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     });
     tx.set(buyerAccountRef, { uid: buyerUid, pointsBalance: Math.max(0, Number(accountSnap.data()?.pointsBalance) || 0) + points, updatedAt: now }, { merge: true });
   });
-}
 }
