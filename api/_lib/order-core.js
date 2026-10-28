@@ -12,6 +12,7 @@ import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
 import { calculateOutstandingLiability } from './rewards-liability.js';
 import { reverseMarketplaceOrderRewards } from './rewards-refunds.js';
+import { restoreRedeemedPointsAfterRefund } from './rewards-redemption-refund.js';
 
 export const ORDER_STATUS = {
   PENDING: 'PENDING',
