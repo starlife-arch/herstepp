@@ -536,7 +536,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const rewardConfigRef = rewardReservation ? db.collection('rewardsConfig').doc('current') : null;
     const rewardConfigSnap = rewardConfigRef ? await tx.get(rewardConfigRef) : null;
     const rewardAllPostedLedgerSnap = rewardReservation ? await tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED')) : null;
-    const lateRedemptionRef = status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true
+    const lateRedemptionRef = status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true && Number(payment.amount) === Number(order.total) - Number(order.rewardDiscountKes || 0)
       ? db.collection('rewardLedger').doc(base64url(`checkout-late-redeem:${payment.orderDocumentId}`)) : null;
     const lateRedemptionSnap = lateRedemptionRef ? await tx.get(lateRedemptionRef) : null;
 
@@ -659,7 +659,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       orderUpdate.total = Number(order.total) + Math.max(0, Number(order.rewardDiscountKes) || 0);
       orderUpdate.rewardPointsReleased = true;
     }
-    if (status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true) {
+    if (status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true && Number(payment.amount) === Number(order.total) - Number(order.rewardDiscountKes || 0)) {
       orderUpdate.total = Math.max(1, Number(order.total) - Math.max(0, Number(order.rewardDiscountKes) || 0));
       orderUpdate.rewardPointsReleased = false;
       orderUpdate.rewardRedemptionLateSuccess = true;
@@ -673,7 +673,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       } else if (status !== PAYMENT_STATUS.PAID && rewardReservation.status === 'POSTED' && !rewardRestoreSnap?.exists) {
         const pointsToRestore = Math.abs(Math.floor(Number(rewardReservation.points) || 0));
         if (pointsToRestore > 0) {
-          tx.update(rewardReservationRef, { status: 'REVERSED', reversedAt: deps.serverTimestamp(), updatedAt: deps.serverTimestamp() });
+          tx.update(rewardReservationRef, { type: 'REDEEM_RELEASED', reason: 'Points released after failed payment', updatedAt: deps.serverTimestamp() });
           tx.create(rewardRestoreRef, {
             uid: rewardReservation.uid, accountType: 'BUYER', type: 'REDEEM_RESTORE', points: pointsToRestore,
             amountKes: Number(rewardReservation.amountKes) || 0, reason: 'Checkout payment failed; reserved reward points restored',
