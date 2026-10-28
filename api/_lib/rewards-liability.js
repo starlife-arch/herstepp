@@ -16,7 +16,7 @@ function millis(value) {
 export function calculateOutstandingLiability(entries, pointValueKes, now = Date.now()) {
   const pointValue = Math.max(0.001, Number(pointValueKes) || 0.1);
   const activePoints = (Array.isArray(entries) ? entries : []).reduce((sum, entry) => {
-    if (!entry || !['POSTED', 'RESERVED'].includes(String(entry.status || 'POSTED').toUpperCase())) return sum;
+    if (!entry || String(entry.status || 'POSTED').toUpperCase() !== 'POSTED') return sum;
     const points = Number(entry.points);
     if (!Number.isFinite(points) || points === 0) return sum;
     const expiresAt = millis(entry.expiresAt);
