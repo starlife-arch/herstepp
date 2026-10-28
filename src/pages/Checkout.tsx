@@ -396,6 +396,10 @@ export default function Checkout() {
         ? serverReason
         : (fallbackMessages[outcome] || 'The payment could not be completed.');
       setErrors({ payment: message });
+      if (['CANCELLED', 'FAILED', 'TIMEOUT'].includes(outcome)) {
+        setRewardPoints(0);
+        setServerTotal(null);
+      }
       setStep('review');
     } catch (error) {
       if (abortRef.current) return;
