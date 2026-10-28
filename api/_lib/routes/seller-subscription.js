@@ -5,6 +5,7 @@ import { getMpesaProvider } from '../mpesa-provider.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { SELLER_PLANS, SELLER_BADGE_MONTHLY_FEE, normalizeSellerPhone, sellerSubscriptionPaymentId, applySellerSubscriptionPayment } from '../seller-subscription-core.js';
 import { RECONCILE_TIMEOUT_MS } from '../order-core.js';
+import { calculateSellerSubscriptionPrice, DEFAULT_SELLER_TERM_DISCOUNTS } from '../seller-subscription-pricing.js';
 
 export default async function sellerSubscription(req, res) {
   const user = await requireUser(req);
@@ -72,6 +73,10 @@ export default async function sellerSubscription(req, res) {
     const planCode = String(req.body?.planCode || '').trim().toUpperCase();
     const plan = SELLER_PLANS[planCode];
     if (!plan) throw clientError('Choose a valid seller subscription plan.');
+    const durationMonths = Number(req.body?.durationMonths || 1);
+    const pricingSnap = await adminDb.collection('sellerSubscriptionPricing').doc('current').get();
+    const pricingConfig = pricingSnap.exists ? (pricingSnap.data()?.termDiscounts || DEFAULT_SELLER_TERM_DISCOUNTS) : DEFAULT_SELLER_TERM_DISCOUNTS;
+    const pricing = calculateSellerSubscriptionPrice(planCode, durationMonths, pricingConfig);
     const phone = normalizeSellerPhone(req.body?.phone);
     const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
     if (!/^[A-Za-z0-9_-]{12,100}$/.test(idempotencyKey)) throw clientError('A valid idempotency key is required.');
@@ -86,14 +91,16 @@ export default async function sellerSubscription(req, res) {
       const existing = await tx.get(paymentRef);
       if (existing.exists) {
         const data = existing.data();
-        if (data.planCode !== planCode || data.phone !== phone) throw clientError('This idempotency key was already used for a different request.', 409);
+        if (data.planCode !== planCode || data.phone !== phone || Number(data.durationMonths || 1) !== durationMonths) throw clientError('This idempotency key was already used for a different request.', 409);
         return { existing: true, data };
       }
       const now = FieldValue.serverTimestamp();
       const data = {
         paymentId, sellerId: user.uid, ownerUid: user.uid, planCode,
-        planAmount: plan.amount, badgeAmount: SELLER_BADGE_MONTHLY_FEE,
-        amount: plan.amount + SELLER_BADGE_MONTHLY_FEE, currency: 'KES',
+        planAmount: plan.amount, durationMonths: pricing.durationMonths, planSubtotal: pricing.planSubtotal,
+        discountPercent: pricing.discountPercent, discountAmount: pricing.discountAmount,
+        discountedPlanAmount: pricing.discountedPlanAmount, badgeAmount: pricing.badgeAmount,
+        amount: pricing.amount, currency: 'KES',
         phone, method: 'MPESA', status: 'PENDING', providerReference: null,
         transactionReference: null, failureReason: null, idempotencyKey,
         createdAt: now, updatedAt: now, initiatedAt: now, completedAt: null,
@@ -114,7 +121,7 @@ export default async function sellerSubscription(req, res) {
     try {
       const stk = await getMpesaProvider().initiateStk({ phone, amount: created.data.amount });
       await paymentRef.update({ providerReference: stk.providerReference, updatedAt: FieldValue.serverTimestamp() });
-      return res.status(202).json({ payment: { paymentId, status: 'PENDING', amount: created.data.amount, currency: 'KES', providerReference: stk.providerReference } });
+      return res.status(202).json({ payment: { paymentId, status: 'PENDING', amount: created.data.amount, currency: 'KES', planCode, durationMonths: pricing.durationMonths, discountPercent: pricing.discountPercent, providerReference: stk.providerReference } });
     } catch (error) {
       await paymentRef.update({ initiationError: true, updatedAt: FieldValue.serverTimestamp() }).catch(() => {});
       throw error;
