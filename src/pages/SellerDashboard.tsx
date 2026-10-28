@@ -410,13 +410,15 @@ export default function SellerDashboard() {
             <Button variant="outline" className="mt-5 w-full" disabled={!approved || suspended || paymentBusy} onClick={() => { setSelectedPlan(plan.code); setPaymentError(''); }}>
               <CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Please wait…' : subscriptionActive ? (seller?.planCode === plan.code ? 'Renew this plan' : 'Switch to ' + plan.name) : approved ? 'Pay with M-Pesa' : 'Approval required'}
             </Button>
-            {rewardInfo?.redemptionEnabled && rewardInfo?.redemptionTargets?.includes('SELLER_PLAN') && <div className="mt-3 border-t pt-3">
-              <p className="text-xs text-neutral-600">Reward balance: {Number(rewardInfo.pointsBalance || 0).toLocaleString()} points</p>
-              <p className="text-xs text-neutral-600">Requires {Math.ceil((plan.price + 50) / (Number(rewardInfo.pointValueKes) || 0.1)).toLocaleString()} points for one month</p>
-              <Button className="mt-2 w-full" disabled={!approved || suspended || !!rewardBusyPlan || Number(rewardInfo.pointsBalance || 0) < Math.ceil((plan.price + 50) / (Number(rewardInfo.pointValueKes) || 0.1))} onClick={() => void redeemPlanWithRewards(plan.code)}>
+            <div className="mt-3 border-t pt-3">
+              <p className="text-xs text-neutral-600">Seller reward balance: {Number(rewardInfo?.pointsBalance || 0).toLocaleString()} ledger-verified points</p>
+              <p className="text-xs text-neutral-600">Requires {Math.ceil((plan.price + 50) / (Number(rewardInfo?.pointValueKes) || 0.1)).toLocaleString()} points for one month, including the KSh 50 badge subscription fee.</p>
+              {rewardInfo?.balanceMismatch && <p role="alert" className="text-xs text-amber-700 mt-2">Your saved reward balance ({Number(rewardInfo.storedPointsBalance || 0).toLocaleString()}) does not match your reward ledger ({Number(rewardInfo.pointsBalance || 0).toLocaleString()}). Redemption is blocked until the ledger is reconciled.</p>}
+              {!(rewardInfo?.redemptionEnabled && rewardInfo?.redemptionTargets?.includes('SELLER_PLAN')) && <p className="text-xs text-neutral-500 mt-2">Reward-point plan payments are currently disabled by the rewards settings.</p>}
+              <Button className="mt-2 w-full" disabled={!approved || suspended || !!rewardBusyPlan || !rewardInfo?.redemptionEnabled || !rewardInfo?.redemptionTargets?.includes('SELLER_PLAN') || !!rewardInfo?.balanceMismatch || Number(rewardInfo?.pointsBalance || 0) < Math.ceil((plan.price + 50) / (Number(rewardInfo?.pointValueKes) || 0.1))} onClick={() => void redeemPlanWithRewards(plan.code)}>
                 {rewardBusyPlan === plan.code ? 'Redeeming…' : 'Pay with reward points'}
               </Button>
-            </div>}
+            </div>
           </Card>
         ))}
       </div>
