@@ -95,6 +95,8 @@ export default function Checkout() {
     } catch { /* checkout remains usable if session storage is unavailable */ }
   }, []);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [rewardInfo, setRewardInfo] = useState<any>(null);
+  const [rewardPoints, setRewardPoints] = useState(0);
   // "save to my profile" for the delivery/M-Pesa phone (used when the signed-in
   // profile has no phone yet — e.g. Google sign-ups).
   const [savePhoneToProfile, setSavePhoneToProfile] = useState(true);
@@ -159,6 +161,12 @@ export default function Checkout() {
     return () => { cancelled = true; };
   }, [marketplaceOnly]);
 
+  useEffect(() => {
+    let cancelled = false;
+    apiFetch('/api/rewards').then((data: any) => { if (!cancelled) setRewardInfo(data); }).catch(() => { if (!cancelled) setRewardInfo(null); });
+    return () => { cancelled = true; };
+  }, []);
+
   const subtotal = state.cart.reduce((sum, item) => sum + effectivePrice(item.product) * item.quantity, 0);
 
   // Estimated fee for display only (from server rates). Collection is always
@@ -168,7 +176,11 @@ export default function Checkout() {
     return previewDeliveryFee(config, form.deliveryLocation);
   };
   const deliveryFee = estimateDeliveryFee();
-  const estimatedTotal = subtotal + deliveryFee - (promo?.discount || 0);
+  const totalBeforeRewards = subtotal + deliveryFee - (promo?.discount || 0);
+  const estimatedRewardDiscount = rewardInfo?.redemptionEnabled && rewardPoints > 0
+    ? Math.min(Math.floor(rewardPoints * (Number(rewardInfo.pointValueKes) || 0)), Math.floor(totalBeforeRewards * Math.min(80, Math.max(0, Number(rewardInfo.maxRedemptionPercent) || 0)) / 100), Math.max(0, totalBeforeRewards - 1))
+    : 0;
+  const estimatedTotal = totalBeforeRewards - estimatedRewardDiscount;
   // Once the order exists, the server total is the only number we pay.
   const amountToPay = serverTotal ?? estimatedTotal;
 
@@ -328,6 +340,7 @@ export default function Checkout() {
               instructions: form.instructions,
             },
             promoCode: promo?.code || null,
+            rewardPoints: rewardInfo?.redemptionEnabled ? rewardPoints : 0,
           }),
         });
         currentDocId = created?.order?.orderDocumentId ?? created?.order?.id ?? null;
@@ -383,6 +396,10 @@ export default function Checkout() {
         ? serverReason
         : (fallbackMessages[outcome] || 'The payment could not be completed.');
       setErrors({ payment: message });
+      if (['CANCELLED', 'FAILED', 'TIMEOUT'].includes(outcome)) {
+        setRewardPoints(0);
+        setServerTotal(null);
+      }
       setStep('review');
     } catch (error) {
       if (abortRef.current) return;
@@ -686,6 +703,16 @@ export default function Checkout() {
                   <span>{!config ? '…' : deliveryFee === 0 ? 'Free' : formatCurrency(deliveryFee)}</span>
                 </div>
               )}
+              {rewardInfo?.redemptionEnabled && Number(rewardInfo.pointsBalance) >= Number(rewardInfo.minRedeemPoints) && !orderDocId && (
+                <div className="rounded-lg border border-neutral-200 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <label htmlFor="reward-points" className="text-sm font-medium text-neutral-800">Use reward points</label>
+                    <span className="text-xs text-neutral-500">{Number(rewardInfo.pointsBalance).toLocaleString()} available</span>
+                  </div>
+                  <input id="reward-points" type="number" min={0} max={Number(rewardInfo.pointsBalance)} step={1} value={rewardPoints || ''} onChange={event => setRewardPoints(Math.max(0, Math.min(Number(rewardInfo.pointsBalance) || 0, Math.floor(Number(event.target.value) || 0))))} placeholder={`Minimum ${rewardInfo.minRedeemPoints} points`} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
+                  {estimatedRewardDiscount > 0 && <p className="text-xs text-emerald-700">Estimated reward discount: -{formatCurrency(estimatedRewardDiscount)}. The server checks the final eligible amount.</p>}
+                </div>
+              )}
               <div className="pt-2">
                 <div className="flex gap-2">
                   <input value={promoCode} onChange={event => setPromoCode(event.target.value)} placeholder="Promo code" className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
@@ -695,6 +722,7 @@ export default function Checkout() {
                 {promoError && <p className="mt-1 text-xs text-red-600">{promoError}</p>}
               </div>
               {promo && <div className="flex justify-between text-sm text-emerald-700"><span>Discount ({promo.code})</span><span>-{formatCurrency(promo.discount)}</span></div>}
+              {estimatedRewardDiscount > 0 && <div className="flex justify-between text-sm text-emerald-700"><span>Reward points</span><span>-{formatCurrency(estimatedRewardDiscount)}</span></div>}
               <div className="flex justify-between font-semibold border-t border-neutral-200 pt-3">
                 <span>{serverTotal != null ? 'Amount to pay' : 'Estimated Total'}</span>
                 <span>{formatCurrency(amountToPay)}</span>

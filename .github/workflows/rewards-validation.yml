@@ -1,0 +1,35 @@
+name: Rewards validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Configure fake Firebase credentials for offline tests
+        run: |
+          openssl genrsa -out /tmp/firebase-test-key.pem 2048
+          echo 'FIREBASE_ADMIN_PROJECT_ID=test-project' >> "$GITHUB_ENV"
+          echo 'FIREBASE_ADMIN_CLIENT_EMAIL=test@example.iam.gserviceaccount.com' >> "$GITHUB_ENV"
+          echo 'FIREBASE_ADMIN_PRIVATE_KEY<<FIREBASE_KEY_EOF' >> "$GITHUB_ENV"
+          cat /tmp/firebase-test-key.pem >> "$GITHUB_ENV"
+          echo 'FIREBASE_KEY_EOF' >> "$GITHUB_ENV"
+      - run: npm run check:api
+      - run: npm run typecheck
+      - run: node scripts/test-rewards-liability.mjs
+      - run: node scripts/test-rewards-awards.mjs
+      - run: node scripts/test-reward-checkout.mjs
+      - run: node scripts/test-rewards-refunds.mjs
+      - name: Build production bundle
+        if: always()
+        run: npm run build

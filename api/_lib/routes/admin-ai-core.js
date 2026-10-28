@@ -20,7 +20,7 @@ function nairobiDateParts(value) {
 export function classifyAdminQuestion(message) {
   const text = String(message || '').toLowerCase();
   if (/\b(refund|refunds|returned|returns|credit note)\b/.test(text)) return 'refunds';
-  if (/\b(best.?sell|top.?sell|popular products|most sold)\b/.test(text)) return 'bestsellers';
+  if (/\b(best.?sell(?:ing)?|top.?sell(?:ing)?|popular products|most sold)\b/.test(text)) return 'bestsellers';
   if (/\b(expense|expenses|overheads|rent|advertising spend|delivery spend)\b/.test(text)) return 'expenses';
   if (/\b(profit|margin|cost of goods|cost price)\b/.test(text)) return 'profit';
   if (/\b(stock|inventory|out of stock|low stock|products?)\b/.test(text)) return 'stock';

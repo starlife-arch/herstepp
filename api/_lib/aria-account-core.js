@@ -5,7 +5,7 @@ export function detectAriaAccountIntent(message) {
   if (/\b(password|reset password|forgot password|forgot my password|change password)\b/.test(text)) return null;
   if (/\b(verify|verification|verified|verification code|resend.*code|send.*code|confirm.*code|codes?|otp|one time password)\b/.test(text) || /\b(email|account)\b.*\b(confirm|verify|verified|code)\b/.test(text) || /^(verify|verification|code|codes|otp|email verification)$/.test(text) || /\b(?:i have|i've|ive|already)\s+(?:received|got)\s+(?:it|one|the code)\b/.test(text)) return 'verification';
   if (/\b(invoice|invoices|bill|bills|download.*invoice|my invoice|send.*invoice|email.*invoice)\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
-  if (/\b(payment|payments|paid|pay|mpesa|m-pesa|transaction|charged|money deducted|money taken|money sent|refund|receipt)\b/.test(text)) return 'payment';
+  if (/\b(payment|payments|paid|pay|mpesa|m-pesa|transaction|charged|money (?:was )?deducted|money taken|money sent|refund|receipt)\b/.test(text)) return 'payment';
   if (/\b(order|orders|delivery|deliveries|tracking|track|parcel|package|purchase|shipment|shipping)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
   return null;
 }
@@ -15,7 +15,8 @@ const statusText = value => String(value || 'UNKNOWN').replace(/_/g, ' ').toLowe
 const money = value => 'KSh ' + (Number(value) || 0).toLocaleString('en-KE');
 
 export async function resolveAriaAccountIntent({ db, user, message, sendVerification, confirmVerification, sendInvoice, conversationState = {} }) {
-  const intent = detectAriaAccountIntent(message);
+  const detectedIntent = detectAriaAccountIntent(message);
+  const intent = detectedIntent || (conversationState.pendingAccountAction === 'verify_email' && /^\d{6}$/.test(String(message || '').trim()) ? 'verification' : null);
   if (!intent) return null;
   const topic = String(message || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/^(help with )?orders?$/.test(topic)) return { intent, reply: 'Of course! What would you like help with for your orders — tracking an order, checking delivery, viewing order details, or something else?', actions: [] };

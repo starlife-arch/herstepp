@@ -10,6 +10,9 @@ import { queuePaymentEmail, queueMarketplaceSaleInvoices, queueInvoiceReadyNotif
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
+import { calculateOutstandingLiability } from './rewards-liability.js';
+import { reverseMarketplaceOrderRewards } from './rewards-refunds.js';
+import { restoreRedeemedPointsAfterRefund } from './rewards-redemption-refund.js';
 
 export const ORDER_STATUS = {
   PENDING: 'PENDING',
@@ -151,7 +154,7 @@ export function requireInventoryArray(productDocId, productData) {
 // POST /api/orders/create — all reads happen before all writes inside ONE
 // transaction; order numbers come from orderCounters/{year}.sequence.
 // ---------------------------------------------------------------------------
-export async function createOrderCore(db, deps, { uid, email, emailVerified, cart, delivery, promoCode }) {
+export async function createOrderCore(db, deps, { uid, email, emailVerified, cart, delivery, promoCode, rewardPoints = 0 }) {
   const { now = () => new Date(), constants } = deps;
   const LOCATION = constants?.LOCATION ?? 'Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12';
 
@@ -185,6 +188,9 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
   const year = now().getUTCFullYear();
   const groups = groupByProduct(lines);
   const requestedPromo = promoCode == null || promoCode === '' ? null : normalisePromoCode(promoCode);
+  const requestedRewardPoints = Number(rewardPoints || 0);
+  if (!Number.isSafeInteger(requestedRewardPoints) || requestedRewardPoints < 0 || requestedRewardPoints > 1000000) throw clientError('Reward points must be a whole number between 0 and 1,000,000.');
+  const orderRef = db.collection('orders').doc();
 
   return db.runTransaction(async tx => {
     // ---- ALL READS FIRST -------------------------------------------------
@@ -261,7 +267,44 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       const calculated = calculatePromoDiscount(promo, items, subtotal, now()); discount = Math.min(calculated.discount, Math.max(0, subtotal + deliveryFee - 1));
       promotion = { code: requestedPromo, name: promo.name, discountType: promo.discountType, discountValue: promo.discountValue };
     }
-    const total = subtotal + deliveryFee - discount;
+    const totalBeforeRewards = subtotal + deliveryFee - discount;
+    let rewardDiscountKes = 0;
+    let rewardPointsRedeemed = 0;
+    let rewardConfig = null;
+    let rewardAccountRef = null;
+    let rewardAccountSnap = null;
+    let rewardReservationRef = null;
+    let rewardAllPostedLedgerSnap = null;
+    if (requestedRewardPoints > 0) {
+      const rewardConfigSnap = await tx.get(db.collection('rewardsConfig').doc('current'));
+      rewardConfig = rewardConfigSnap.data() || {};
+      if (rewardConfig.enabled !== true || rewardConfig.buyer?.enabled === false || rewardConfig.buyer?.redemptionEnabled !== true) throw clientError('Reward redemption is not available.');
+      const pointValue = Math.max(0.001, Number(rewardConfig.pointValueKes) || 0.1);
+      const minPoints = Math.max(1, Math.floor(Number(rewardConfig.buyer?.minRedeemPoints) || 1));
+      if (requestedRewardPoints < minPoints) throw clientError(`Redeem at least ${minPoints} points.`);
+      const rewardLedgerSnap = await tx.get(db.collection('rewardLedger').where('uid', '==', uid).where('status', '==', 'POSTED'));
+      const nowMs = now().getTime();
+      const balance = Math.max(0, rewardLedgerSnap.docs.reduce((sum, doc) => {
+        const entry = doc.data() || {};
+        const points = Number(entry.points) || 0;
+        const expires = entry.expiresAt?.toMillis?.() ?? entry.expiresAt?.toDate?.()?.getTime?.() ?? (entry.expiresAt instanceof Date ? entry.expiresAt.getTime() : null);
+        if (points > 0 && expires != null && expires <= nowMs) return sum;
+        return sum + points;
+      }, 0));
+      if (requestedRewardPoints > balance) throw clientError('You do not have enough available reward points.', 409);
+      const maxPercent = Math.min(80, Math.max(0, Number(rewardConfig.buyer?.maxRedemptionPercent) || 0));
+      const maxDiscount = Math.max(0, Math.min(totalBeforeRewards - 1, Math.floor(totalBeforeRewards * maxPercent / 100)));
+      rewardPointsRedeemed = Math.min(requestedRewardPoints, Math.floor(maxDiscount / pointValue));
+      rewardDiscountKes = Math.floor(rewardPointsRedeemed * pointValue);
+      if (rewardPointsRedeemed < minPoints || rewardDiscountKes < 1) throw clientError('The selected points cannot be applied to this order.');
+      rewardAllPostedLedgerSnap = await tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED'));
+      rewardAccountRef = db.collection('rewardAccounts').doc(uid);
+      rewardAccountSnap = await tx.get(rewardAccountRef);
+      rewardReservationRef = db.collection('rewardLedger').doc(Buffer.from(`checkout-redeem:${orderRef.id}`).toString('base64url'));
+      const existingReservation = await tx.get(rewardReservationRef);
+      if (existingReservation.exists) throw clientError('These reward points have already been reserved for this order.', 409);
+    }
+    const total = totalBeforeRewards - rewardDiscountKes;
     if (!Number.isInteger(total) || total < 1) throw clientError('We could not calculate the order total.');
 
     // ---- ALL WRITES SECOND -----------------------------------------------
@@ -271,7 +314,6 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
     }
     tx.set(counterRef, { sequence, year }, { merge: true });
 
-    const orderRef = db.collection('orders').doc();
     tx.set(orderRef, {
       orderId,
       customerId: uid,
@@ -286,6 +328,9 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       subtotal,
       deliveryFee,
       discount,
+      rewardPointsRedeemed,
+      rewardDiscountKes,
+      rewardReservationLedgerId: rewardReservationRef?.id || null,
       promoCode: requestedPromo,
       promotion,
       marketplaceOrder: marketplaceCheckout,
@@ -311,6 +356,21 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       createdAt: deps.serverTimestamp(),
       updatedAt: deps.serverTimestamp(),
     });
+
+    if (rewardReservationRef && rewardAccountRef) {
+      const previousBalance = Math.max(0, Number(rewardAccountSnap?.data()?.pointsBalance) || 0);
+      tx.create(rewardReservationRef, {
+        uid, accountType: 'BUYER', type: 'REDEEM_RESERVE', points: -rewardPointsRedeemed,
+        amountKes: rewardDiscountKes, reason: 'Reward points reserved for checkout',
+        orderId, orderDocumentId: orderRef.id, status: 'POSTED', idempotencyKey: rewardReservationRef.id,
+        createdAt: deps.serverTimestamp(),
+      });
+      tx.set(rewardAccountRef, { uid, pointsBalance: Math.max(0, previousBalance - rewardPointsRedeemed), updatedAt: deps.serverTimestamp() }, { merge: true });
+      const pointValue = Math.max(0.001, Number(rewardConfig?.pointValueKes) || 0.1);
+      const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).map(doc => doc.data());
+      liabilityEntries.push({ status: 'POSTED', points: -rewardPointsRedeemed });
+      tx.set(db.collection('rewardsConfig').doc('current'), { outstandingLiabilityKes: calculateOutstandingLiability(liabilityEntries, pointValue), liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
+    }
 
     for (const p of plan) {
       const derived = deriveStock(p.inventory);
@@ -381,6 +441,8 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
         subtotal,
         deliveryFee,
         discount,
+        rewardPointsRedeemed,
+        rewardDiscountKes,
         total,
         currency: 'KES',
         orderStatus: ORDER_STATUS.PENDING,
@@ -437,7 +499,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     // ---- READS FIRST ----
     const prior = await tx.get(idemRef);
     if (prior.exists) {
-      return { duplicate: true, status: prior.data()?.appliedStatus ?? status };
+      return { duplicate: true, status: prior.data()?.appliedStatus ?? status, orderDocumentId: prior.data()?.orderDocumentId || null };
     }
 
     const paymentsSnap = await tx.get(
@@ -456,13 +518,27 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const LATE_SUCCESS = TERMINAL_STATUSES.includes(payment.status) && status === PAYMENT_STATUS.PAID
       && ['TIMEOUT', 'FAILED', 'CANCELLED'].includes(payment.status);
     if (TERMINAL_STATUSES.includes(payment.status) && !LATE_SUCCESS) {
-      return { duplicate: true, status: payment.status };
+      return { duplicate: true, status: payment.status, orderDocumentId: payment.orderDocumentId || null };
     }
 
     const orderRef = db.collection('orders').doc(payment.orderDocumentId);
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists) throw clientError('Order not found.', 404);
     const order = orderSnap.data();
+    const rewardReservationRef = order.rewardReservationLedgerId ? db.collection('rewardLedger').doc(order.rewardReservationLedgerId) : null;
+    const rewardReservationSnap = rewardReservationRef ? await tx.get(rewardReservationRef) : null;
+    const rewardReservation = rewardReservationSnap?.exists ? rewardReservationSnap.data() || {} : null;
+    const rewardAccountRef = rewardReservation?.uid ? db.collection('rewardAccounts').doc(rewardReservation.uid) : null;
+    const rewardAccountSnap = rewardAccountRef ? await tx.get(rewardAccountRef) : null;
+    const rewardRestoreRef = rewardReservation && status !== PAYMENT_STATUS.PAID && rewardReservation.type === 'REDEEM_RESERVE'
+      ? db.collection('rewardLedger').doc(base64url(`checkout-restore:${payment.orderDocumentId}`)) : null;
+    const rewardRestoreSnap = rewardRestoreRef ? await tx.get(rewardRestoreRef) : null;
+    const rewardConfigRef = rewardReservation ? db.collection('rewardsConfig').doc('current') : null;
+    const rewardConfigSnap = rewardConfigRef ? await tx.get(rewardConfigRef) : null;
+    const rewardAllPostedLedgerSnap = rewardReservation ? await tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED')) : null;
+    const lateRedemptionRef = status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true && Number(payment.amount) === Number(order.total) - Number(order.rewardDiscountKes || 0)
+      ? db.collection('rewardLedger').doc(base64url(`checkout-late-redeem:${payment.orderDocumentId}`)) : null;
+    const lateRedemptionSnap = lateRedemptionRef ? await tx.get(lateRedemptionRef) : null;
 
     // The order referenced by the callback must be the payment's own order.
     if (callback.orderId && order.orderId !== callback.orderId) {
@@ -579,7 +655,57 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
       // Customer may retry: drop the pointer to the dead payment attempt.
       orderUpdate.activePaymentId = null;
     }
+    if (status !== PAYMENT_STATUS.PAID && rewardReservation?.type === 'REDEEM_RESERVE' && rewardReservation.status === 'POSTED' && !rewardRestoreSnap?.exists) {
+      orderUpdate.total = Number(order.total) + Math.max(0, Number(order.rewardDiscountKes) || 0);
+      orderUpdate.rewardPointsReleased = true;
+    }
+    if (status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true && Number(payment.amount) === Number(order.total) - Number(order.rewardDiscountKes || 0)) {
+      orderUpdate.total = Math.max(1, Number(order.total) - Math.max(0, Number(order.rewardDiscountKes) || 0));
+      orderUpdate.rewardPointsReleased = false;
+      orderUpdate.rewardRedemptionLateSuccess = true;
+      orderUpdate.rewardReservationLedgerId = lateRedemptionRef?.id || order.rewardReservationLedgerId || null;
+    }
     tx.update(orderRef, orderUpdate);
+
+    if (rewardReservationRef && rewardReservation?.type === 'REDEEM_RESERVE') {
+      if (status === PAYMENT_STATUS.PAID && rewardReservation.status === 'POSTED') {
+        tx.update(rewardReservationRef, { type: 'REDEEM', reason: 'Reward points redeemed on verified paid checkout', updatedAt: deps.serverTimestamp() });
+      } else if (status !== PAYMENT_STATUS.PAID && rewardReservation.status === 'POSTED' && !rewardRestoreSnap?.exists) {
+        const pointsToRestore = Math.abs(Math.floor(Number(rewardReservation.points) || 0));
+        if (pointsToRestore > 0) {
+          tx.update(rewardReservationRef, { type: 'REDEEM_RELEASED', reason: 'Points released after failed payment', updatedAt: deps.serverTimestamp() });
+          tx.create(rewardRestoreRef, {
+            uid: rewardReservation.uid, accountType: 'BUYER', type: 'REDEEM_RESTORE', points: pointsToRestore,
+            amountKes: Number(rewardReservation.amountKes) || 0, reason: 'Checkout payment failed; reserved reward points restored',
+            orderId: order.orderId || payment.orderDocumentId, orderDocumentId: payment.orderDocumentId,
+            status: 'POSTED', idempotencyKey: rewardRestoreRef.id, createdAt: deps.serverTimestamp(),
+          });
+          const account = rewardAccountSnap?.data() || {};
+          tx.set(rewardAccountRef, { uid: rewardReservation.uid, pointsBalance: Math.max(0, Number(account.pointsBalance) || 0) + pointsToRestore, updatedAt: deps.serverTimestamp() }, { merge: true });
+          const config = rewardConfigSnap?.data() || {};
+          const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).map(doc => doc.data());
+          liabilityEntries.push({ status: 'POSTED', points: pointsToRestore });
+          tx.set(rewardConfigRef, { outstandingLiabilityKes: calculateOutstandingLiability(liabilityEntries, config.pointValueKes), liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
+        }
+      }
+    }
+    if (lateRedemptionRef && !lateRedemptionSnap?.exists && rewardReservation) {
+      const pointsToRedeem = Math.max(0, Math.floor(Number(order.rewardPointsRedeemed) || 0));
+      if (pointsToRedeem > 0) {
+        const account = rewardAccountSnap?.data() || {};
+        tx.create(lateRedemptionRef, {
+          uid: rewardReservation.uid, accountType: 'BUYER', type: 'REDEEM', points: -pointsToRedeem,
+          amountKes: Number(order.rewardDiscountKes) || 0, reason: 'Reward points re-reserved after late verified payment',
+          orderId: order.orderId || payment.orderDocumentId, orderDocumentId: payment.orderDocumentId,
+          status: 'POSTED', idempotencyKey: lateRedemptionRef.id, createdAt: deps.serverTimestamp(),
+        });
+        tx.set(rewardAccountRef, { uid: rewardReservation.uid, pointsBalance: Math.max(0, Number(account.pointsBalance) - pointsToRedeem), updatedAt: deps.serverTimestamp() }, { merge: true });
+        const config = rewardConfigSnap?.data() || {};
+        const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).map(doc => doc.data());
+        liabilityEntries.push({ status: 'POSTED', points: -pointsToRedeem });
+        tx.set(rewardConfigRef, { outstandingLiabilityKes: calculateOutstandingLiability(liabilityEntries, config.pointValueKes), liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
+      }
+    }
 
     const previousPaymentStatus = payment.status;
     tx.set(db.collection('orderStatusHistory').doc(`${payment.orderDocumentId}-PAYMENT_${status}_${idempotencyId}`), {
@@ -786,7 +912,17 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     }
 
     return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: [...queuedEmailKeys, ...marketplaceEmailKeys], smsKey };
-  }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
+  }).then(async result => {
+    if (result.status === PAYMENT_STATUS.REFUNDED && result.orderDocumentId) {
+      await reverseMarketplaceOrderRewards(result.orderDocumentId, db).catch(error => {
+        console.error('[order-core] reward refund reversal failed:', error?.message || error);
+      });
+      await restoreRedeemedPointsAfterRefund(result.orderDocumentId, db).catch(error => {
+        console.error('[order-core] redemption refund restore failed:', error?.message || error);
+      });
+    }
+    return { ...result, emailFlush: flushPaymentEmails(db, result) };
+  });
 }
 
 // POST-COMMIT EMAIL FLUSH for payment events. Returns a promise that routes

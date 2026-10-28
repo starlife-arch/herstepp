@@ -133,6 +133,9 @@ async function applyWrite(store, op) {
   const docs = store.collections.get(op.collection);
   if (op.type === 'delete') {
     docs.delete(op.id);
+  } else if (op.type === 'create') {
+    if (docs.has(op.id)) throw new Error(`FakeFirestore: cannot create existing doc ${op.collection}/${op.id}`);
+    docs.set(op.id, op.value);
   } else if (op.type === 'set') {
     const existing = docs.get(op.id) || {};
     docs.set(op.id, op.options?.merge ? { ...existing, ...op.value } : op.value);
@@ -201,6 +204,11 @@ export function createFakeDb() {
         getAll(...refs) {
           assertReadBeforeWrite();
           return Promise.all(refs.map(r => tx.get(r)));
+        },
+        create(ref, value) {
+          validateWritePaths(value, `create ${ref.path}`);
+          wrote = true;
+          buffer.push({ type: 'create', collection: ref.path.split('/')[0], id: ref.id, value: deepClone(value) });
         },
         set(ref, value, options) {
           validateWritePaths(value, `set ${ref.path}`);

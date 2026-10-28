@@ -2,6 +2,8 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { adminDb } from './firebase-admin.js';
 import { calculateOutstandingLiability, pointsAllowedUnderLiabilityCap } from './rewards-liability.js';
 
+const rewardTimestamp = db => typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : FieldValue.serverTimestamp();
+
 const safePoints = (amount, rate, cap) => Math.max(0, Math.min(
   Math.floor(Math.max(0, Number(amount) || 0) * Math.max(0, Number(rate) || 0)),
   Math.max(0, Math.floor(Number(cap) || 0))
@@ -22,7 +24,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
   const sellerLedgerRef = db.collection('rewardLedger').doc(Buffer.from(`seller-delivery:${orderDocumentId}:${sellerUid}`).toString('base64url'));
   await db.runTransaction(async tx => {
     const [orderSnap, configSnap, sellerAccountSnap, sellerEntrySnap, ledgerSnap] = await Promise.all([
-      tx.get(orderRef), tx.get(configRef), tx.get(sellerAccountRef), tx.get(sellerLedgerRef), tx.get(db.collection('rewardLedger'))
+      tx.get(orderRef), tx.get(configRef), tx.get(sellerAccountRef), tx.get(sellerLedgerRef), tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED'))
     ]);
     if (!orderSnap.exists || sellerEntrySnap.exists) return;
     const order = orderSnap.data() || {};
@@ -37,7 +39,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
     const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
     if (!points) return;
-    const now = FieldValue.serverTimestamp();
+    const now = typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : rewardTimestamp(db);
     const expiry = expiration(config.expiryDays);
     const oldBalance = Math.max(0, Number(sellerAccountSnap.data()?.pointsBalance) || 0);
     tx.create(sellerLedgerRef, {
@@ -71,7 +73,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     if (!sellerItemsDelivered || !firstPartyDelivered) return;
     const buyerAccountRef = db.collection('rewardAccounts').doc(buyerUid);
     const configRef = db.collection('rewardsConfig').doc('current');
-    const [configSnap, accountSnap, entrySnap, ledgerSnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef), tx.get(db.collection('rewardLedger'))]);
+    const [configSnap, accountSnap, entrySnap, ledgerSnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef), tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED'))]);
     if (entrySnap.exists) return;
     const config = configSnap.data() || {};
     if (config.enabled !== true || config.buyer?.enabled === false) return;
@@ -80,7 +82,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
     const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
     if (!points) return;
-    const now = FieldValue.serverTimestamp();
+    const now = rewardTimestamp(db);
     const expiry = expiration(config.expiryDays);
     tx.create(buyerLedgerRef, {
       uid: buyerUid, accountType: 'BUYER', type: 'EARN', points, amountKes: spend,
