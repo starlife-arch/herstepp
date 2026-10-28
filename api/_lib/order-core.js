@@ -913,7 +913,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
 
     return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: [...queuedEmailKeys, ...marketplaceEmailKeys], smsKey };
   }).then(async result => {
-    if (result.status === PAYMENT_STATUS.REFUNDED && !result.duplicate && result.orderDocumentId) {
+    if (result.status === PAYMENT_STATUS.REFUNDED && result.orderDocumentId) {
       await reverseMarketplaceOrderRewards(result.orderDocumentId, db).catch(error => {
         console.error('[order-core] reward refund reversal failed:', error?.message || error);
       });
