@@ -683,7 +683,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
           const account = rewardAccountSnap?.data() || {};
           tx.set(rewardAccountRef, { uid: rewardReservation.uid, pointsBalance: Math.max(0, Number(account.pointsBalance) || 0) + pointsToRestore, updatedAt: deps.serverTimestamp() }, { merge: true });
           const config = rewardConfigSnap?.data() || {};
-          const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).filter(doc => doc.id !== rewardReservationRef.id).map(doc => doc.data());
+          const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).map(doc => doc.data());
           liabilityEntries.push({ status: 'POSTED', points: pointsToRestore });
           tx.set(rewardConfigRef, { outstandingLiabilityKes: calculateOutstandingLiability(liabilityEntries, config.pointValueKes), liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
         }
