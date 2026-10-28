@@ -177,7 +177,9 @@ export default function Checkout() {
   };
   const deliveryFee = estimateDeliveryFee();
   const totalBeforeRewards = subtotal + deliveryFee - (promo?.discount || 0);
-  const estimatedRewardDiscount = rewardInfo?.redemptionEnabled && rewardPoints > 0
+  const minimumRewardPoints = Math.max(100, Number(rewardInfo?.minRedeemPoints) || 100);
+  const rewardPointsBelowMinimum = rewardPoints > 0 && rewardPoints < minimumRewardPoints;
+  const estimatedRewardDiscount = rewardInfo?.redemptionEnabled && rewardPoints >= minimumRewardPoints
     ? Math.min(Math.floor(rewardPoints * (Number(rewardInfo.pointValueKes) || 0)), Math.floor(totalBeforeRewards * Math.min(80, Math.max(0, Number(rewardInfo.maxRedemptionPercent) || 0)) / 100), Math.max(0, totalBeforeRewards - 1))
     : 0;
   const estimatedTotal = totalBeforeRewards - estimatedRewardDiscount;
@@ -709,8 +711,10 @@ export default function Checkout() {
                     <label htmlFor="reward-points" className="text-sm font-medium text-neutral-800">Use reward points</label>
                     <span className="text-xs text-neutral-500">{Number(rewardInfo.pointsBalance).toLocaleString()} available</span>
                   </div>
-                  <input id="reward-points" type="number" min={0} max={Number(rewardInfo.pointsBalance)} step={1} value={rewardPoints || ''} onChange={event => setRewardPoints(Math.max(0, Math.min(Number(rewardInfo.pointsBalance) || 0, Math.floor(Number(event.target.value) || 0))))} placeholder={`Minimum ${rewardInfo.minRedeemPoints} points`} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
-                  {estimatedRewardDiscount > 0 && <p className="text-xs text-emerald-700">Estimated reward discount: -{formatCurrency(estimatedRewardDiscount)}. The server checks the final eligible amount.</p>}
+                  <input id="reward-points" type="number" min={minimumRewardPoints} max={Number(rewardInfo.pointsBalance)} step={1} value={rewardPoints || ''} onChange={event => setRewardPoints(Math.max(0, Math.min(Number(rewardInfo.pointsBalance) || 0, Math.floor(Number(event.target.value) || 0))))} placeholder={`Minimum ${minimumRewardPoints} points`} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
+                  <p className="text-xs text-neutral-500">100 points = KSh 10. Promo codes are separate and do not use reward points.</p>
+                  {rewardPointsBelowMinimum && <p role="alert" className="text-xs text-amber-700">Use at least {minimumRewardPoints} points to redeem. No reward discount has been applied.</p>}
+                  {estimatedRewardDiscount > 0 && <p className="text-xs text-emerald-700">Estimated reward discount: -{formatCurrency(estimatedRewardDiscount)}. The promo discount is separate; the server confirms the final amount.</p>}
                 </div>
               )}
               <div className="pt-2">
