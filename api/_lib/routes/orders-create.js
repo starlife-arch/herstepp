@@ -71,7 +71,7 @@ export async function create(req, res) {
   // SPEED: expireStaleOrders is NOT run on the hot path any more (it used to
   // add seconds to every order). Housekeeping runs from GET /api/admin/orders,
   // GET /api/dashboard and best-effort AFTER this response is sent.
-  const { cart, delivery, promoCode } = req.body || {};
+  const { cart, delivery, promoCode, rewardPoints = 0 } = req.body || {};
   // Email comes from the VERIFIED TOKEN only — the client never has to send
   // delivery.email (that was the "Email address is required." 400 bug).
   const tokenEmail = typeof u.email === 'string' ? u.email.trim().toLowerCase() : '';
@@ -86,6 +86,7 @@ export async function create(req, res) {
     cart,
     delivery,
     promoCode,
+    rewardPoints,
   });
   return res.status(201).json(result);
 }
