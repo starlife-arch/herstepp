@@ -25,4 +25,6 @@ jobs:
           cat /tmp/firebase-test-key.pem >> "$GITHUB_ENV"
           echo 'FIREBASE_KEY_EOF' >> "$GITHUB_ENV"
       - run: npm test
-      - run: npm run build
+      - name: Build production bundle
+        if: always()
+        run: npm run build
