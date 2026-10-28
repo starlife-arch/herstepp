@@ -34,6 +34,7 @@ import AdminMarketplaceControls from './pages/AdminMarketplaceControls';
 import AdminPromotionWallets from './pages/AdminPromotionWallets';
 import AdminRewards from './pages/AdminRewards';
 import SellerDashboard from './pages/SellerDashboard';
+import SellerPlans from './pages/SellerPlans';
 import SellerProfile from './pages/SellerProfile';
 import SellerProducts from './pages/SellerProducts';
 import SellerPromotionWallet from './pages/SellerPromotionWallet';
@@ -71,6 +72,7 @@ function AppRoutes() {
   <Route path="/messages" element={<Wrap><RequireAuth><MarketplaceMessages /></RequireAuth></Wrap>} />
   <Route path="/seller/apply" element={<Wrap><RequireAuth><SellerApplicationPage /></RequireAuth></Wrap>} />
   <Route path="/seller/dashboard" element={<Wrap><RequireAuth><SellerDashboard /></RequireAuth></Wrap>} />
+  <Route path="/seller/plans" element={<Wrap><RequireAuth><SellerPlans /></RequireAuth></Wrap>} />
   <Route path="/seller/profile" element={<Wrap><RequireAuth><SellerProfile /></RequireAuth></Wrap>} />
   <Route path="/seller/products" element={<Wrap><RequireAuth><SellerProducts /></RequireAuth></Wrap>} />
   <Route path="/seller/promotions" element={<Wrap><RequireAuth><SellerPromotionWallet /></RequireAuth></Wrap>} />
