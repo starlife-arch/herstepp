@@ -66,6 +66,8 @@ export default function SellerDashboard() {
   const [paymentNotice, setPaymentNotice] = useState('');
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [payment, setPayment] = useState<SellerPayment>(null);
+  const [rewardInfo, setRewardInfo] = useState<any>(null);
+  const [rewardBusyPlan, setRewardBusyPlan] = useState<string | null>(null);
   const [idempotencyKeys, setIdempotencyKeys] = useState<Record<string, string>>({});
   const [promotionProducts, setPromotionProducts] = useState<{ id: string; name: string; promotedUntil: string | null }[]>([]);
   const [promotionProductId, setPromotionProductId] = useState('');
@@ -106,6 +108,7 @@ export default function SellerDashboard() {
 
   useEffect(() => {
     if (seller?.status !== 'ACTIVE') return;
+    apiFetch('/api/rewards/account').then(setRewardInfo).catch(() => setRewardInfo(null));
     let active = true;
     apiFetch('/api/sellers/payouts').then((result: any) => {
       if (active) setPayoutData(result);
@@ -156,6 +159,19 @@ export default function SellerDashboard() {
     } finally {
       setPaymentBusy(false);
     }
+  }
+
+  async function redeemPlanWithRewards(planCode: string) {
+    setRewardBusyPlan(planCode); setPaymentError(''); setPaymentNotice('');
+    try {
+      const result: any = await apiFetch('/api/sellers/subscription', { method: 'POST', body: JSON.stringify({ action: 'REDEEM_REWARDS', planCode, idempotencyKey: 'seller-reward-' + crypto.randomUUID() }) });
+      const current = result.payment || {};
+      setPayment({ paymentId: current.paymentId, status: current.status || 'PAID', amount: current.amount, currency: 'KES', planCode: current.planCode || planCode });
+      setPaymentNotice(result.message || 'Reward redemption confirmed and subscription activated.');
+      const refreshed: any = await apiFetch('/api/rewards/account'); setRewardInfo(refreshed);
+      await refreshDashboard();
+    } catch (err: any) { setPaymentError(err?.message || 'Could not redeem points for this plan.'); }
+    finally { setRewardBusyPlan(null); }
   }
 
   async function checkPaymentStatus() {
@@ -394,6 +410,13 @@ export default function SellerDashboard() {
             <Button variant="outline" className="mt-5 w-full" disabled={!approved || suspended || paymentBusy} onClick={() => { setSelectedPlan(plan.code); setPaymentError(''); }}>
               <CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Please wait…' : subscriptionActive ? (seller?.planCode === plan.code ? 'Renew this plan' : 'Switch to ' + plan.name) : approved ? 'Pay with M-Pesa' : 'Approval required'}
             </Button>
+            {rewardInfo?.redemptionEnabled && <div className="mt-3 border-t pt-3">
+              <p className="text-xs text-neutral-600">Reward balance: {Number(rewardInfo.pointsBalance || 0).toLocaleString()} points</p>
+              <p className="text-xs text-neutral-600">Requires {Math.ceil((plan.price + 50) / (Number(rewardInfo.pointValueKes) || 0.1)).toLocaleString()} points for one month</p>
+              <Button className="mt-2 w-full" disabled={!approved || suspended || !!rewardBusyPlan || Number(rewardInfo.pointsBalance || 0) < Math.ceil((plan.price + 50) / (Number(rewardInfo.pointValueKes) || 0.1))} onClick={() => void redeemPlanWithRewards(plan.code)}>
+                {rewardBusyPlan === plan.code ? 'Redeeming…' : 'Pay with reward points'}
+              </Button>
+            </div>}
           </Card>
         ))}
       </div>
