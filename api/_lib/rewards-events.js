@@ -42,31 +42,5 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     });
     tx.set(sellerAccountRef, { uid: sellerUid, pointsBalance: oldBalance + points, updatedAt: now }, { merge: true });
 
-    // Buyer earns only when every marketplace seller on the paid order has
-    // marked their own items delivered. The deterministic key prevents repeats.
-    const buyerUid = String(order.customerId || '').trim();
-    const allSellers = [...new Set((Array.isArray(order.items) ? order.items : []).map(sellerOf).filter(Boolean))];
-    const buyerEligible = buyerUid && allSellers.length > 0 && allSellers.every(uid =>
-      String(uid === sellerUid ? 'DELIVERED' : order.sellerFulfilment?.[uid]?.status || '').toUpperCase() === 'DELIVERED'
-    );
-    if (buyerEligible) {
-      const buyerLedgerRef = adminDb.collection('rewardLedger').doc(Buffer.from(`buyer-order-delivery:${orderDocumentId}`).toString('base64url'));
-      const buyerAccountRef = adminDb.collection('rewardAccounts').doc(buyerUid);
-      const [buyerEntrySnap, buyerAccountSnap] = await Promise.all([tx.get(buyerLedgerRef), tx.get(buyerAccountRef)]);
-      if (!buyerEntrySnap.exists && config.buyer?.enabled !== false) {
-        const eligibleSpend = Math.max(0, Number(order.subtotal ?? order.itemsSubtotal ?? allSellers.reduce((sum, uid) => sum + (Array.isArray(order.items) ? order.items.filter(item => sellerOf(item) === uid).reduce((s, item) => s + lineAmount(item), 0) : 0), 0)) || 0);
-        const buyerPoints = safePoints(eligibleSpend, config.pointsPerKes, config.buyer?.maxPointsPerOrder);
-        if (buyerPoints > 0) {
-          const buyerOldBalance = Math.max(0, Number(buyerAccountSnap.data()?.pointsBalance) || 0);
-          tx.create(buyerLedgerRef, {
-            uid: buyerUid, accountType: 'BUYER', type: 'EARN', points: buyerPoints,
-            amountKes: eligibleSpend, reason: 'Completed, paid marketplace order',
-            orderId: order.orderId || orderDocumentId, orderDocumentId, status: 'POSTED',
-            idempotencyKey: buyerLedgerRef.id, createdAt: now, ...(expiry ? { expiresAt: expiry } : {})
-          });
-          tx.set(buyerAccountRef, { uid: buyerUid, pointsBalance: buyerOldBalance + buyerPoints, updatedAt: now }, { merge: true });
-        }
-      }
-    }
   });
 }
