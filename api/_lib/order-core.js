@@ -10,6 +10,7 @@ import { queuePaymentEmail, queueMarketplaceSaleInvoices, queueInvoiceReadyNotif
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
+import { reverseMarketplaceOrderRewards } from './rewards-refunds.js';
 
 export const ORDER_STATUS = {
   PENDING: 'PENDING',
@@ -786,7 +787,14 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     }
 
     return { duplicate: false, status, paymentId: paymentRef.id, orderDocumentId: payment.orderDocumentId, restored, lateSuccess: LATE_SUCCESS, emailKeys: [...queuedEmailKeys, ...marketplaceEmailKeys], smsKey };
-  }).then(result => ({ ...result, emailFlush: flushPaymentEmails(db, result) }));
+  }).then(async result => {
+    if (result.status === PAYMENT_STATUS.REFUNDED && !result.duplicate && result.orderDocumentId) {
+      await reverseMarketplaceOrderRewards(result.orderDocumentId, db).catch(error => {
+        console.error('[order-core] reward refund reversal failed:', error?.message || error);
+      });
+    }
+    return { ...result, emailFlush: flushPaymentEmails(db, result) };
+  });
 }
 
 // POST-COMMIT EMAIL FLUSH for payment events. Returns a promise that routes
