@@ -7,7 +7,7 @@ import { calculateOutstandingLiability } from './rewards-liability.js';
  * The refund event itself must already have been verified by the payment
  * provider. This function never trusts a client-supplied refund status.
  */
-const timestamp = db => typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : timestamp(db);
+const timestamp = db => typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : FieldValue.serverTimestamp();
 
 export async function reverseMarketplaceOrderRewards(orderDocumentId, db = adminDb) {
   if (typeof orderDocumentId !== 'string' || !orderDocumentId) return { reversed: 0 };
