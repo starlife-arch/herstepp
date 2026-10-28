@@ -1,6 +1,14 @@
 {
   "rewrites": [
     {
+      "source": "/api/admin/rewards",
+      "destination": "/api/admin?route=rewards"
+    },
+    {
+      "source": "/api/rewards",
+      "destination": "/api/users?route=rewards"
+    },
+    {
       "source": "/api/admin/promotion-wallets",
       "destination": "/api/admin?route=promotion-wallets"
     },

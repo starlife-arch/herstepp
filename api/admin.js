@@ -10,6 +10,7 @@ export default (req, res) => dispatchRoute(req, res, {
   'seller-products': lazyRoute(() => import('./_lib/routes/admin-seller-products.js')),
   'promotion-wallets': lazyRoute(() => import('./_lib/routes/seller-promotion-wallet.js').then(m => ({ default: m.adminPromotionWallets }))),
   'marketplace-controls': lazyRoute(() => import('./_lib/routes/admin-marketplace-controls.js')),
+  'rewards': lazyRoute(() => import('./_lib/routes/admin-rewards.js')),
   'marketplace-reports': lazyRoute(() => import('./_lib/routes/marketplace-reports.js').then(m => ({ default: m.admin }))),
   products: lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.products }))),
   'product-update': lazyRoute(() => import('./_lib/routes/admin-products.js').then(m => ({ default: m.productUpdate }))),
