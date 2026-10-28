@@ -355,6 +355,13 @@ export async function adminOrders(req, res) {
             readAt: null, createdAt: now,
           });
         });
+        // This branch returns early, so run the delivery-rewards check here too.
+        // It matters when seller items were delivered first and HerStep-owned
+        // items are the final fulfilment event in a mixed basket.
+        if (requested === 'DELIVERED') {
+          try { await awardMarketplaceDeliveryRewards(orderDocumentId, a.uid); }
+          catch (error) { console.error('[rewards] First-party delivery reward check failed:', error?.message || String(error)); }
+        }
         return res.json({ ok: true, message: 'Updated fulfilment for HerStep-owned items only. Marketplace sellers manage their own items separately.' });
       }
       throw clientError('This is a marketplace seller order. Sellers manage fulfilment from their Seller Dashboard; use marketplace admin tools for reports, disputes, moderation, and refunds.', 409);
