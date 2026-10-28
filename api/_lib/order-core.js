@@ -10,6 +10,7 @@ import { queuePaymentEmail, queueMarketplaceSaleInvoices, queueInvoiceReadyNotif
 import { deliveryFee as calculateDeliveryFee } from './delivery.js';
 import { normalisePromoCode, calculatePromoDiscount } from './promotion.js';
 import { invoiceNumberFor } from './invoice-number.js';
+import { calculateOutstandingLiability } from './rewards-liability.js';
 import { reverseMarketplaceOrderRewards } from './rewards-refunds.js';
 
 export const ORDER_STATUS = {
@@ -272,6 +273,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
     let rewardAccountRef = null;
     let rewardAccountSnap = null;
     let rewardReservationRef = null;
+    let rewardAllPostedLedgerSnap = null;
     if (requestedRewardPoints > 0) {
       const rewardConfigSnap = await tx.get(db.collection('rewardsConfig').doc('current'));
       rewardConfig = rewardConfigSnap.data() || {};
@@ -294,6 +296,7 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       rewardPointsRedeemed = Math.min(requestedRewardPoints, Math.floor(maxDiscount / pointValue));
       rewardDiscountKes = Math.floor(rewardPointsRedeemed * pointValue);
       if (rewardPointsRedeemed < minPoints || rewardDiscountKes < 1) throw clientError('The selected points cannot be applied to this order.');
+      rewardAllPostedLedgerSnap = await tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED'));
       rewardAccountRef = db.collection('rewardAccounts').doc(uid);
       rewardAccountSnap = await tx.get(rewardAccountRef);
       rewardReservationRef = db.collection('rewardLedger').doc(Buffer.from(`checkout-redeem:${orderRef.id}`).toString('base64url'));
@@ -363,7 +366,9 @@ export async function createOrderCore(db, deps, { uid, email, emailVerified, car
       });
       tx.set(rewardAccountRef, { uid, pointsBalance: Math.max(0, previousBalance - rewardPointsRedeemed), updatedAt: deps.serverTimestamp() }, { merge: true });
       const pointValue = Math.max(0.001, Number(rewardConfig?.pointValueKes) || 0.1);
-      tx.set(db.collection('rewardsConfig').doc('current'), { outstandingLiabilityKes: Math.max(0, Number(rewardConfig?.outstandingLiabilityKes) || 0) - rewardDiscountKes, liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
+      const liabilityEntries = (rewardAllPostedLedgerSnap?.docs || []).map(doc => doc.data());
+      liabilityEntries.push({ status: 'POSTED', points: -rewardPointsRedeemed });
+      tx.set(db.collection('rewardsConfig').doc('current'), { outstandingLiabilityKes: calculateOutstandingLiability(liabilityEntries, pointValue), liabilityUpdatedAt: deps.serverTimestamp() }, { merge: true });
     }
 
     for (const p of plan) {
@@ -529,6 +534,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const rewardRestoreSnap = rewardRestoreRef ? await tx.get(rewardRestoreRef) : null;
     const rewardConfigRef = rewardReservation ? db.collection('rewardsConfig').doc('current') : null;
     const rewardConfigSnap = rewardConfigRef ? await tx.get(rewardConfigRef) : null;
+    const rewardAllPostedLedgerSnap = rewardReservation ? await tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED')) : null;
     const lateRedemptionRef = status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true
       ? db.collection('rewardLedger').doc(base64url(`checkout-late-redeem:${payment.orderDocumentId}`)) : null;
     const lateRedemptionSnap = lateRedemptionRef ? await tx.get(lateRedemptionRef) : null;
