@@ -167,6 +167,51 @@ export default async function sellerPromotionWallet(req, res) {
   }
   if (req.method !== 'POST') return methodNotAllowed(res, 'GET, POST');
   const action = clean(req.body?.action).toUpperCase();
+  if (action === 'REDEEM_REWARDS') {
+    const requestedPoints = Number(req.body?.points);
+    const key = clean(req.body?.idempotencyKey);
+    if (!Number.isSafeInteger(requestedPoints) || requestedPoints < 100 || requestedPoints % 100 !== 0) throw clientError('Redeem at least 100 points, in multiples of 100.');
+    if (!/^[A-Za-z0-9_-]{12,100}$/.test(key)) throw clientError('A valid redemption request key is required.');
+    const redemptionId = createHash('sha256').update('seller-promotion-wallet-rewards:' + user.uid + ':' + key).digest('hex');
+    const rewardConfigRef = adminDb.collection('rewardsConfig').doc('current');
+    const rewardRef = adminDb.collection('rewardLedger').doc(redemptionId);
+    const walletRef = adminDb.collection('sellerPromotionWallets').doc(user.uid);
+    const walletLedgerRef = adminDb.collection('sellerPromotionWalletLedger').doc(redemptionId);
+    const result = await adminDb.runTransaction(async tx => {
+      const [configSnap, existingReward, existingWalletLedger, userLedger, allLedger, walletSnap] = await Promise.all([
+        tx.get(rewardConfigRef), tx.get(rewardRef), tx.get(walletLedgerRef),
+        tx.get(adminDb.collection('rewardLedger').where('uid', '==', user.uid)),
+        tx.get(adminDb.collection('rewardLedger').where('status', '==', 'POSTED')), tx.get(walletRef),
+      ]);
+      if (existingReward.exists || existingWalletLedger.exists) return { duplicate: true, wallet: { availableBalance: Number(walletSnap.data()?.availableBalance || 0) } };
+      const config = configSnap.data() || {};
+      if (config.enabled !== true || config.seller?.enabled === false || config.seller?.redemptionEnabled !== true || !Array.isArray(config.seller?.redemptionTargets) || !config.seller.redemptionTargets.includes('PROMOTIONS')) throw clientError('Seller reward redemption for promotions is not enabled by the administrator.');
+      const pointValue = Math.max(0.001, Number(config.pointValueKes) || 0.1);
+      const amount = requestedPoints * pointValue;
+      if (!Number.isSafeInteger(amount) || amount < 10) throw clientError('Reward points must convert to a whole KSh amount of at least KSh 10.');
+      const minPoints = Math.max(1, Math.floor(Number(config.seller?.minRedeemPoints) || 100));
+      if (requestedPoints < minPoints) throw clientError(`Redeem at least ${minPoints} points.`);
+      const nowMs = Date.now();
+      const balance = userLedger.docs.reduce((sum, doc) => {
+        const e = doc.data() || {}; if (String(e.status || 'POSTED').toUpperCase() !== 'POSTED') return sum;
+        const expires = e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null);
+        const p = Number(e.points) || 0; if (p > 0 && expires != null && expires <= nowMs) return sum; return sum + p;
+      }, 0);
+      if (balance < requestedPoints) throw clientError('You do not have enough unexpired reward points.', 409);
+      const wallet = walletSnap.data() || {}; const timestamp = FieldValue.serverTimestamp();
+      tx.create(rewardRef, { uid: user.uid, accountType: 'SELLER', type: 'REDEEM', points: -requestedPoints, amountKes: amount, reason: 'Redeemed reward points into seller promotion wallet', status: 'POSTED', idempotencyKey: redemptionId, target: 'PROMOTIONS', createdAt: timestamp });
+      tx.set(walletRef, { sellerUid: user.uid, availableBalance: Number(wallet.availableBalance || 0) + amount, totalDeposited: Number(wallet.totalDeposited || 0), totalSpent: Number(wallet.totalSpent || 0), updatedAt: timestamp }, { merge: true });
+      tx.create(walletLedgerRef, { sellerUid: user.uid, type: 'REWARD_REDEMPTION', amount, balanceDelta: amount, rewardPoints: requestedPoints, redemptionId, createdAt: timestamp });
+      const entries = allLedger.docs.map(doc => doc.data() || {}); entries.push({ status: 'POSTED', points: -requestedPoints });
+      const liability = entries.reduce((sum, e) => {
+        const p = Number(e.points) || 0; const expires = e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null);
+        if (p > 0 && expires != null && expires <= nowMs) return sum; return sum + p;
+      }, 0) * pointValue;
+      tx.set(rewardConfigRef, { outstandingLiabilityKes: Math.max(0, Math.round(liability * 100) / 100), liabilityUpdatedAt: timestamp }, { merge: true });
+      return { duplicate: false, pointsRedeemed: requestedPoints, amountAdded: amount, wallet: { availableBalance: Number(wallet.availableBalance || 0) + amount } };
+    });
+    return res.status(200).json({ ...result, message: result.duplicate ? 'This reward redemption was already processed.' : 'Reward points added to your promotion wallet.' });
+  }
   if (action === 'TOP_UP') return res.status(202).json(await startTopup(user.uid, req.body));
   if (action === 'PROMOTE') return res.status(201).json(await startCampaign(user.uid, req.body));
   throw clientError('Choose TOP_UP or PROMOTE.');
