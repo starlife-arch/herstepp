@@ -1,16 +1,11 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { adminDb } from './firebase-admin.js';
+import { calculateOutstandingLiability, pointsAllowedUnderLiabilityCap } from './rewards-liability.js';
 
 const safePoints = (amount, rate, cap) => Math.max(0, Math.min(
   Math.floor(Math.max(0, Number(amount) || 0) * Math.max(0, Number(rate) || 0)),
   Math.max(0, Math.floor(Number(cap) || 0))
 ));
-const liabilityPoints = (requested, config, outstandingKes) => {
-  const pointValue = Math.max(0.001, Number(config.pointValueKes) || 0.1);
-  const capKes = Math.max(0, Number(config.maxLiabilityKes) || 0);
-  const availableKes = Math.max(0, capKes - Math.max(0, Number(outstandingKes) || 0));
-  return Math.max(0, Math.min(Math.floor(Number(requested) || 0), Math.floor((availableKes + 1e-9) / pointValue)));
-};
 const expiration = days => Number(days) > 0 ? Timestamp.fromDate(new Date(Date.now() + Number(days) * 86400000)) : null;
 const sellerOf = item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim();
 const lineAmount = item => Math.max(0, Number(item?.lineTotal ?? item?.total ?? ((Number(item?.unitPrice) || 0) * (Number(item?.quantity) || 0))) || 0);
@@ -20,14 +15,14 @@ const lineAmount = item => Math.max(0, Number(item?.lineTotal ?? item?.total ?? 
  * re-reads the paid order and current config and uses deterministic ledger IDs
  * so retries cannot award the same event twice.
  */
-export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid) {
-  const orderRef = adminDb.collection('orders').doc(orderDocumentId);
-  const configRef = adminDb.collection('rewardsConfig').doc('current');
-  const sellerAccountRef = adminDb.collection('rewardAccounts').doc(sellerUid);
-  const sellerLedgerRef = adminDb.collection('rewardLedger').doc(Buffer.from(`seller-delivery:${orderDocumentId}:${sellerUid}`).toString('base64url'));
-  await adminDb.runTransaction(async tx => {
-    const [orderSnap, configSnap, sellerAccountSnap, sellerEntrySnap] = await Promise.all([
-      tx.get(orderRef), tx.get(configRef), tx.get(sellerAccountRef), tx.get(sellerLedgerRef)
+export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid, db = adminDb) {
+  const orderRef = db.collection('orders').doc(orderDocumentId);
+  const configRef = db.collection('rewardsConfig').doc('current');
+  const sellerAccountRef = db.collection('rewardAccounts').doc(sellerUid);
+  const sellerLedgerRef = db.collection('rewardLedger').doc(Buffer.from(`seller-delivery:${orderDocumentId}:${sellerUid}`).toString('base64url'));
+  await db.runTransaction(async tx => {
+    const [orderSnap, configSnap, sellerAccountSnap, sellerEntrySnap, ledgerSnap] = await Promise.all([
+      tx.get(orderRef), tx.get(configRef), tx.get(sellerAccountRef), tx.get(sellerLedgerRef), tx.get(db.collection('rewardLedger'))
     ]);
     if (!orderSnap.exists || sellerEntrySnap.exists) return;
     const order = orderSnap.data() || {};
@@ -39,7 +34,8 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     if (!ownItems.length) return;
     const gross = ownItems.reduce((sum, item) => sum + lineAmount(item), 0);
     const requestedPoints = safePoints(gross, config.pointsPerKes, config.seller?.maxPointsPerOrder);
-    const points = liabilityPoints(requestedPoints, config, config.outstandingLiabilityKes);
+    const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
+    const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
     if (!points) return;
     const now = FieldValue.serverTimestamp();
     const expiry = expiration(config.expiryDays);
@@ -51,13 +47,13 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
       createdAt: now, ...(expiry ? { expiresAt: expiry } : {})
     });
     tx.set(sellerAccountRef, { uid: sellerUid, pointsBalance: oldBalance + points, updatedAt: now }, { merge: true });
-    tx.set(configRef, { outstandingLiabilityKes: Math.max(0, Number(config.outstandingLiabilityKes) || 0) + points * Math.max(0.001, Number(config.pointValueKes) || 0.1), liabilityUpdatedAt: now }, { merge: true });
+    tx.set(configRef, { outstandingLiabilityKes: outstandingKes + points * Math.max(0.001, Number(config.pointValueKes) || 0.1), liabilityUpdatedAt: now }, { merge: true });
 
   });
   // Buyer points are awarded in a separate idempotent transaction only after
   // every seller on the paid order has marked their fulfilment delivered.
-  const buyerLedgerRef = adminDb.collection('rewardLedger').doc(Buffer.from(`buyer-order-delivery:${orderDocumentId}`).toString('base64url'));
-  await adminDb.runTransaction(async tx => {
+  const buyerLedgerRef = db.collection('rewardLedger').doc(Buffer.from(`buyer-order-delivery:${orderDocumentId}`).toString('base64url'));
+  await db.runTransaction(async tx => {
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists) return;
     const order = orderSnap.data() || {};
@@ -73,15 +69,16 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const firstPartyDelivered = !hasFirstPartyItems
       || String(order.firstPartyFulfilment?.status || '').toUpperCase() === 'DELIVERED';
     if (!sellerItemsDelivered || !firstPartyDelivered) return;
-    const buyerAccountRef = adminDb.collection('rewardAccounts').doc(buyerUid);
-    const configRef = adminDb.collection('rewardsConfig').doc('current');
-    const [configSnap, accountSnap, entrySnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef)]);
+    const buyerAccountRef = db.collection('rewardAccounts').doc(buyerUid);
+    const configRef = db.collection('rewardsConfig').doc('current');
+    const [configSnap, accountSnap, entrySnap, ledgerSnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef), tx.get(db.collection('rewardLedger'))]);
     if (entrySnap.exists) return;
     const config = configSnap.data() || {};
     if (config.enabled !== true || config.buyer?.enabled === false) return;
     const spend = items.reduce((sum, item) => sum + lineAmount(item), 0);
     const requestedPoints = safePoints(spend, config.pointsPerKes, config.buyer?.maxPointsPerOrder);
-    const points = liabilityPoints(requestedPoints, config, config.outstandingLiabilityKes);
+    const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
+    const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
     if (!points) return;
     const now = FieldValue.serverTimestamp();
     const expiry = expiration(config.expiryDays);
@@ -92,6 +89,6 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
       ...(expiry ? { expiresAt: expiry } : {})
     });
     tx.set(buyerAccountRef, { uid: buyerUid, pointsBalance: Math.max(0, Number(accountSnap.data()?.pointsBalance) || 0) + points, updatedAt: now }, { merge: true });
-    tx.set(configRef, { outstandingLiabilityKes: Math.max(0, Number(config.outstandingLiabilityKes) || 0) + points * Math.max(0.001, Number(config.pointValueKes) || 0.1), liabilityUpdatedAt: now }, { merge: true });
+    tx.set(configRef, { outstandingLiabilityKes: outstandingKes + points * Math.max(0.001, Number(config.pointValueKes) || 0.1), liabilityUpdatedAt: now }, { merge: true });
   });
 }
