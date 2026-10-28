@@ -7,6 +7,8 @@ import { calculateOutstandingLiability } from './rewards-liability.js';
  * The refund event itself must already have been verified by the payment
  * provider. This function never trusts a client-supplied refund status.
  */
+const timestamp = db => typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : timestamp(db);
+
 export async function reverseMarketplaceOrderRewards(orderDocumentId, db = adminDb) {
   if (typeof orderDocumentId !== 'string' || !orderDocumentId) return { reversed: 0 };
   const orderRef = db.collection('orders').doc(orderDocumentId);
@@ -43,11 +45,11 @@ export async function reverseMarketplaceOrderRewards(orderDocumentId, db = admin
         points: -points, reason: 'Reward points reversed after verified order refund',
         orderId: order.orderId || orderDocumentId, orderDocumentId,
         reversesLedgerId: awards[i].id, status: 'POSTED',
-        idempotencyKey: reversalRefs[i].id, createdAt: FieldValue.serverTimestamp(),
+        idempotencyKey: reversalRefs[i].id, createdAt: timestamp(db),
       });
       tx.set(accountRef, {
         uid, pointsBalance: Math.max(0, Number(account.pointsBalance) - points || 0),
-        updatedAt: FieldValue.serverTimestamp(),
+        updatedAt: timestamp(db),
       }, { merge: true });
       resultingLedger.push({ uid, type: 'REFUND_REVERSAL', points: -points, status: 'POSTED' });
       reversed += 1;
@@ -56,7 +58,7 @@ export async function reverseMarketplaceOrderRewards(orderDocumentId, db = admin
       const config = configSnap.data() || {};
       const liability = calculateOutstandingLiability(resultingLedger, config.pointValueKes);
       tx.set(db.collection('rewardsConfig').doc('current'), {
-        outstandingLiabilityKes: liability, liabilityUpdatedAt: FieldValue.serverTimestamp(),
+        outstandingLiabilityKes: liability, liabilityUpdatedAt: timestamp(db),
       }, { merge: true });
     }
     return { reversed };
