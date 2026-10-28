@@ -24,7 +24,12 @@ jobs:
           echo 'FIREBASE_ADMIN_PRIVATE_KEY<<FIREBASE_KEY_EOF' >> "$GITHUB_ENV"
           cat /tmp/firebase-test-key.pem >> "$GITHUB_ENV"
           echo 'FIREBASE_KEY_EOF' >> "$GITHUB_ENV"
-      - run: npm test
+      - run: npm run check:api
+      - run: npm run typecheck
+      - run: node scripts/test-rewards-liability.mjs
+      - run: node scripts/test-rewards-awards.mjs
+      - run: node scripts/test-reward-checkout.mjs
+      - run: node scripts/test-rewards-refunds.mjs
       - name: Build production bundle
         if: always()
         run: npm run build
