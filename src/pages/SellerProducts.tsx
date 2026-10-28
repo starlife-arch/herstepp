@@ -201,7 +201,13 @@ export default function SellerProducts() {
           images,
         }),
       });
-      setDrafts(old => editingId ? old.map(item => item.id === editingId ? result.product : item) : [result.product, ...old]);
+      if (editingId) {
+        // Refresh from the API because a published listing's public ID may
+        // differ from the sellerProducts mirror document ID.
+        await load();
+      } else {
+        setDrafts(old => [result.product, ...old]);
+      }
       setEditingId(null); setEditingPublished(false);
       setName(''); setDescription(''); setSku(''); setPrice(''); setSalePrice('');
       setQuantity('1'); setCostPrice(''); setImages([]);
