@@ -529,6 +529,9 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const rewardRestoreSnap = rewardRestoreRef ? await tx.get(rewardRestoreRef) : null;
     const rewardConfigRef = rewardReservation ? db.collection('rewardsConfig').doc('current') : null;
     const rewardConfigSnap = rewardConfigRef ? await tx.get(rewardConfigRef) : null;
+    const lateRedemptionRef = status === PAYMENT_STATUS.PAID && order.rewardPointsReleased === true
+      ? db.collection('rewardLedger').doc(base64url(`checkout-late-redeem:${payment.orderDocumentId}`)) : null;
+    const lateRedemptionSnap = lateRedemptionRef ? await tx.get(lateRedemptionRef) : null;
 
     // The order referenced by the callback must be the payment's own order.
     if (callback.orderId && order.orderId !== callback.orderId) {
