@@ -19,13 +19,15 @@ export default async function sellerSubscription(req, res) {
       const paymentId = sellerSubscriptionPaymentId(user.uid, 'rewards:' + idempotencyKey);
       const paymentRef = adminDb.collection('sellerSubscriptionPayments').doc(paymentId);
       const sellerRef = adminDb.collection('sellers').doc(user.uid);
+      const rewardAccountRef = adminDb.collection('rewardAccounts').doc(user.uid);
       const configRef = adminDb.collection('rewardsConfig').doc('current');
       const rewardRef = adminDb.collection('rewardLedger').doc(paymentId);
       const result = await adminDb.runTransaction(async tx => {
-        const [existingSnap, sellerFresh, configSnap, userLedger, allLedger] = await Promise.all([
+        const [existingSnap, sellerFresh, configSnap, userLedger, allLedger, rewardAccountSnap] = await Promise.all([
           tx.get(paymentRef), tx.get(sellerRef), tx.get(configRef),
           tx.get(adminDb.collection('rewardLedger').where('uid', '==', user.uid)),
           tx.get(adminDb.collection('rewardLedger').where('status', '==', 'POSTED')),
+          tx.get(rewardAccountRef),
         ]);
         if (existingSnap.exists) {
           const existing = existingSnap.data() || {};
@@ -50,6 +52,8 @@ export default async function sellerSubscription(req, res) {
         if (balance < points) throw clientError(`You need ${points} available reward points to pay for this plan and badge.`, 409);
         const now = new Date(); const periodEnd = new Date(now); periodEnd.setMonth(periodEnd.getMonth() + 1);
         const timestamp = FieldValue.serverTimestamp();
+        const rewardAccount = rewardAccountSnap.data() || {};
+        tx.set(rewardAccountRef, { pointsBalance: Math.max(0, Number(rewardAccount.pointsBalance || 0) - points), updatedAt: timestamp }, { merge: true });
         tx.create(paymentRef, { paymentId, sellerId: user.uid, ownerUid: user.uid, planCode, planAmount: plan.amount, badgeAmount: SELLER_BADGE_MONTHLY_FEE, amount, currency: 'KES', method: 'REWARDS', status: 'PAID', providerReference: null, transactionReference: null, failureReason: null, idempotencyKey, rewardPointsRedeemed: points, createdAt: timestamp, updatedAt: timestamp, completedAt: timestamp });
         tx.create(rewardRef, { uid: user.uid, accountType: 'SELLER', type: 'REDEEM', points: -points, amountKes: amount, reason: 'Redeemed reward points for seller plan and verified-business badge', status: 'POSTED', idempotencyKey: paymentId, target: 'SELLER_PLAN', paymentId, createdAt: timestamp });
         tx.set(adminDb.collection('sellerSubscriptions').doc(paymentId), { sellerId: user.uid, ownerUid: user.uid, planCode, planAmount: plan.amount, badgeAmount: SELLER_BADGE_MONTHLY_FEE, amount, currency: 'KES', status: 'ACTIVE', productLimit: plan.productLimit, periodStart: now, periodEnd, paymentId, paymentMethod: 'REWARDS', createdAt: timestamp, updatedAt: timestamp });
