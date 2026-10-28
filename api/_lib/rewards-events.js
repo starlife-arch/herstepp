@@ -37,7 +37,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
     const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
     if (!points) return;
-    const now = FieldValue.serverTimestamp();
+    const now = typeof db.__serverTimestamp === 'function' ? db.__serverTimestamp() : FieldValue.serverTimestamp();
     const expiry = expiration(config.expiryDays);
     const oldBalance = Math.max(0, Number(sellerAccountSnap.data()?.pointsBalance) || 0);
     tx.create(sellerLedgerRef, {
