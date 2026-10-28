@@ -73,7 +73,7 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     if (!sellerItemsDelivered || !firstPartyDelivered) return;
     const buyerAccountRef = db.collection('rewardAccounts').doc(buyerUid);
     const configRef = db.collection('rewardsConfig').doc('current');
-    const [configSnap, accountSnap, entrySnap, ledgerSnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef), tx.get(db.collection('rewardLedger'))]);
+    const [configSnap, accountSnap, entrySnap, ledgerSnap] = await Promise.all([tx.get(configRef), tx.get(buyerAccountRef), tx.get(buyerLedgerRef), tx.get(db.collection('rewardLedger').where('status', '==', 'POSTED'))]);
     if (entrySnap.exists) return;
     const config = configSnap.data() || {};
     if (config.enabled !== true || config.buyer?.enabled === false) return;
