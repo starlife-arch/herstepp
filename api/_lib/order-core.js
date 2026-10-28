@@ -518,7 +518,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const LATE_SUCCESS = TERMINAL_STATUSES.includes(payment.status) && status === PAYMENT_STATUS.PAID
       && ['TIMEOUT', 'FAILED', 'CANCELLED'].includes(payment.status);
     if (TERMINAL_STATUSES.includes(payment.status) && !LATE_SUCCESS) {
-      return { duplicate: true, status: payment.status };
+      return { duplicate: true, status: payment.status, orderDocumentId: payment.orderDocumentId || null };
     }
 
     const orderRef = db.collection('orders').doc(payment.orderDocumentId);
