@@ -5,6 +5,10 @@
       "destination": "/api/admin?route=rewards"
     },
     {
+      "source": "/api/rewards/account",
+      "destination": "/api/users?route=rewards"
+    },
+    {
       "source": "/api/rewards",
       "destination": "/api/users?route=rewards"
     },
