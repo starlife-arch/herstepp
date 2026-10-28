@@ -176,12 +176,13 @@ export default async function sellerPromotionWallet(req, res) {
     const rewardConfigRef = adminDb.collection('rewardsConfig').doc('current');
     const rewardRef = adminDb.collection('rewardLedger').doc(redemptionId);
     const walletRef = adminDb.collection('sellerPromotionWallets').doc(user.uid);
+    const rewardAccountRef = adminDb.collection('rewardAccounts').doc(user.uid);
     const walletLedgerRef = adminDb.collection('sellerPromotionWalletLedger').doc(redemptionId);
     const result = await adminDb.runTransaction(async tx => {
-      const [configSnap, existingReward, existingWalletLedger, userLedger, allLedger, walletSnap] = await Promise.all([
+      const [configSnap, existingReward, existingWalletLedger, userLedger, allLedger, walletSnap, rewardAccountSnap] = await Promise.all([
         tx.get(rewardConfigRef), tx.get(rewardRef), tx.get(walletLedgerRef),
         tx.get(adminDb.collection('rewardLedger').where('uid', '==', user.uid)),
-        tx.get(adminDb.collection('rewardLedger').where('status', '==', 'POSTED')), tx.get(walletRef),
+        tx.get(adminDb.collection('rewardLedger').where('status', '==', 'POSTED')), tx.get(walletRef), tx.get(rewardAccountRef),
       ]);
       if (existingReward.exists || existingWalletLedger.exists) return { duplicate: true, wallet: { availableBalance: Number(walletSnap.data()?.availableBalance || 0) } };
       const config = configSnap.data() || {};
@@ -198,7 +199,8 @@ export default async function sellerPromotionWallet(req, res) {
         const p = Number(e.points) || 0; if (p > 0 && expires != null && expires <= nowMs) return sum; return sum + p;
       }, 0);
       if (balance < requestedPoints) throw clientError('You do not have enough unexpired reward points.', 409);
-      const wallet = walletSnap.data() || {}; const timestamp = FieldValue.serverTimestamp();
+      const wallet = walletSnap.data() || {}; const rewardAccount = rewardAccountSnap.data() || {}; const timestamp = FieldValue.serverTimestamp();
+      tx.set(rewardAccountRef, { pointsBalance: Math.max(0, Number(rewardAccount.pointsBalance || 0) - requestedPoints), updatedAt: timestamp }, { merge: true });
       tx.create(rewardRef, { uid: user.uid, accountType: 'SELLER', type: 'REDEEM', points: -requestedPoints, amountKes: amount, reason: 'Redeemed reward points into seller promotion wallet', status: 'POSTED', idempotencyKey: redemptionId, target: 'PROMOTIONS', createdAt: timestamp });
       tx.set(walletRef, { sellerUid: user.uid, availableBalance: Number(wallet.availableBalance || 0) + amount, totalDeposited: Number(wallet.totalDeposited || 0), totalSpent: Number(wallet.totalSpent || 0), updatedAt: timestamp }, { merge: true });
       tx.create(walletLedgerRef, { sellerUid: user.uid, type: 'REWARD_REDEMPTION', amount, balanceDelta: amount, rewardPoints: requestedPoints, redemptionId, createdAt: timestamp });
