@@ -8,7 +8,7 @@ export default async function rewardsAccount(req, res) {
   const [configSnap, accountSnap, ledgerSnap, sellerSnap] = await Promise.all([
     adminDb.collection('rewardsConfig').doc('current').get(),
     adminDb.collection('rewardAccounts').doc(user.uid).get(),
-    adminDb.collection('rewardLedger').where('uid', '==', user.uid).limit(100).get(),
+    adminDb.collection('rewardLedger').where('uid', '==', user.uid).get(),
     adminDb.collection('sellers').doc(user.uid).get(),
   ]);
   const config = configSnap.data() || { enabled: false, pointValueKes: 0.1, buyer: { enabled: true }, seller: { enabled: true } };
@@ -22,6 +22,6 @@ export default async function rewardsAccount(req, res) {
   }).sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
   const ledgerBalance = entries.reduce((sum, e) => sum + (e.status === 'POSTED' && !e.expired ? e.points : 0), 0);
   const seller = sellerSnap.exists && ['ACTIVE', 'PENDING'].includes(String(sellerSnap.data()?.status || '').toUpperCase());
-  const pointsBalance = Math.max(0, Number(account.pointsBalance ?? ledgerBalance) || 0);
+  const pointsBalance = Math.max(0, ledgerBalance);
   return res.status(200).json({ enabled: config.enabled === true, accountType: seller ? 'SELLER' : 'BUYER', pointsBalance, pointValueKes: Number(config.pointValueKes) || 0, estimatedValueKes: Math.round(pointsBalance * (Number(config.pointValueKes) || 0) * 100) / 100, expiryDays: Number(config.expiryDays) || 0, redemptionEnabled: config.enabled === true && (seller ? config.seller?.redemptionEnabled === true : config.buyer?.redemptionEnabled === true), entries, message: config.enabled === true ? null : 'Rewards are not active yet.' });
 }
