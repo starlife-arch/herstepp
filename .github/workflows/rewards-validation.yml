@@ -16,5 +16,13 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Configure fake Firebase credentials for offline tests
+        run: |
+          openssl genrsa -out /tmp/firebase-test-key.pem 2048
+          echo 'FIREBASE_ADMIN_PROJECT_ID=test-project' >> "$GITHUB_ENV"
+          echo 'FIREBASE_ADMIN_CLIENT_EMAIL=test@example.iam.gserviceaccount.com' >> "$GITHUB_ENV"
+          echo 'FIREBASE_ADMIN_PRIVATE_KEY<<FIREBASE_KEY_EOF' >> "$GITHUB_ENV"
+          cat /tmp/firebase-test-key.pem >> "$GITHUB_ENV"
+          echo 'FIREBASE_KEY_EOF' >> "$GITHUB_ENV"
       - run: npm test
       - run: npm run build
