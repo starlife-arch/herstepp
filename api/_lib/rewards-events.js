@@ -1,5 +1,5 @@
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
-import { adminDb } from '../firebase-admin.js';
+import { adminDb } from './firebase-admin.js';
 
 const safePoints = (amount, rate, cap) => Math.max(0, Math.min(Math.floor(Math.max(0, Number(amount) || 0) * Math.max(0, Number(rate) || 0)), Math.max(0, Math.floor(Number(cap) || 0))));
 const expiration = days => Number(days) > 0 ? Timestamp.fromDate(new Date(Date.now() + Number(days) * 86400000)) : null;
