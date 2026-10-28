@@ -705,7 +705,7 @@ export default function Checkout() {
                     <label htmlFor="reward-points" className="text-sm font-medium text-neutral-800">Use reward points</label>
                     <span className="text-xs text-neutral-500">{Number(rewardInfo.pointsBalance).toLocaleString()} available</span>
                   </div>
-                  <input id="reward-points" type="number" min={0} max={Number(rewardInfo.pointsBalance)} step={1} value={rewardPoints || ''} onChange={event => setRewardPoints(Math.max(0, Math.min(Number(rewardInfo.pointsBalance) || 0, Math.floor(Number(event.target.value) || 0)))} placeholder={`Minimum ${rewardInfo.minRedeemPoints} points`} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
+                  <input id="reward-points" type="number" min={0} max={Number(rewardInfo.pointsBalance)} step={1} value={rewardPoints || ''} onChange={event => setRewardPoints(Math.max(0, Math.min(Number(rewardInfo.pointsBalance) || 0, Math.floor(Number(event.target.value) || 0))))} placeholder={`Minimum ${rewardInfo.minRedeemPoints} points`} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
                   {estimatedRewardDiscount > 0 && <p className="text-xs text-emerald-700">Estimated reward discount: -{formatCurrency(estimatedRewardDiscount)}. The server checks the final eligible amount.</p>}
                 </div>
               )}
