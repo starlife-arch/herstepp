@@ -794,6 +794,7 @@ export default function AdminDashboard() {
             </button>
           ))}
           <Link to="/admin/sellers" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Store className="w-4 h-4" /> Seller Applications</Link>
+          <Link to="/admin/rewards" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Star className="w-4 h-4" /> Buyer &amp; Seller Rewards</Link>
           <Link to="/admin/ai" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><Sparkles className="w-4 h-4" /> Admin AI</Link>
           <Link to="/admin/costs" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><CreditCard className="w-4 h-4" /> Cost &amp; Profit</Link>
           <Link to="/admin/ai-chats" className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-neutral-600 hover:bg-neutral-50"><MessageSquare className="w-4 h-4" /> Aria Chats</Link>
@@ -836,6 +837,7 @@ export default function AdminDashboard() {
           <Link to="/admin/ai" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Admin AI</Link>
           <Link to="/admin/ai-chats" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2">Aria Chats</Link>
           <Link to="/admin/sellers" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2"><Store className="inline w-4 h-4 mr-1" /> Seller Applications</Link>
+          <Link to="/admin/rewards" className="shrink-0 text-sm font-medium border border-neutral-300 rounded-lg px-3 py-2"><Star className="inline w-4 h-4 mr-1" /> Rewards</Link>
           <Link to="/admin/bulk-upload" className="shrink-0 text-sm font-medium bg-neutral-900 text-white rounded-lg px-3 py-2">Bulk Upload</Link>
         </nav>
       </div>
