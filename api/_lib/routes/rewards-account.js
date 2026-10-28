@@ -41,7 +41,8 @@ export default async function rewardsAccount(req, res) {
       const freshAccount = freshAccountSnap.data() || {};
       const freshEntries = freshLedgerSnap.docs.map(doc => doc.data() || {});
       const freshNow = Date.now();
-      const activeEntries = freshEntries.filter(e => String(e.status || 'POSTED') === 'POSTED' && !(Number(e.points) > 0 && (e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null)) != null && (e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? e.expiresAt.getTime()) <= freshNow));
+      const expiryMs = e => e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null);
+      const activeEntries = freshEntries.filter(e => String(e.status || 'POSTED') === 'POSTED' && !(Number(e.points) > 0 && expiryMs(e) != null && expiryMs(e) <= freshNow));
       const freshBalance = activeEntries.reduce((sum, e) => sum + (Number(e.points) || 0), 0);
       const freshPositive = activeEntries.reduce((sum, e) => sum + (Number(e.points) > 0 ? Number(e.points) : 0), 0);
       const freshDebits = activeEntries.filter(e => Number(e.points) < 0);
