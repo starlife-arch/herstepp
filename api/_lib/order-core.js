@@ -519,6 +519,16 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     const orderSnap = await tx.get(orderRef);
     if (!orderSnap.exists) throw clientError('Order not found.', 404);
     const order = orderSnap.data();
+    const rewardReservationRef = order.rewardReservationLedgerId ? db.collection('rewardLedger').doc(order.rewardReservationLedgerId) : null;
+    const rewardReservationSnap = rewardReservationRef ? await tx.get(rewardReservationRef) : null;
+    const rewardReservation = rewardReservationSnap?.exists ? rewardReservationSnap.data() || {} : null;
+    const rewardAccountRef = rewardReservation?.uid ? db.collection('rewardAccounts').doc(rewardReservation.uid) : null;
+    const rewardAccountSnap = rewardAccountRef ? await tx.get(rewardAccountRef) : null;
+    const rewardRestoreRef = rewardReservation && status !== PAYMENT_STATUS.PAID && rewardReservation.type === 'REDEEM_RESERVE'
+      ? db.collection('rewardLedger').doc(base64url(`checkout-restore:${payment.orderDocumentId}`)) : null;
+    const rewardRestoreSnap = rewardRestoreRef ? await tx.get(rewardRestoreRef) : null;
+    const rewardConfigRef = rewardReservation ? db.collection('rewardsConfig').doc('current') : null;
+    const rewardConfigSnap = rewardConfigRef ? await tx.get(rewardConfigRef) : null;
 
     // The order referenced by the callback must be the payment's own order.
     if (callback.orderId && order.orderId !== callback.orderId) {
