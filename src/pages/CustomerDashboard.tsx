@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { usePageMeta } from '../hooks/usePageMeta';
 
-import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight, Heart, Paperclip, X } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, CreditCard, MessageSquare, Bell, User, LogOut, Package, FileText, ChevronRight, Heart, Paperclip, X, Star } from 'lucide-react';
 import { useApp, markNotificationReadOnServer } from '../context/AppContext';
 import { Card, Badge, Button, formatCurrency, formatDate, formatDateTime, getStatusBadge, EmptyState } from '../components/ui';
 import { productImageUrl, orderItemImageUrl } from '../lib/productImage';
@@ -77,6 +77,7 @@ export default function CustomerDashboard() {
   const tabs = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'orders', label: 'My Orders', icon: Package },
+    { id: 'rewards', label: 'Rewards', icon: Star },
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'support', label: 'Support', icon: MessageSquare },
     { id: 'notifications', label: 'Notifications', icon: Bell },
@@ -100,6 +101,8 @@ export default function CustomerDashboard() {
     content = <OverviewTab orders={userOrders} pendingOrders={pendingOrders} completedOrders={completedOrders} />;
   } else if (activeTab === 'orders') {
     content = <OrdersTab orders={userOrders} />;
+  } else if (activeTab === 'rewards') {
+    content = <RewardsTab />;
   } else if (activeTab === 'payments') {
     content = <PaymentsTab orders={userOrders} />;
   } else if (activeTab === 'support') {
@@ -672,4 +675,30 @@ function InvoiceButton({ order }: { order: any }) {
       {error && <p role="alert" className="text-xs text-red-600 mt-2">{error}</p>}
     </div>
   );
+}
+
+
+function RewardsTab() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    apiFetch('/api/rewards').then((value:any) => { if (alive) setData(value); })
+      .catch((err:any) => { if (alive) setError(err?.message || 'Could not load rewards right now.'); })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+  const points = Math.max(0, Number(data?.pointsBalance) || 0);
+  return <div className="space-y-5">
+    <div><h2 className="text-xl font-bold text-neutral-900">My Rewards</h2><p className="text-sm text-neutral-500 mt-1">Earn points from eligible completed marketplace purchases and sales.</p></div>
+    {loading ? <Card className="p-6"><p className="text-sm text-neutral-500">Loading rewards…</p></Card> : error ? <Card className="p-5"><p role="alert" className="text-sm text-red-700">{error}</p></Card> : <>
+      <Card className="p-6"><p className="text-sm text-neutral-500">Available points</p><p className="text-4xl font-bold mt-2">{points.toLocaleString()}</p><p className="text-sm text-neutral-600 mt-2">Estimated value: KSh {Number(data?.estimatedValueKes || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</p>
+      {!data?.enabled && <p className="mt-4 rounded bg-neutral-100 p-3 text-sm text-neutral-600">The rewards programme is not active yet. Your points will appear here when it is enabled.</p>}
+      {data?.enabled && !data?.redemptionEnabled && <p className="mt-4 rounded bg-neutral-100 p-3 text-sm text-neutral-600">Points redemption is not available yet.</p>}
+      {Number(data?.expiryDays)>0 && <p className="text-xs text-neutral-500 mt-3">Points normally expire after {data.expiryDays} days, according to the programme rules.</p>}
+      </Card>
+      <Card className="p-5"><h3 className="font-semibold mb-3">Points history</h3>{!(data?.entries || []).length ? <p className="text-sm text-neutral-500">No rewards transactions yet.</p> : <div className="divide-y divide-neutral-100">{data.entries.map((entry:any)=><div key={entry.id} className="py-3 flex items-start justify-between gap-3"><div><p className="font-medium text-sm">{entry.reason || 'Rewards transaction'}</p><p className="text-xs text-neutral-500 mt-1">{entry.createdAt ? new Date(entry.createdAt).toLocaleDateString() : 'Date unavailable'}{entry.expired ? ' · Expired' : ''}</p></div><span className={`font-semibold text-sm ${Number(entry.points)>=0?'text-emerald-700':'text-red-700'}`}>{Number(entry.points)>0?'+':''}{Number(entry.points).toLocaleString()} pts</span></div>)}</div>}</Card>
+    </>}
+  </div>;
 }
