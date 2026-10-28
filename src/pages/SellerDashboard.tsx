@@ -410,7 +410,7 @@ export default function SellerDashboard() {
             <Button variant="outline" className="mt-5 w-full" disabled={!approved || suspended || paymentBusy} onClick={() => { setSelectedPlan(plan.code); setPaymentError(''); }}>
               <CreditCard className="w-4 h-4 mr-2" />{paymentBusy ? 'Please wait…' : subscriptionActive ? (seller?.planCode === plan.code ? 'Renew this plan' : 'Switch to ' + plan.name) : approved ? 'Pay with M-Pesa' : 'Approval required'}
             </Button>
-            {rewardInfo?.redemptionEnabled && <div className="mt-3 border-t pt-3">
+            {rewardInfo?.redemptionEnabled && rewardInfo?.redemptionTargets?.includes('SELLER_PLAN') && <div className="mt-3 border-t pt-3">
               <p className="text-xs text-neutral-600">Reward balance: {Number(rewardInfo.pointsBalance || 0).toLocaleString()} points</p>
               <p className="text-xs text-neutral-600">Requires {Math.ceil((plan.price + 50) / (Number(rewardInfo.pointValueKes) || 0.1)).toLocaleString()} points for one month</p>
               <Button className="mt-2 w-full" disabled={!approved || suspended || !!rewardBusyPlan || Number(rewardInfo.pointsBalance || 0) < Math.ceil((plan.price + 50) / (Number(rewardInfo.pointValueKes) || 0.1))} onClick={() => void redeemPlanWithRewards(plan.code)}>
