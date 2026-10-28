@@ -241,7 +241,7 @@ export default function SellerProducts() {
       </div>
 
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 mb-6">
-        <strong>Private drafts stay hidden until approved by marketplace admin. Published listings can be edited while your paid seller plan is active.</strong>
+        <strong>Private drafts stay hidden until you publish them. Routine listings publish without manual admin approval; marketplace moderation still applies. Published listings can be edited while your paid seller plan is active.</strong>
       </div>
       {error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 mb-5">{error}</div>}
       {message && <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800 mb-5">{message}</div>}
@@ -250,7 +250,7 @@ export default function SellerProducts() {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="flex-1">
             <h2 className="text-lg font-semibold text-neutral-900 flex items-center gap-2"><Sparkles className="w-5 h-5" /> AI bulk upload</h2>
-            <p className="text-sm text-neutral-600 mt-1">Buy AI analysis credits at KSh 10 per credit. Each credit analyses one product photo. Review AI suggestions in private drafts; failed AI analysis does not use a credit.</p>
+            <p className="text-sm text-neutral-600 mt-1">Buy AI analysis credits at KSh 10 per credit. Each credit analyses one product photo. AI creates private drafts with a starting stock quantity of 1 per detected size. Review stock before publishing; failed AI analysis does not use a credit.</p>
             <p className="text-sm font-semibold mt-3">Available credits: {bulkCredits}</p>
           </div>
           <div className="w-full md:max-w-sm">
