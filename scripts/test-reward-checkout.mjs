@@ -41,7 +41,8 @@ const payload = {
   assert.equal(created.order.rewardDiscountKes, 50);
   assert.equal(created.order.total, 950);
   assert.equal((await db.collection('rewardAccounts').doc('buyer-1').get()).data().pointsBalance, 0);
-  const reserve = await db.collection('rewardLedger').doc(created.order.rewardReservationLedgerId).get();
+  const orderDoc = (await db.collection('orders').doc(created.order.id).get()).data();
+  const reserve = await db.collection('rewardLedger').doc(orderDoc.rewardReservationLedgerId).get();
   assert.equal(reserve.data().type, 'REDEEM_RESERVE');
   console.log('✓ checkout reserves points and applies server-calculated discount');
 }
@@ -62,7 +63,7 @@ const payload = {
   const order = (await db.collection('orders').doc(created.order.id).get()).data();
   assert.equal(order.total, 1000, 'failed payment removes the reward discount before retry');
   assert.equal(order.rewardPointsReleased, true);
-  const reserve = await db.collection('rewardLedger').doc(created.order.rewardReservationLedgerId).get();
+  const reserve = await db.collection('rewardLedger').doc((await db.collection('orders').doc(created.order.id).get()).data().rewardReservationLedgerId).get();
   assert.equal(reserve.data().status, 'REVERSED');
   const restore = await db.collection('rewardLedger').doc(Buffer.from('checkout-restore:' + created.order.id).toString('base64url')).get();
   assert.equal(restore.data().points, 500);
