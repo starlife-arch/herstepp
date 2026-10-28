@@ -499,7 +499,7 @@ export async function applyVerifiedCallbackCore(db, deps, callback) {
     // ---- READS FIRST ----
     const prior = await tx.get(idemRef);
     if (prior.exists) {
-      return { duplicate: true, status: prior.data()?.appliedStatus ?? status };
+      return { duplicate: true, status: prior.data()?.appliedStatus ?? status, orderDocumentId: prior.data()?.orderDocumentId || null };
     }
 
     const paymentsSnap = await tx.get(
