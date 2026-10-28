@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireUser } from '../firebase-admin.js';
 import { getMpesaProvider } from '../mpesa-provider.js';
 import { clientError, methodNotAllowed } from '../http.js';
+import { calculateOutstandingLiability } from '../rewards-liability.js';
 
 const PRICE_PER_CREDIT = 10;
 const MIN_CREDITS_PER_PURCHASE = 10;
@@ -125,6 +126,64 @@ export default async function sellerBulkUpload(req, res) {
   }
   if (req.method !== 'POST') return methodNotAllowed(res, 'GET, POST');
   const action = String(req.body?.action || '');
+  if (action === 'redeemRewards') {
+    const requestedPoints = Number(req.body?.points);
+    const idempotencyKey = String(req.body?.idempotencyKey || '').trim();
+    if (!Number.isSafeInteger(requestedPoints) || requestedPoints < 100 || requestedPoints % 100 !== 0) throw clientError('Redeem at least 100 points, in multiples of 100.');
+    if (!/^[A-Za-z0-9_-]{8,120}$/.test(idempotencyKey)) throw clientError('A valid redemption request key is required.');
+    const redemptionId = createHash('sha256').update('seller-ai-token-reward:' + user.uid + ':' + idempotencyKey).digest('hex');
+    const rewardConfigRef = adminDb.collection('rewardsConfig').doc('current');
+    const rewardEntryRef = adminDb.collection('rewardLedger').doc(redemptionId);
+    const creditLedgerRef = adminDb.collection('sellerBulkCreditLedger').doc(redemptionId);
+    const creditsToGrant = requestedPoints / 100; // 100 points = KSh 10 = one AI credit.
+    const result = await adminDb.runTransaction(async tx => {
+      const [sellerSnap, configSnap, existingSnap, userLedgerSnap, allLedgerSnap] = await Promise.all([
+        tx.get(sellerRef), tx.get(rewardConfigRef), tx.get(rewardEntryRef),
+        tx.get(adminDb.collection('rewardLedger').where('uid', '==', user.uid)),
+        tx.get(adminDb.collection('rewardLedger').where('status', '==', 'POSTED')),
+      ]);
+      if (existingSnap.exists) return { duplicate: true, credits: Number(sellerSnap.data()?.bulkUploadCredits) || 0 };
+      const config = configSnap.data() || {};
+      if (config.enabled !== true || config.seller?.enabled === false || config.seller?.redemptionEnabled !== true || !Array.isArray(config.seller?.redemptionTargets) || !config.seller.redemptionTargets.includes('AI_TOKENS')) throw clientError('Seller reward redemption for AI tokens is not enabled by the administrator.');
+      const pointValueKes = Math.max(0.001, Number(config.pointValueKes) || 0.1);
+      const creditPriceKes = PRICE_PER_CREDIT;
+      const valueKes = requestedPoints * pointValueKes;
+      if (Math.floor(valueKes / creditPriceKes) !== creditsToGrant) throw clientError('Reward point conversion is not compatible with the current AI credit price.');
+      const now = Date.now();
+      const balance = userLedgerSnap.docs.reduce((sum, doc) => {
+        const entry = doc.data() || {};
+        if (String(entry.status || 'POSTED').toUpperCase() !== 'POSTED') return sum;
+        const points = Number(entry.points) || 0;
+        const expiresAt = dateValue(entry.expiresAt);
+        if (points > 0 && expiresAt && expiresAt.getTime() <= now) return sum;
+        return sum + points;
+      }, 0);
+      if (balance < requestedPoints) throw clientError('You do not have enough unexpired reward points.');
+      const currentSeller = sellerSnap.data() || {};
+      const updatedCredits = (Number(currentSeller.bulkUploadCredits) || 0) + creditsToGrant;
+      const timestamp = FieldValue.serverTimestamp();
+      tx.create(rewardEntryRef, {
+        uid: user.uid, accountType: 'SELLER', type: 'REDEEM', points: -requestedPoints,
+        amountKes: valueKes, reason: 'Redeemed reward points for AI bulk-upload credits',
+        status: 'POSTED', idempotencyKey: redemptionId, createdAt: timestamp,
+        target: 'AI_TOKENS', creditsGranted: creditsToGrant,
+      });
+      tx.create(creditLedgerRef, {
+        sellerId: user.uid, type: 'REWARD_REDEMPTION', credits: creditsToGrant,
+        rewardPoints: requestedPoints, amount: valueKes, currency: 'KES',
+        redemptionId, createdAt: timestamp,
+      });
+      tx.update(sellerRef, { bulkUploadCredits: updatedCredits, updatedAt: timestamp });
+      const allEntries = allLedgerSnap.docs.map(doc => doc.data() || {});
+      allEntries.push({ status: 'POSTED', points: -requestedPoints });
+      tx.set(rewardConfigRef, {
+        outstandingLiabilityKes: calculateOutstandingLiability(allEntries, pointValueKes),
+        liabilityUpdatedAt: timestamp,
+      }, { merge: true });
+      return { duplicate: false, credits: updatedCredits, creditsGranted: creditsToGrant, pointsRedeemed: requestedPoints };
+    });
+    return res.status(200).json({ ...result, message: result.duplicate ? 'This reward redemption was already processed.' : `Redeemed ${requestedPoints} points for ${creditsToGrant} AI bulk-upload credit(s).` });
+  }
   if (action === 'purchase') {
     const credits = Number(req.body?.credits ?? MIN_CREDITS_PER_PURCHASE);
     if (!Number.isInteger(credits) || credits < MIN_CREDITS_PER_PURCHASE || credits > MAX_CREDITS_PER_PURCHASE) throw clientError(`Choose between ${MIN_CREDITS_PER_PURCHASE} and ${MAX_CREDITS_PER_PURCHASE} credits.`);
