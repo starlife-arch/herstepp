@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowLeft, BadgeCheck, CalendarClock, CreditCard, RefreshCw } from 'lucide-react';
+import { ArrowLeft, CalendarClock, CreditCard, RefreshCw, Coins } from 'lucide-react';
 import { Badge, Button, Card } from '../components/ui';
 import { apiFetch } from '../lib/api';
 import { usePageMeta } from '../hooks/usePageMeta';
@@ -64,6 +64,23 @@ export default function SellerPlans() {
     } catch (e: any) { setError(e?.message || 'Could not start payment.'); }
     finally { setBusy(false); }
   }
+  async function startRewardsPayment() {
+    if (!selected) return;
+    if (durationMonths !== 1) { setError('Reward points are currently available for one-month seller plans only.'); return; }
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const result: any = await apiFetch('/api/sellers/subscription', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'REDEEM_REWARDS', planCode: selected, idempotencyKey: 'seller-rewards-' + crypto.randomUUID() }),
+      });
+      setPayment(result.payment || null);
+      setSelected(null);
+      setNotice(result.message || 'Reward redemption processed.');
+      if (result.payment?.status === 'PAID') await load();
+    } catch (e: any) { setError(e?.message || 'Could not redeem reward points.'); }
+    finally { setBusy(false); }
+  }
+
   async function checkPayment() {
     if (!payment?.paymentId) return;
     setBusy(true); setError('');
@@ -100,7 +117,7 @@ export default function SellerPlans() {
       <div className="flex items-start justify-between gap-3"><div><p className="text-sm text-neutral-500">Your current subscription</p><h2 className="text-2xl font-bold mt-1">{currentPlan?.name || seller?.planCode || 'No plan selected'}</h2></div><Badge variant={active ? 'success' : 'warning'}>{status}</Badge></div>
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
         <div className="rounded-lg border p-3"><p className="text-xs text-neutral-500">Plan amount</p><p className="font-semibold mt-1">{seller?.planAmount != null ? formatMoney(Number(seller.planAmount)) : currentPlan ? formatMoney(currentPlan.price) : 'Not recorded'}</p></div>
-        <div className="rounded-lg border p-3"><p className="text-xs text-neutral-500">Purchase / start date</p><p className="font-semibold mt-1">{dateLabel(seller?.subscriptionStartedAt || seller?.subscriptionPurchasedAt || seller?.createdAt)}</p></div>
+        <div className="rounded-lg border p-3"><p className="text-xs text-neutral-500">Purchase / start date</p><p className="font-semibold mt-1">{dateLabel(seller?.subscriptionStartedAt || seller?.subscriptionPurchasedAt)}</p></div>
         <div className="rounded-lg border p-3"><p className="text-xs text-neutral-500">Expiry date</p><p className="font-semibold mt-1">{dateLabel(seller?.subscriptionExpiresAt)}</p></div>
         <div className="rounded-lg border p-3"><p className="text-xs text-neutral-500">Renewal date</p><p className="font-semibold mt-1">{active ? dateLabel(seller?.subscriptionExpiresAt) : 'Renew to reactivate'}</p></div>
       </div>
@@ -108,17 +125,32 @@ export default function SellerPlans() {
     </Card>
     {payment && <Card className="p-4 mb-6"><p className="font-semibold">Latest payment: {payment.status}</p><p className="text-sm text-neutral-600 mt-1">{formatMoney(Number(payment.amount) || 0)} · {payment.planCode} · Reference {String(payment.paymentId || '').slice(0, 12)}…</p>{payment.failureReason && <p className="text-sm text-red-700 mt-2">{payment.failureReason}</p>}{payment.status === 'PENDING' && <Button className="mt-3" variant="outline" disabled={busy} onClick={checkPayment}><RefreshCw className="w-4 h-4 mr-2" /> Check payment status</Button>}</Card>}
     <div className="mb-4"><h2 className="text-2xl font-bold">Choose a plan</h2><p className="text-sm text-neutral-600 mt-1">Save with longer terms: 3 months gets 5% off plan fees, 6 months gets 10% off, and 12 months gets 20% off. The monthly badge subscription is charged for each month and is not discounted.</p></div>
-    <div className="flex flex-wrap items-center gap-3 mb-4"><label htmlFor="seller-billing-term" className="text-sm font-medium">Billing term</label><select id="seller-billing-term" value={durationMonths} onChange={e => setDurationMonths(Number(e.target.value))} className="rounded-lg border px-3 py-2 text-sm"><option value={1}>1 month · no discount</option><option value={3}>3 months · 5% off plan fee</option><option value={6}>6 months · 10% off plan fee</option><option value={12}>12 months · 20% off plan fee</option></select></div>
     <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-      {plans.map(plan => <Card key={plan.code} className="p-5 flex flex-col">
-        <h3 className="text-lg font-semibold">{plan.name}</h3><p className="text-sm text-neutral-500 mt-1 min-h-10">{plan.description}</p>
-        <p className="mt-4"><span className="text-2xl font-bold">{formatMoney(plan.price * durationMonths - Math.round(plan.price * durationMonths * termDiscount / 100) + badgeMonthlyFee * durationMonths)}</span><span className="text-xs text-neutral-500"> / {durationMonths} month{durationMonths === 1 ? "" : "s"}</span></p>
-        <p className="text-xs text-neutral-500 mt-1">{formatMoney(plan.price * durationMonths)} plan fee minus {termDiscount}% discount + {formatMoney(badgeMonthlyFee * durationMonths)} badge subscription</p>
-        <div className="border-t my-4" /><p className="text-sm">{plan.limit}</p><p className="text-xs text-neutral-500 mt-3">Verified badge subscription is included in the total; identity verification remains subject to the platform's verification process.</p>
-        <Button className="w-full mt-5" variant="outline" disabled={seller?.status !== 'ACTIVE' || busy} onClick={() => { setSelected(plan.code); setError(''); }}>{active ? seller?.planCode === plan.code ? 'Renew this plan' : 'Switch plan' : 'Choose plan'}</Button>
-      </Card>)}
+      {plans.map(plan => {
+        const planTermDiscount = durationMonths === 1 ? 0 : Number(termDiscounts[durationMonths]) || 0;
+        const planSubtotal = plan.price * durationMonths;
+        const planDiscount = Math.round(planSubtotal * planTermDiscount / 100);
+        const planTotal = planSubtotal - planDiscount + badgeMonthlyFee * durationMonths;
+        return <Card key={plan.code} className="p-5 flex flex-col">
+          <h3 className="text-lg font-semibold">{plan.name}</h3><p className="text-sm text-neutral-500 mt-1 min-h-10">{plan.description}</p>
+          <p className="mt-4"><span className="text-2xl font-bold">{formatMoney(planTotal)}</span><span className="text-xs text-neutral-500"> / {durationMonths} month{durationMonths === 1 ? "" : "s"}</span></p>
+          <p className="text-xs text-neutral-500 mt-1">{formatMoney(planSubtotal)} plan fee minus {planTermDiscount}% discount + {formatMoney(badgeMonthlyFee * durationMonths)} badge subscription</p>
+          <div className="mt-4">
+            <p className="text-sm font-medium mb-2">Billing term</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[{months:1,label:'1 month',discount:0},{months:3,label:'3 months',discount:Number(termDiscounts[3])||0},{months:6,label:'6 months',discount:Number(termDiscounts[6])||0},{months:12,label:'12 months',discount:Number(termDiscounts[12])||0}].map(term => (
+                <button key={term.months} type="button" aria-pressed={durationMonths === term.months} onClick={() => setDurationMonths(term.months)} className={`rounded-lg border px-2 py-2 text-xs text-left transition ${durationMonths === term.months ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 hover:border-neutral-500'}`}>
+                  <span className="block font-semibold">{term.label}</span><span className="block mt-1">{term.discount ? `${term.discount}% off plan` : 'No discount'}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="border-t my-4" /><p className="text-sm">{plan.limit}</p><p className="text-xs text-neutral-500 mt-3">Verified badge subscription is included in the total; identity verification remains subject to the platform's verification process.</p>
+          <Button className="w-full mt-5" variant="outline" disabled={seller?.status !== 'ACTIVE' || busy} onClick={() => { setSelected(plan.code); setError(''); }}>{active ? seller?.planCode === plan.code ? 'Renew this plan' : 'Switch plan' : 'Choose plan'}</Button>
+        </Card>;
+      })}
     </div>
-    {selected && <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="plan-pay-title"><Card className="w-full max-w-md p-6"><h2 id="plan-pay-title" className="text-xl font-semibold">Pay for {plans.find(p => p.code === selected)?.name}</h2><p className="text-sm text-neutral-600 mt-2">Total due for {durationMonths} month{durationMonths === 1 ? "" : "s"}: {formatMoney(selectedTotal)}. You save {formatMoney(selectedDiscount)} on the plan fee.</p><label htmlFor="seller-plan-phone" className="block text-sm font-medium mt-4 mb-2">M-Pesa phone number</label><input id="seller-plan-phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" className="w-full rounded-lg border px-3 py-2" />{error && <p role="alert" className="text-sm text-red-700 mt-3">{error}</p>}<div className="flex gap-3 mt-5"><Button variant="outline" className="flex-1" disabled={busy} onClick={() => setSelected(null)}>Cancel</Button><Button className="flex-1" disabled={busy || !phone.trim()} onClick={startPayment}><CreditCard className="w-4 h-4 mr-2" />{busy ? 'Starting…' : 'Pay with M-Pesa'}</Button></div></Card></div>}
+    {selected && <div className="fixed inset-0 z-50 bg-black/50 p-4 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="plan-pay-title"><Card className="w-full max-w-md p-6"><h2 id="plan-pay-title" className="text-xl font-semibold">Pay for {plans.find(p => p.code === selected)?.name}</h2><p className="text-sm text-neutral-600 mt-2">Total due for {durationMonths} month{durationMonths === 1 ? "" : "s"}: {formatMoney(selectedTotal)}. You save {formatMoney(selectedDiscount)} on the plan fee.</p><label htmlFor="seller-plan-phone" className="block text-sm font-medium mt-4 mb-2">M-Pesa phone number</label><input id="seller-plan-phone" type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="07XXXXXXXX or +2547XXXXXXXX" className="w-full rounded-lg border px-3 py-2" />{error && <p role="alert" className="text-sm text-red-700 mt-3">{error}</p>}<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-5"><Button variant="outline" className="w-full" disabled={busy || durationMonths !== 1} onClick={startRewardsPayment}><Coins className="w-4 h-4 mr-2" />{busy ? 'Processing…' : 'Pay with points'}</Button><Button className="w-full" disabled={busy || !phone.trim()} onClick={startPayment}><CreditCard className="w-4 h-4 mr-2" />{busy ? 'Starting…' : 'Pay with M-Pesa'}</Button><Button variant="outline" className="w-full sm:col-span-2" disabled={busy} onClick={() => setSelected(null)}>Cancel</Button></div>{durationMonths !== 1 && <p className="text-xs text-neutral-500 mt-2">Pay with points is currently available for one-month plans only.</p>}</Card></div>}
     <Card className="p-4 mt-7"><div className="flex gap-3"><CalendarClock className="w-5 h-5 text-neutral-500 mt-0.5" /><div><h3 className="font-semibold">Subscription dates and payments</h3><p className="text-sm text-neutral-600 mt-1">Your plan only changes after the payment provider confirms the payment. Keep your payment reference if you contact support.</p><Link to="/support" className="inline-block text-sm underline mt-2">Contact support</Link></div></div></Card>
   </div>;
 }
