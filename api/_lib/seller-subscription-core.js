@@ -58,20 +58,29 @@ export async function applySellerSubscriptionPayment(db, deps, callback) {
     }
     if (status === 'PAID') {
       const plan = SELLER_PLANS[payment.planCode];
-      if (!plan || Number(payment.planAmount) !== plan.amount || Number(payment.badgeAmount) !== SELLER_BADGE_MONTHLY_FEE) {
-        throw clientError('Seller subscription pricing failed validation.', 409);
-      }
+      const months = Number(payment.durationMonths || 1);
+      const discountPercent = months === 1 ? 0 : Number(payment.discountPercent || 0);
+      const planSubtotal = plan ? plan.amount * months : 0;
+      const discountAmount = Math.round(planSubtotal * discountPercent / 100);
+      const badgeAmount = SELLER_BADGE_MONTHLY_FEE * months;
+      const expectedAmount = planSubtotal - discountAmount + badgeAmount;
+      if (!plan || ![1, 3, 6, 12].includes(months) || Number(payment.planAmount) !== plan.amount || Number(payment.badgeAmount) !== badgeAmount || Number(payment.discountAmount || 0) !== discountAmount || Number(payment.amount) !== expectedAmount || discountPercent < 0 || discountPercent > 50) throw clientError('Seller subscription pricing failed validation.', 409);
       const now = new Date();
       const periodEnd = new Date(now);
-      periodEnd.setMonth(periodEnd.getMonth() + 1);
+      periodEnd.setMonth(periodEnd.getMonth() + months);
       const subscriptionRef = db.collection('sellerSubscriptions').doc(paymentRef.id);
       tx.set(subscriptionRef, {
         sellerId: payment.sellerId,
         ownerUid: payment.ownerUid,
         planCode: payment.planCode,
         planAmount: plan.amount,
-        badgeAmount: SELLER_BADGE_MONTHLY_FEE,
-        amount: plan.amount + SELLER_BADGE_MONTHLY_FEE,
+        durationMonths: months,
+        planSubtotal,
+        discountPercent,
+        discountAmount,
+        discountedPlanAmount: planSubtotal - discountAmount,
+        badgeAmount,
+        amount: expectedAmount,
         currency: 'KES',
         status: 'ACTIVE',
         productLimit: plan.productLimit,
@@ -87,6 +96,8 @@ export async function applySellerSubscriptionPayment(db, deps, callback) {
         planCode: payment.planCode,
         productLimit: plan.productLimit,
         planAmount: plan.amount,
+        subscriptionDurationMonths: months,
+        subscriptionDiscountPercent: discountPercent,
         billingStatus: 'ACTIVE',
         subscriptionId: paymentRef.id,
         subscriptionExpiresAt: periodEnd,

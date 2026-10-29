@@ -2,6 +2,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { SELLER_PLANS } from '../seller-subscription-core.js';
+import { DEFAULT_SELLER_TERM_DISCOUNTS } from '../seller-subscription-pricing.js';
 
 const clean = value => String(value ?? '').trim();
 const asIso = value => value?.toDate?.()?.toISOString?.() || (value instanceof Date ? value.toISOString() : (typeof value === 'string' ? value : null));
@@ -15,9 +16,10 @@ const serialize = value => {
 export default async function adminMarketplaceControls(req, res) {
   const admin = await requireAdmin(req);
   if (req.method === 'GET') {
-    const [sellerSnap, productSnap] = await Promise.all([
+    const [sellerSnap, productSnap, pricingSnap] = await Promise.all([
       adminDb.collection('sellers').limit(300).get(),
       adminDb.collection('products').limit(300).get(),
+      adminDb.collection('sellerSubscriptionPricing').doc('current').get(),
     ]);
     const sellers = sellerSnap.docs.map(doc => {
       const s = doc.data() || {};
@@ -33,13 +35,21 @@ export default async function adminMarketplaceControls(req, res) {
         price: Number(p.salePrice ?? p.price) || 0, promotedUntil: asIso(p.promotedUntil),
         adminHidden: p.adminHidden === true || p.status === 'ADMIN_HIDDEN' };
     }).filter(p => p.sellerUid).sort((a,b) => a.name.localeCompare(b.name));
-    return res.status(200).json({ sellers, products, plans: Object.entries(SELLER_PLANS).map(([code,p]) => ({code, productLimit:p.productLimit, amount:p.amount})) });
+    return res.status(200).json({ sellers, products, plans: Object.entries(SELLER_PLANS).map(([code,p]) => ({code, productLimit:p.productLimit, amount:p.amount})), subscriptionTermDiscounts: pricingSnap.exists ? (pricingSnap.data()?.termDiscounts || DEFAULT_SELLER_TERM_DISCOUNTS) : DEFAULT_SELLER_TERM_DISCOUNTS });
   }
   if (req.method !== 'PATCH') return methodNotAllowed(res, 'GET, PATCH');
 
   const action = clean(req.body?.action).toUpperCase();
   const reason = clean(req.body?.reason).slice(0, 500);
   const now = FieldValue.serverTimestamp();
+  if (action === 'SET_SUBSCRIPTION_DISCOUNTS') {
+    const incoming = req.body?.termDiscounts || {};
+    const termDiscounts = { 1: 0, 3: Number(incoming[3]), 6: Number(incoming[6]), 12: Number(incoming[12]) };
+    if ([3, 6, 12].some(months => !Number.isFinite(termDiscounts[months]) || termDiscounts[months] < 0 || termDiscounts[months] > 50)) throw clientError('Discounts for 3, 6 and 12 months must each be between 0 and 50 percent.');
+    await adminDb.collection('sellerSubscriptionPricing').doc('current').set({ termDiscounts, updatedAt: now, updatedBy: admin.uid }, { merge: true });
+    await adminDb.collection('sellerMarketplaceAudit').add({ action, actorUid: admin.uid, termDiscounts, createdAt: now });
+    return res.status(200).json({ success: true, termDiscounts, message: 'Seller subscription discounts updated.' });
+  }
   if (['SET_PLAN', 'REVOKE_PLAN'].includes(action)) {
     const uid = clean(req.body?.sellerUid);
     if (!uid || uid.length > 128) throw clientError('Choose a valid seller.');
