@@ -80,7 +80,7 @@ export default function SellerPlans() {
       setNotice(result.message || 'Reward redemption processed.');
       if (result.payment?.status === 'PAID') await load();
     } catch (e: any) { setError(e?.message || 'Could not redeem reward points.'); }
-    finally { setBusy(false); }
+    finally { setBusyAction(null); }
   }
 
   async function checkPayment() {
@@ -93,7 +93,7 @@ export default function SellerPlans() {
       else if (['FAILED', 'CANCELLED', 'TIMEOUT'].includes(result.payment?.status)) setNotice(result.payment.failureReason || 'Payment did not complete. You can try again.');
       else setNotice('Payment is still pending. Approve the prompt, then check again.');
     } catch (e: any) { setError(e?.message || 'Could not check payment status.'); }
-    finally { setBusy(false); }
+    finally { setBusyAction(null); }
   }
 
   const expiry = seller?.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt) : null;
