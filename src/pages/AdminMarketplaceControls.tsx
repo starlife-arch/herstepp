@@ -17,7 +17,7 @@ export default function AdminMarketplaceControls() {
   const [error,setError] = useState('');
   const [notice,setNotice] = useState('');
   const [termDiscounts,setTermDiscounts] = useState<any>({1:0,3:5,6:10,12:20});
-  const load = async () => { try { setData(await apiFetch('/api/admin/marketplace-controls')); setError(''); } catch(e:any) { setError(e?.message || 'Could not load records.'); } };
+  const load = async () => { try { const result:any=await apiFetch('/api/admin/marketplace-controls'); setData(result); setTermDiscounts(result.subscriptionTermDiscounts || {1:0,3:5,6:10,12:20}); setError(''); } catch(e:any) { setError(e?.message || 'Could not load records.'); } };
   useEffect(()=>{ void load(); },[]);
   const run = async (key:string, body:any) => { setBusy(key); setError(''); setNotice(''); try { const r:any=await apiFetch('/api/admin/marketplace-controls',{method:'PATCH',body:JSON.stringify({...body,reason})}); setNotice(r.message || 'Saved.'); await load(); } catch(e:any) { setError(e?.message || 'Could not save.'); } finally { setBusy(''); } };
   const products = (data.products || []).filter((p:any)=>(p.name+' '+p.sellerBusinessName+' '+p.sellerUid).toLowerCase().includes(search.toLowerCase()));
