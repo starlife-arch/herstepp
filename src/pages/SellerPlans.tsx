@@ -142,7 +142,7 @@ export default function SellerPlans() {
             <p className="text-sm font-medium mb-2">Billing term</p>
             <div className="grid grid-cols-2 gap-2">
               {[{months:1,label:'1 month',discount:0},{months:3,label:'3 months',discount:Number(termDiscounts[3])||0},{months:6,label:'6 months',discount:Number(termDiscounts[6])||0},{months:12,label:'12 months',discount:Number(termDiscounts[12])||0}].map(term => (
-                <button key={term.months} type="button" aria-pressed={planDuration === term.months} onClick={() => setTermByPlan(current => ({ ...current, [plan.code]: term.months }))} className={`rounded-lg border px-2 py-2 text-xs text-left transition ${durationMonths === term.months ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 hover:border-neutral-500'}`}>
+                <button key={term.months} type="button" aria-pressed={planDuration === term.months} onClick={() => setTermByPlan(current => ({ ...current, [plan.code]: term.months }))} className={`rounded-lg border px-2 py-2 text-xs text-left transition ${planDuration === term.months ? 'border-neutral-900 bg-neutral-900 text-white' : 'border-neutral-200 hover:border-neutral-500'}`}>
                   <span className="block font-semibold">{term.label}</span><span className="block mt-1">{term.discount ? `${term.discount}% off plan` : 'No discount'}</span>
                 </button>
               ))}
