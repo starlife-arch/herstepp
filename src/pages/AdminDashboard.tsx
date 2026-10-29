@@ -752,7 +752,7 @@ export default function AdminDashboard() {
     { id: 'customers', label: 'Customers', icon: Users },
     { id: 'payments', label: 'Payments', icon: CreditCard },
     { id: 'marketplace-payouts', label: 'Marketplace Payouts', icon: Wallet },
-    { id: 'promotion-wallets', label: 'Promotion Wallet Reports', icon: Wallet },
+    { id: 'promotion-wallets', label: 'Promotion Wallet Reports', icon: Wallet },\n    { id: 'financial-reports', label: 'AI Financial Reports', icon: FileText },
     { id: 'refunds', label: 'Refunds & Returns', icon: FileText },
     { id: 'tips', label: 'Tips', icon: Heart },
     { id: 'support', label: 'Support', icon: MessageSquare },
@@ -784,7 +784,7 @@ export default function AdminDashboard() {
           {navItems.map(item => (
             <button
               key={item.id}
-              onClick={() => item.id === 'marketplace-payouts' ? navigate('/admin/marketplace-payouts') : item.id === 'promotion-wallets' ? navigate('/admin/promotion-wallets') : setActiveSection(item.id)}
+              onClick={() => item.id === 'marketplace-payouts' ? navigate('/admin/marketplace-payouts') : item.id === 'promotion-wallets' ? navigate('/admin/promotion-wallets') : item.id === 'financial-reports' ? navigate('/admin/financial-reports') : setActiveSection(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${activeSection === item.id ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-600 hover:bg-neutral-50'}`}
             >
               <item.icon className="w-4 h-4" />
