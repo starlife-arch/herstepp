@@ -22,6 +22,46 @@ function within(date, from, to) {
 }
 function sum(rows, key = 'amount') { return rows.reduce((total, row) => total + amount(row[key]), 0); }
 
+async function explainFinancialReport(report, fallback) {
+  const key = String(process.env.GROQ_API_KEY || '').trim();
+  if (!key) return fallback + ' AI narrative is unavailable because GROQ_API_KEY is not configured on the server.';
+  const prompt = [
+    'You are HerStep Collection’s finance-reporting AI.',
+    'Explain the supplied verified financial report in plain English for the administrator.',
+    'Use only the supplied figures. Never invent or estimate amounts, causes, trends, profit, or missing records.',
+    'Clearly distinguish gross revenue, confirmed refunds, recorded provider fees, and calculated net revenue.',
+    'If provider fees are missing or the data sample is limited, prominently explain that the net figure is provisional and the report may be incomplete.',
+    'Give a short summary, notable category breakdown, and practical next checks. Do not call revenue profit.',
+    'Use KSh and concise bullet points.',
+  ].join(' ');
+  try {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: String(process.env.GROQ_CHAT_MODEL || 'qwen/qwen3.8-27b').trim(),
+        temperature: 0.1,
+        max_tokens: 600,
+        messages: [
+          { role: 'system', content: prompt },
+          { role: 'user', content: JSON.stringify(report) },
+        ],
+      }),
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!response.ok) {
+      console.error('[admin-financial-reports] AI request failed:', response.status);
+      return fallback + ' AI could not generate an interpretation right now; these figures are the verified calculated totals.';
+    }
+    const data = await response.json();
+    const answer = String(data?.choices?.[0]?.message?.content || '').trim();
+    return answer ? answer.slice(0, 5000) : fallback + ' AI returned no explanation; these figures are the verified calculated totals.';
+  } catch (error) {
+    console.error('[admin-financial-reports] AI request failed:', error?.message || error);
+    return fallback + ' AI could not generate an interpretation right now; these figures are the verified calculated totals.';
+  }
+}
+
 export default async function adminFinancialReports(req, res) {
   await requireAdmin(req);
   if (req.method !== 'GET') return methodNotAllowed(res, 'GET');
@@ -87,16 +127,25 @@ export default async function adminFinancialReports(req, res) {
   const byCategory = [...new Set(rows.map(row => row.category))].map(category => ({ category, total: sum(rows.filter(row => row.category === category)), count: rows.filter(row => row.category === category).length }));
   const netRevenue = revenue - refundTotal - providerFees;
   const explanation = [];
-  explanation.push(`Recorded gross marketplace revenue for this period is KSh ${revenue.toLocaleString('en-KE')} across ${rows.length} qualifying records.`);
+  explanation.push(`Recorded gross revenue for this period is KSh ${revenue.toLocaleString('en-KE')} across ${rows.length} qualifying records.`);
   explanation.push(`Confirmed refunds recorded in the period total KSh ${refundTotal.toLocaleString('en-KE')}.`);
-  explanation.push(missingProviderFeeCount ? `Payment-provider fees are missing on ${missingProviderFeeCount} revenue records, so the net figure is provisional and excludes unrecorded fees.` : `Recorded provider fees total KSh ${providerFees.toLocaleString('en-KE')}.`);
+  explanation.push(missingProviderFeeCount ? `Payment-provider fees are missing on ${missingProviderFeeCount} revenue records, so net revenue is provisional and excludes unrecorded fees.` : `Recorded provider fees total KSh ${providerFees.toLocaleString('en-KE')}.`);
   explanation.push(`Calculated net revenue after recorded refunds and provider fees is KSh ${netRevenue.toLocaleString('en-KE')}.`);
+  const fallbackExplanation = explanation.join(' ');
+  const aiExplanation = await explainFinancialReport({
+    period,
+    range: { from: from.toISOString(), to: to.toISOString() },
+    totals: { grossRevenue: revenue, confirmedRefunds: refundTotal, recordedProviderFees: providerFees, netRevenue, transactionCount: rows.length, refundCount: refundRows.length, providerFeeRecordedCount: providerFeeKnown.length, providerFeeMissingCount: missingProviderFeeCount },
+    byCategory,
+    dataLimit: 'Each source collection is currently limited to the newest 1,000 records.',
+    incompleteProviderFeeWarning: missingProviderFeeCount > 0,
+  }, fallbackExplanation);
   return res.status(200).json({
     period, from: from.toISOString(), to: to.toISOString(), currency: 'KES',
     totals: { grossRevenue: revenue, confirmedRefunds: refundTotal, recordedProviderFees: providerFees, netRevenue, transactionCount: rows.length, refundCount: refundRows.length, providerFeeRecordedCount: providerFeeKnown.length, providerFeeMissingCount: missingProviderFeeCount },
     byCategory, transactions: rows.sort((a, b) => String(b.date).localeCompare(String(a.date))).slice(0, 500),
     refunds: refundRows.map(row => ({ id: row.id, amount: amount(row.amount), date: dateOf(row), reference: row.providerReference || row.orderId || row.id })).slice(0, 200),
     dataQuality: { sourceCollections: ['sellerSubscriptionPayments', 'sellerPromotionPayments', 'sellerBulkCreditPayments', 'sellerPromotionWalletLedger', 'refundRecords', 'payments'], perCollectionReadLimit: 1000, note: 'Only verified paid records and confirmed refunds are included. Wallet top-ups are excluded until spent; ordinary order gross is not treated as HerStep revenue. Provider fees absent from records are not estimated. Records beyond the collection read limit may not be included.' },
-    aiExplanation: explanation.join(' ')
+    aiExplanation
   });
 }
