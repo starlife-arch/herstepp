@@ -98,6 +98,8 @@ export async function applySellerSubscriptionPayment(db, deps, callback) {
         planAmount: plan.amount,
         subscriptionDurationMonths: months,
         subscriptionDiscountPercent: discountPercent,
+        subscriptionStartedAt: now,
+        subscriptionPurchasedAt: now,
         billingStatus: 'ACTIVE',
         subscriptionId: paymentRef.id,
         subscriptionExpiresAt: periodEnd,

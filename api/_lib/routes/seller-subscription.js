@@ -130,6 +130,11 @@ export default async function sellerSubscription(req, res) {
 
   if (req.method === 'GET') {
     const paymentId = Array.isArray(req.query.paymentId) ? req.query.paymentId[0] : req.query.paymentId;
+    if (paymentId == null || paymentId === '') {
+      const pricingSnap = await adminDb.collection('sellerSubscriptionPricing').doc('current').get();
+      const termDiscounts = pricingSnap.exists ? (pricingSnap.data()?.termDiscounts || DEFAULT_SELLER_TERM_DISCOUNTS) : DEFAULT_SELLER_TERM_DISCOUNTS;
+      return res.status(200).json({ termDiscounts, plans: Object.entries(SELLER_PLANS).map(([code, plan]) => ({ code, amount: plan.amount, productLimit: plan.productLimit })), badgeMonthlyFee: SELLER_BADGE_MONTHLY_FEE });
+    }
     if (typeof paymentId !== 'string' || !/^[a-f0-9]{64}$/.test(paymentId)) throw clientError('Subscription payment id is invalid.');
     const paymentRef = adminDb.collection('sellerSubscriptionPayments').doc(paymentId);
     const snap = await paymentRef.get();
