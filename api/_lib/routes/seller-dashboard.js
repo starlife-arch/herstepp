@@ -25,6 +25,8 @@ function serializeSeller(snap) {
     status: d.status || 'PENDING',
     planCode: d.planCode || 'STARTER',
     billingStatus: d.billingStatus || 'NOT_CONFIGURED',
+    subscriptionStartedAt: iso(d.subscriptionStartedAt),
+    subscriptionPurchasedAt: iso(d.subscriptionPurchasedAt),
     subscriptionExpiresAt: iso(d.subscriptionExpiresAt),
     badgeSubscriptionStatus: d.badgeSubscriptionStatus || 'NOT_CONFIGURED',
     badgeSubscriptionExpiresAt: iso(d.badgeSubscriptionExpiresAt),
