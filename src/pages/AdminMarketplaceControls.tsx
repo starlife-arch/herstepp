@@ -26,6 +26,22 @@ export default function AdminMarketplaceControls() {
     <Link to="/admin" className="inline-flex items-center gap-2 text-sm text-neutral-500 mb-5"><ArrowLeft className="w-4 h-4"/> Back to admin</Link>
     <div className="flex justify-between gap-4 mb-6"><div><h1 className="text-3xl font-bold">Marketplace controls</h1><p className="text-sm text-neutral-600 mt-2">Assign or revoke seller plans, promote listings, and hide or restore products.</p></div><Button variant="outline" onClick={load}><RefreshCw className="w-4 h-4 mr-2"/> Refresh</Button></div>
     {error && <p role="alert" className="bg-red-50 text-red-700 rounded p-3 mb-4">{error}</p>}{notice && <p role="status" className="bg-green-50 text-green-700 rounded p-3 mb-4">{notice}</p>}
+    <Card className="p-5 mb-7">
+      <h2 className="text-xl font-semibold mb-2">Seller subscription discounts</h2>
+      <p className="text-sm text-neutral-600 mb-4">Discounts apply to plan fees only. The KSh 50 badge fee is charged for every month. Maximum discount: 50%.</p>
+      <div className="grid sm:grid-cols-3 gap-4">
+        <label className="block text-sm">3 months (%)
+          <input className="w-full border rounded-lg p-2.5" type="number" min="0" max="50" value={termDiscounts[3]} onChange={e=>setTermDiscounts((old:any)=>({...old,3:e.target.value}))}/>
+        </label>
+        <label className="block text-sm">6 months (%)
+          <input className="w-full border rounded-lg p-2.5" type="number" min="0" max="50" value={termDiscounts[6]} onChange={e=>setTermDiscounts((old:any)=>({...old,6:e.target.value}))}/>
+        </label>
+        <label className="block text-sm">12 months (%)
+          <input className="w-full border rounded-lg p-2.5" type="number" min="0" max="50" value={termDiscounts[12]} onChange={e=>setTermDiscounts((old:any)=>({...old,12:e.target.value}))}/>
+        </label>
+      </div>
+      <Button className="mt-4" disabled={!!busy} loading={busy==='SET_SUBSCRIPTION_DISCOUNTS'} onClick={()=>run('SET_SUBSCRIPTION_DISCOUNTS',{action:'SET_SUBSCRIPTION_DISCOUNTS',termDiscounts:{1:0,3:Number(termDiscounts[3]),6:Number(termDiscounts[6]),12:Number(termDiscounts[12])}})}>Save subscription discounts</Button>
+    </Card>
     <Card className="p-5 mb-7"><h2 className="text-xl font-semibold mb-3">Seller plan override</h2><p className="text-sm text-neutral-600 mb-4">Plan overrides are recorded in the audit log. Revoking disables new publishing without deleting seller data or orders.</p>
       <div className="grid sm:grid-cols-2 gap-4"><div><label className="block text-sm mb-1">Seller</label><select className="w-full border rounded-lg p-2.5 bg-white" value={sellerUid} onChange={e=>setSellerUid(e.target.value)}><option value="">Choose seller</option>{(data.sellers||[]).map((s:any)=><option key={s.uid} value={s.uid}>{s.businessName||s.displayName||s.uid} — {s.status}</option>)}</select></div><div><label className="block text-sm mb-1">Plan</label><select className="w-full border rounded-lg p-2.5 bg-white" value={planCode} onChange={e=>setPlanCode(e.target.value)}>{[['STARTER','Starter (20 products)'],['STANDARD','Standard (100 products)'],['GROWTH','Growth (1,000 products)'],['UNLIMITED','Unlimited']].map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div><div><label className="block text-sm mb-1">Duration in days</label><input className="w-full border rounded-lg p-2.5" type="number" min="1" max="365" value={days} onChange={e=>setDays(e.target.value)}/></div><Input label="Admin reason (optional)" value={reason} onChange={e=>setReason(e.target.value)} maxLength={500} placeholder="Reason for the change"/></div>
       {selected && <p className="text-xs text-neutral-500 mt-3">Current plan: {selected.planCode} · {selected.billingStatus} · expires {selected.subscriptionExpiresAt ? new Date(selected.subscriptionExpiresAt).toLocaleDateString() : 'not set'}</p>}
