@@ -22,7 +22,7 @@ import AdminBulkShoeUpload from './pages/AdminBulkShoeUpload';
 import AdminAIChats from './pages/AdminAIChats';
 import AdminAriaFeedback from './pages/AdminAriaFeedback';
 import AdminAI from './pages/AdminAI';
-import AdminCosts from './pages/AdminCosts';
+import AdminCosts from './pages/AdminCosts';\nimport AdminFinancialReports from './pages/AdminFinancialReports';
 import TipPage from './pages/Tip';
 import Wishlist from './pages/Wishlist';
 import SellerApplicationPage from './pages/SellerApplication';
@@ -53,7 +53,7 @@ function AppRoutes() {
   <Route path="/admin/ai-chats" element={<Wrap><RequireAdmin><AdminAIChats /></RequireAdmin></Wrap>} />
   <Route path="/admin/aria-feedback" element={<Wrap><RequireAdmin><AdminAriaFeedback /></RequireAdmin></Wrap>} />
   <Route path="/admin/ai" element={<Wrap><RequireAdmin><AdminAI /></RequireAdmin></Wrap>} />
-  <Route path="/admin/costs" element={<Wrap><RequireAdmin><AdminCosts /></RequireAdmin></Wrap>} />
+  <Route path="/admin/costs" element={<Wrap><RequireAdmin><AdminCosts /></RequireAdmin></Wrap>} />\n  <Route path="/admin/financial-reports" element={<Wrap><RequireAdmin><AdminFinancialReports /></RequireAdmin></Wrap>} />
   <Route path="/admin/sellers" element={<Wrap><RequireAdmin><AdminSellers /></RequireAdmin></Wrap>} />
   <Route path="/admin/seller-products" element={<Wrap><RequireAdmin><AdminSellerProducts /></RequireAdmin></Wrap>} />
   <Route path="/admin/marketplace-reports" element={<Wrap><RequireAdmin><AdminMarketplaceReports /></RequireAdmin></Wrap>} />
