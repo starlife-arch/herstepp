@@ -133,6 +133,10 @@
       "destination": "/api/admin?route=ai-chats"
     },
     {
+      "source": "/api/admin/financial-reports",
+      "destination": "/api/admin?route=financial-reports"
+    },
+    {
       "source": "/api/admin/ai",
       "destination": "/api/admin?route=ai"
     },
