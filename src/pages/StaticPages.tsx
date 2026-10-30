@@ -47,7 +47,7 @@ export function PrivacyPolicy() {
             <p>We may update this policy as the platform or applicable law changes. The “Last updated” date above shows when this version was published. Continued use after an update is subject to applicable law and any consent required for the change.</p>
           </Section>
           <Section title="10. Contact and privacy requests">
-            <p>Contact us at herstepcollection@gmail.com or +254 799 021 089. Our listed physical address is Jerry House, near Juja Posta, Juja Town, Kenya. Please do not send passwords, PINs or other secret credentials in a support request.</p>
+            <p>Contact us at support@herstepcollection.shop or +254 799 021 089. Our listed physical address is Jerry House, near Juja Posta, Juja Town, Kenya. Please do not send passwords, PINs or other secret credentials in a support request.</p>
           </Section>
         </div>
       </Card>
@@ -102,7 +102,7 @@ export function TermsOfService() {
             <p>We may update platform features and these terms. Material changes will be reflected on this page with an updated date where appropriate. We may restrict access or remove content for security, legal, policy or operational reasons. Outstanding orders, approved refunds, payment obligations and other provisions that by their nature should continue will survive account closure as required.</p>
           </Section>
           <Section title="12. Governing law and contact">
-            <p>These terms are governed by the laws of Kenya, subject to mandatory legal protections and the jurisdiction of competent courts. For questions or complaints, contact herstepcollection@gmail.com or +254 799 021 089. Our listed physical address is Jerry House, near Juja Posta, Juja Town, Kenya.</p>
+            <p>These terms are governed by the laws of Kenya, subject to mandatory legal protections and the jurisdiction of competent courts. For questions or complaints, contact support@herstepcollection.shop or +254 799 021 089. Our listed physical address is Jerry House, near Juja Posta, Juja Town, Kenya.</p>
           </Section>
           <p className="text-xs text-neutral-500">These terms and this privacy policy are platform information, not legal advice. The operator should have them reviewed by a qualified Kenyan legal professional before relying on them as final legal documents.</p>
         </div>
