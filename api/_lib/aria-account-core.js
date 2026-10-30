@@ -20,6 +20,10 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
   if (!intent) return null;
   const topic = String(message || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/^(help with )?orders?$/.test(topic)) return { intent, reply: 'Of course! What would you like help with for your orders — tracking an order, checking delivery, viewing order details, or something else?', actions: [] };
+  if (/^(points?|rewards?|loyalty)$/.test(topic)) return { intent, reply: 'I can check your live rewards balance, recent points activity, expiry and eligible ways to redeem. Would you like your balance or your rewards history?', actions: [] };
+  if (/^(promotions?|promotion wallet|wallet)$/.test(topic)) return { intent, reply: 'I can check your seller promotion wallet, campaigns and promoted products if you have an active seller account. What would you like to check?', actions: [] };
+  if (/^(plans?|seller plan|subscription)$/.test(topic)) return { intent, reply: 'I can check your seller plan, product limit, billing status and renewal date. Would you like your current plan details?', actions: [] };
+  if (/^(seller orders?|my sales)$/.test(topic)) return { intent, reply: 'I can check orders containing your own seller products and their fulfilment status. Would you like your latest seller orders?', actions: [] };
   if (/^(help with )?payments?$/.test(topic)) return { intent, reply: 'I can help with payments. Would you like to check whether a payment went through, view a receipt, or troubleshoot a pending M-Pesa payment?', actions: [] };
   if (/^(help with )?(verification|verify|codes?|email verification)$/.test(topic)) return { intent, reply: 'I can help verify your email. Would you like me to send a verification code, or have you already received a code and want me to confirm it?', actions: [] };
   if (/^(help with )?invoices?$/.test(topic)) return { intent, reply: 'Would you like to download an invoice here, or have me email an invoice to an address you choose?', actions: [] };
@@ -60,6 +64,86 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
       if (/not configured/i.test(messageText)) return { intent, reply: 'Email verification is temporarily unavailable. Please try again later or contact HerStep Support.', actions: [] };
       throw error;
     }
+  }
+
+  if (intent === 'rewards') {
+    const [configSnap, accountSnap, ledgerSnap, sellerSnap] = await Promise.all([
+      db.collection('rewardsConfig').doc('current').get(),
+      db.collection('rewardAccounts').doc(user.uid).get(),
+      db.collection('rewardLedger').where('uid', '==', user.uid).get(),
+      db.collection('sellers').doc(user.uid).get(),
+    ]);
+    const config = configSnap.data() || {};
+    const now = Date.now();
+    const entries = ledgerSnap.docs.map(doc => {
+      const e = doc.data() || {};
+      const expiry = e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null);
+      return { type: String(e.type || 'UNKNOWN'), points: Number(e.points) || 0, status: String(e.status || 'POSTED').toUpperCase(), expired: Number(e.points) > 0 && expiry != null && expiry <= now, createdAt: iso(e.createdAt), reason: String(e.reason || '') };
+    }).sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    const balance = Math.max(0, entries.reduce((sum,e) => sum + (e.status === 'POSTED' && !e.expired ? e.points : 0), 0));
+    const seller = sellerSnap.exists && ['ACTIVE','PENDING'].includes(String(sellerSnap.data()?.status || '').toUpperCase());
+    const enabled = config.enabled === true;
+    const redemption = enabled && (seller ? config.seller?.redemptionEnabled === true : config.buyer?.redemptionEnabled === true);
+    const value = Number(config.pointValueKes) || 0;
+    const recent = entries.slice(0,5).map(e => (e.points > 0 ? '+' : '') + e.points.toLocaleString() + ' points — ' + e.type.replace(/_/g,' ').toLowerCase() + (e.expired ? ' (expired)' : '')).join('; ');
+    return { intent, reply: 'I checked your live HerStep rewards ledger. Available balance: ' + balance.toLocaleString() + ' points. Estimated value: ' + money(balance * value) + '. Programme: ' + (enabled ? 'enabled' : 'currently disabled') + '. Redemption: ' + (redemption ? 'enabled for your account type' : 'not currently enabled for your account type') + (config.expiryDays ? '. Points expiry setting: ' + Number(config.expiryDays) + ' days' : '') + '. Recent activity: ' + (recent || 'no reward transactions recorded') + '. This balance is calculated from posted, non-expired ledger entries, not an unverified cached balance.', actions: [] };
+  }
+
+  if (intent === 'seller_plan' || intent === 'promotions' || intent === 'seller_orders') {
+    const [sellerSnap, applicationSnap] = await Promise.all([
+      db.collection('sellers').doc(user.uid).get(),
+      db.collection('sellerApplications').doc(user.uid).get(),
+    ]);
+    const seller = sellerSnap.data() || {};
+    if (!sellerSnap.exists) {
+      const application = applicationSnap.data() || {};
+      return { intent, reply: applicationSnap.exists ? 'I checked your live seller application. Its current status is ' + statusText(application.status) + (application.adminReason ? '. Note: ' + String(application.adminReason).slice(0,250) : '') + '. You do not yet have an active seller account, so seller plans, promotion wallet and seller orders are not available.' : 'I checked your account and could not find a seller profile or seller application. You can apply to become a HerStep marketplace seller from the Sell on HerStep page.', actions: [] };
+    }
+    if (intent === 'seller_plan') {
+      const [subscriptionSnap, pricingSnap] = await Promise.all([
+        db.collection('sellerSubscriptions').where('sellerId','==',user.uid).limit(20).get(),
+        db.collection('sellerSubscriptionPricing').doc('current').get(),
+      ]);
+      const expiry = seller.subscriptionExpiresAt?.toDate?.() || (seller.subscriptionExpiresAt ? new Date(seller.subscriptionExpiresAt) : null);
+      const active = String(seller.billingStatus || '').toUpperCase() === 'ACTIVE' && expiry && expiry.getTime() > now;
+      const plan = String(seller.planCode || 'STARTER').toUpperCase();
+      const limits = { STARTER:20, STANDARD:100, GROWTH:1000, UNLIMITED:null };
+      const planPrices = { STARTER:150, STANDARD:350, GROWTH:800, UNLIMITED:1500 };
+      const recent = subscriptionSnap.docs.map(d => d.data() || {}).sort((a,b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0];
+      const discounts = pricingSnap.data()?.termDiscounts || {1:0,3:5,6:10,12:20};
+      return { intent, reply: 'Your live seller plan: ' + plan + '. Plan billing: ' + statusText(seller.billingStatus) + (active ? ' (currently active)' : ' (not currently active or expired)') + '. Product limit: ' + (limits[plan] == null ? 'unlimited' : limits[plan]) + '. Base monthly plan price: ' + money(planPrices[plan] || 0) + '. Subscription expiry: ' + (expiry && Number.isFinite(expiry.getTime()) ? expiry.toLocaleDateString('en-KE') : 'not recorded') + '. Verified-business badge: ' + (seller.verificationBadge === true ? 'active' : 'not active') + '. Latest recorded subscription: ' + (recent ? statusText(recent.status) + ' · ' + String(recent.planCode || plan) + ' · ' + money(recent.amount) : 'no subscription payment record found') + '. Current term discounts: ' + Object.entries(discounts).map(([months,pct]) => months + ' months: ' + pct + '%').join(', ') + '.', actions: [] };
+    }
+    if (String(seller.status || '').toUpperCase() !== 'ACTIVE') return { intent, reply: 'Your seller account status is ' + statusText(seller.status) + '. Seller promotion wallet and seller order tools require an active approved seller account.', actions: [] };
+    if (intent === 'promotions') {
+      const [walletSnap, ledgerSnap, campaignSnap, productsSnap] = await Promise.all([
+        db.collection('sellerPromotionWallets').doc(user.uid).get(),
+        db.collection('sellerPromotionWalletLedger').where('sellerUid','==',user.uid).limit(100).get(),
+        db.collection('sellerPromotionCampaigns').where('sellerUid','==',user.uid).limit(100).get(),
+        db.collection('products').where('sellerUid','==',user.uid).limit(500).get(),
+      ]);
+      const wallet = walletSnap.data() || {};
+      const campaigns = campaignSnap.docs.map(d => d.data() || {});
+      const activeCampaigns = campaigns.filter(x => { const until=x.promotedUntil?.toDate?.() || (x.promotedUntil ? new Date(x.promotedUntil) : null); return String(x.status || '').toUpperCase()==='ACTIVE' && until && until.getTime()>now; });
+      const promoted = productsSnap.docs.filter(d => { const x=d.data()||{}; const until=x.promotedUntil?.toDate?.() || (x.promotedUntil ? new Date(x.promotedUntil) : null); return String(x.status||'').toUpperCase()==='ACTIVE' && until && until.getTime()>now; }).length;
+      const ledger = ledgerSnap.docs.map(d=>d.data()||{});
+      return { intent, reply: 'Your live seller promotion wallet: available balance ' + money(wallet.availableBalance) + ', total top-ups ' + money(wallet.totalDeposited) + ', total spent ' + money(wallet.totalSpent) + '. Active campaigns: ' + activeCampaigns.length + '. Active promoted products: ' + promoted + '. Campaign history records: ' + campaigns.length + '. Recent wallet entries: ' + (ledger.slice(0,5).map(x=>String(x.type||'ENTRY').replace(/_/g,' ').toLowerCase()+' '+money(Math.abs(Number(x.balanceDelta)||0))).join('; ') || 'none') + '. Promotions are separate from seller sales earnings.', actions: [] };
+    }
+    const [ledgerSnap, recentOrdersSnap] = await Promise.all([
+      db.collection('sellerLedger').where('sellerId','==',user.uid).limit(1000).get(),
+      db.collection('orders').orderBy('createdAt','desc').limit(500).get(),
+    ]);
+    const orderIds = new Set(ledgerSnap.docs.map(d=>String(d.data()?.orderDocumentId||'').trim()).filter(Boolean));
+    const docs = new Map(recentOrdersSnap.docs.map(d=>[d.id,d]));
+    const older = await Promise.all([...orderIds].filter(id=>!docs.has(id)).slice(0,500).map(id=>db.collection('orders').doc(id).get()));
+    older.filter(d=>d.exists).forEach(d=>docs.set(d.id,d));
+    const sellerOrders = [...docs.values()].map(doc=>{
+      const order=doc.data()||{};
+      const items=(Array.isArray(order.items)?order.items:[]).filter(item=>String(item?.sellerId||item?.sellerSnapshot?.sellerId||'')===user.uid);
+      if(!items.length || String(order.paymentStatus||'').toUpperCase()!=='PAID') return null;
+      const fulfillment=order.sellerFulfilment?.[user.uid]||{};
+      return { orderId:order.orderId||doc.id, status:statusText(fulfillment.status||'PENDING'), total:items.reduce((sum,item)=>sum+(Number(item.lineTotal??item.total)||Number(item.unitPrice||0)*Number(item.quantity||0)),0), createdAt:iso(order.createdAt), itemCount:items.length };
+    }).filter(Boolean).sort((a,b)=>String(b.createdAt||'').localeCompare(String(a.createdAt||'')));
+    return { intent, reply: 'Your live seller order summary: ' + sellerOrders.length + ' paid orders found in the available seller order records. Latest orders: ' + (sellerOrders.slice(0,5).map(o=>o.orderId+' — '+o.status+' — '+money(o.total)+' — '+o.itemCount+' item lines').join('; ') || 'none found') + '. I only counted product lines assigned to your seller account.', actions: [] };
   }
 
   const query = db.collection('orders').where('customerId', '==', user.uid).orderBy('createdAt', 'desc').limit(30);
