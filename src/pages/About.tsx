@@ -89,7 +89,14 @@ export default function About() {
           <div className="space-y-4">
             <div className="flex items-start gap-3">
               <Mail className="w-5 h-5 text-neutral-400 mt-0.5" />
-              <div><p className="font-medium">Email</p><a href="mailto:herstepcollection@gmail.com" className="text-sm text-neutral-400 hover:text-white">herstepcollection@gmail.com</a></div>
+              <div><p className="font-medium">Email contacts</p>
+                <div className="space-y-2 text-sm text-neutral-400">
+                  <p><a href="mailto:support@herstepcollection.shop" className="hover:text-white underline">support@herstepcollection.shop</a><br /><span className="text-xs">Customer help and complaints</span></p>
+                  <p><a href="mailto:marketplace@herstepcollection.shop" className="hover:text-white underline">marketplace@herstepcollection.shop</a><br /><span className="text-xs">Seller applications and marketplace matters</span></p>
+                  <p><a href="mailto:orders@herstepcollection.shop" className="hover:text-white underline">orders@herstepcollection.shop</a><br /><span className="text-xs">Order and delivery enquiries</span></p>
+                  <p><a href="mailto:partnerships@herstepcollection.shop" className="hover:text-white underline">partnerships@herstepcollection.shop</a><br /><span className="text-xs">Business partnerships and collaborations</span></p>
+                </div>
+              </div>
             </div>
             <div className="flex items-start gap-3">
               <Clock className="w-5 h-5 text-neutral-400 mt-0.5" />
