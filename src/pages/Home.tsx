@@ -61,12 +61,12 @@ function StaticHero() {
       <div className="absolute inset-0 opacity-20" style={{ backgroundImage: 'url(https://images.unsplash.com/photo-1560343090-f0409e92791a?w=1200&h=600&fit=crop)', backgroundSize: 'cover', backgroundPosition: 'center' }} />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
         <div className="max-w-2xl">
-          <p className="text-sm font-bold text-white mb-3 uppercase tracking-wider drop-shadow-md">Premium Ladies Footwear</p>
+          <p className="text-sm font-bold text-white mb-3 uppercase tracking-wider drop-shadow-md">Fashion. Style. Lifestyle.</p>
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">
             Step Into<br />Your <span className="text-neutral-400">Style.</span>
           </h1>
           <p className="text-lg text-white mb-8 max-w-lg leading-relaxed drop-shadow-md">
-            Discover curated ladies' footwear at HerStep Collection. From elegant heels to comfortable flats, find your perfect pair in Juja Town.
+            Discover clothing, footwear, bags, watches, jewellery and accessories from independent sellers. Find your style in one marketplace.
           </p>
           <div className="flex flex-wrap gap-3">
             <Link to="/shop">
@@ -178,7 +178,7 @@ function HeroCarousel({ hero }: { hero: HeroData }) {
 }
 
 export default function Home() {
-  usePageMeta('HerStep Collection | Step Into Your Style', "Premium ladies' footwear in Juja Town. Shop sandals, heels and platforms — pay with M-Pesa.");
+  usePageMeta('HerStep Collection | Fashion. Style. Lifestyle.', 'Shop men’s and women’s fashion, footwear, bags, watches, jewellery and accessories from independent sellers across Kenya.');
   const { state, reloadCatalog } = useApp();
   const { products, categories, catalogLoading, catalogError } = state;
   const featured = products.filter(p => p.featured);
