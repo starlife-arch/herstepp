@@ -516,7 +516,7 @@ function HeroEditor() {
               : <img src={slide.media.url} alt="" className="absolute inset-0 h-full w-full object-cover opacity-60" style={{ objectPosition: slide.focalPoint }} />)}
             <div className="absolute inset-0 bg-gradient-to-br from-neutral-900 via-neutral-950 to-black opacity-70" />
             <div className="relative px-6 py-12 max-w-2xl">
-              <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Premium Ladies Footwear</p>
+              <p className="text-sm font-medium text-neutral-400 mb-3 uppercase tracking-wider">Fashion. Style. Lifestyle.</p>
               <h4 className="text-2xl sm:text-3xl font-bold leading-tight mb-4">{slide.title || 'Your headline appears here'}</h4>
               <p className="text-sm text-neutral-300 mb-6 leading-relaxed">{slide.copy || 'Your paragraph appears here.'}</p>
               <Button size="lg" variant="secondary">{slide.ctaLabel || 'Shop Now'}</Button>
