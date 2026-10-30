@@ -13,7 +13,7 @@ export function Header() {
 
   const navLinks = [
     { to: '/', label: 'Home' },
-    { to: '/shop', label: 'Shop' },
+    { to: '/shop', label: 'Shop All' },
     ...(state.user ? [{ to: '/wishlist', label: 'Wishlist' }] : []),
     { to: '/track', label: 'Track Order' },
     { to: '/support', label: 'Support' },
@@ -134,15 +134,15 @@ export function Footer() {
               </div>
             </div>
             <p className="text-neutral-400 text-sm leading-relaxed">
-              Step Into Your Style. Premium ladies' footwear in Juja Town.
+              Fashion. Style. Lifestyle. Discover clothing, footwear, bags, watches, jewellery and accessories from independent sellers.
             </p>
           </div>
 
           {/* Quick Links */}
           <div>
-            <h4 className="font-semibold text-sm mb-4">Shop</h4>
+            <h4 className="font-semibold text-sm mb-4">Shop by Department</h4>
             <ul className="space-y-2.5">
-              {['Summer Sandals', 'Platform Shoes', 'Block Heels', 'Stiletto Heels', 'Flats'].map(item => (
+              {['Men’s Fashion', 'Women’s Fashion', 'Footwear', 'Bags', 'Watches', 'Jewellery', 'Accessories'].map(item => (
                 <li key={item}><Link to="/shop" className="text-neutral-400 text-sm hover:text-white transition-colors">{item}</Link></li>
               ))}
             </ul>
