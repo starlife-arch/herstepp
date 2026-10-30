@@ -10,7 +10,7 @@ import { usePageMeta } from '../hooks/usePageMeta';
 const categorySlug = (name: string) => name.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 export default function Shop() {
-  usePageMeta('Shop | HerStep Collection', "Browse the full HerStep Collection of ladies' shoes in Juja Town — sandals, heels, platforms and sneakers.");
+  usePageMeta('Shop All | HerStep Collection', 'Discover men’s and women’s fashion, footwear, bags, watches, jewellery and accessories from independent sellers.');
   const [searchParams, setSearchParams] = useSearchParams();
   const { state, reloadCatalog } = useApp();
   const { products, categories, catalogLoading, catalogError } = state;
@@ -104,7 +104,7 @@ export default function Shop() {
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-neutral-900 mb-2">Shop</h1>
-        <p className="text-neutral-500">Browse our collection of premium ladies' footwear</p>
+        <p className="text-neutral-500">Discover fashion, footwear and lifestyle essentials from independent sellers.</p>
       </div>
 
       {/* Search & Filter Bar */}
