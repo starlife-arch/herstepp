@@ -20,7 +20,7 @@ const BRAND_NAVY = '#10233f';
 const BRAND_ACCENT = '#b96f40';
 const BRAND_TEXT = '#40516a';
 
-const FOOTER_LINE = 'HerStep Collection · Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12 · +254 799 021 089 · herstepcollection@gmail.com';
+const FOOTER_LINE = 'HerStep Collection · Juja Town, Jerry House, near Juja Posta, Outside Shop No. 12 · +254 799 021 089 · support@herstepcollection.shop';
 
 // Responsive table layout: header band, body, optional CTA button, footer.
 // options.rawBody = true keeps the body as pre-built (already escaped) HTML —
@@ -358,7 +358,7 @@ export function contactReceivedEmail(message) {
     `We received your message${messageId ? ` (reference ${messageId})` : ''}.`,
     'Our team usually replies within one working day.',
     '',
-    'You can also reach us on +254 799 021 089 or herstepcollection@gmail.com.',
+    'You can also reach us on +254 799 021 089 or support@herstepcollection.shop.',
   ].join('\n');
   return {
     subject: 'We received your message - HerStep Collection',
