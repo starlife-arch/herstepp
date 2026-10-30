@@ -1,7 +1,7 @@
 import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 
-const DEFAULT_CATEGORIES = ['Block Heels', 'Flats', 'Heels', 'Loafers', 'Platforms', 'Sandals', 'Slides', 'Dresses', 'Clothing', 'Watches', 'Necklaces', 'Bags'];
+const DEFAULT_CATEGORIES = ['Men’s Fashion', 'Women’s Fashion', 'Footwear', 'Bags', 'Watches', 'Jewellery', 'Accessories', 'Block Heels', 'Flats', 'Heels', 'Loafers', 'Platforms', 'Sandals', 'Slides', 'Dresses', 'Clothing', 'Necklaces'];
 const SHOE_SIZES = Array.from({ length: 16 }, (_, i) => String(30 + i));
 const ALLOWED_SIZES = new Set([...SHOE_SIZES, 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size', 'Free Size']);
 
@@ -23,7 +23,7 @@ export default async function analyzeBulkShoe(req, res) {
 
   const categorySnapshot = await adminDb.collection('categories').orderBy('name').limit(100).get();
   const categories = [...new Set([...categorySnapshot.docs.map(doc => String(doc.data().name || '').trim()).filter(Boolean), ...DEFAULT_CATEGORIES])];
-  const prompt = `You are preparing product listings for HerStep Collection, a Kenyan online shop selling shoes, dresses and other clothing, watches, necklaces, handbags and bags. Inspect the product and visible text, not the background. Return JSON only with keys: name, description, price, sizes, category, currency, priceConfidence, sizeConfidence. Name: concise appealing name based on visible type, colour and design. Description: polished customer-facing 3-5 sentences about visible details and suitable occasions/outfits. Never invent materials, brand, comfort, durability or other unverified features. Price: whole number only if clearly printed, otherwise null. sizes: array of every clearly printed size; for a paired shoe size like 35/36 return [\"35\",\"36\"]; clothing sizes may be XS, S, M, L, XL, XXL; accessories without a printed size may use [\"One Size\"] when appropriate, otherwise []. category must exactly match one of: ${categories.join(', ')}. Choose the closest matching category. currency is KES only if image indicates Kenyan shillings/KSh, otherwise null. confidence values are high, medium, or low. Never guess unclear text.`;
+  const prompt = `You are preparing product listings for HerStep Collection, a Kenyan multi-category fashion and lifestyle marketplace selling men’s and women’s clothing, footwear, bags, watches, jewellery and accessories. Inspect the product and visible text, not the background. Return JSON only with keys: name, description, price, sizes, category, currency, priceConfidence, sizeConfidence. Name: concise appealing name based on visible type, colour and design. Description: polished customer-facing 3-5 sentences about visible details and suitable occasions/outfits. Never invent materials, brand, comfort, durability or other unverified features. Price: whole number only if clearly printed, otherwise null. sizes: array of every clearly printed size; for a paired shoe size like 35/36 return [\"35\",\"36\"]; clothing sizes may be XS, S, M, L, XL, XXL; accessories without a printed size may use [\"One Size\"] when appropriate, otherwise []. category must exactly match one of: ${categories.join(', ')}. Choose the closest matching category. currency is KES only if image indicates Kenyan shillings/KSh, otherwise null. confidence values are high, medium, or low. Never guess unclear text.`;
 
   const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -60,7 +60,7 @@ export default async function analyzeBulkShoe(req, res) {
   const rawSizes = Array.isArray(item.sizes) ? item.sizes : (item.size == null ? [] : String(item.size).replace(/[,;&+]/g, '/').split('/'));
   const sizes = [...new Set(rawSizes.map(value => String(value).trim()).filter(value => ALLOWED_SIZES.has(value)))];
   const size = sizes[0] || null;
-  const category = categories.includes(item.category) ? item.category : (DEFAULT_CATEGORIES.includes(item.category) ? item.category : 'Shoes');
+  const category = categories.includes(item.category) ? item.category : (DEFAULT_CATEGORIES.includes(item.category) ? item.category : (categories.includes('Footwear') ? 'Footwear' : categories[0] || ''));
   const confidence = v => ['high', 'medium', 'low'].includes(v) ? v : 'low';
   return res.status(200).json({
     name: typeof item.name === 'string' ? item.name.slice(0, 160) : '',
