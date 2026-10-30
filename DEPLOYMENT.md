@@ -419,6 +419,6 @@ For deployment issues:
 - Cloudinary docs: [cloudinary.com/documentation](https://cloudinary.com/documentation)
 
 For business support:
-- Email: herstepcollection@gmail.com
+- Email: support@herstepcollection.shop
 - Phone: +254 799 021 089
 - WhatsApp: +254 106 624 924
