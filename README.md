@@ -130,7 +130,7 @@ See `.env.example` for all required variables.
 
 ## Support
 
-- **Email:** herstepcollection@gmail.com
+- **Email:** support@herstepcollection.shop
 - **Phone:** +254 799 021 089
 - **WhatsApp:** +254 106 624 924
 - **Location:** Jerry House, near Juja Posta, Juja Town
