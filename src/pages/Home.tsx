@@ -137,13 +137,13 @@ function HeroCarousel({ hero }: { hero: HeroData }) {
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 bg-gradient-to-r from-black/30 via-black/10 to-transparent sm:from-black/25 sm:via-black/5" />
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-32">
         <div className="max-w-2xl">
-          <p className="text-sm font-bold text-white mb-3 uppercase tracking-wider drop-shadow-md">Premium Ladies Footwear</p>
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">{slide.title}</h1>
-          <p className="text-lg text-white mb-8 max-w-lg leading-relaxed drop-shadow-md">{slide.copy}</p>
+          <p className="text-sm font-bold text-white mb-3 uppercase tracking-wider drop-shadow-md">Fashion. Style. Lifestyle.</p>
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold leading-tight mb-6">{slide.title || "Fashion for Every Style"}</h1>
+          <p className="text-lg text-white mb-8 max-w-lg leading-relaxed drop-shadow-md">Discover clothing, footwear, bags, watches, jewellery and accessories from independent sellers. Find everything that completes your style in one marketplace.</p>
           <div className="flex flex-wrap gap-3">
             <CtaLink slide={slide}>
               <Button size="lg" variant="secondary">
-                {slide.ctaLabel} <ArrowRight className="w-4 h-4 ml-2" />
+                Shop All <ArrowRight className="w-4 h-4 ml-2" />
               </Button>
             </CtaLink>
             <Link to="/track">
@@ -279,10 +279,10 @@ export default function Home() {
           <h2 className="text-2xl font-bold text-neutral-900 text-center mb-10">Why Shop With HerStep</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
-              { icon: Shield, title: 'Quality Assured', desc: 'Every pair is carefully inspected before sale' },
-              { icon: Truck, title: 'Fast Delivery', desc: 'Same-day delivery available in Juja Town' },
-              { icon: Clock, title: 'Easy Returns', desc: 'Hassle-free exchange within 48 hours' },
-              { icon: MapPin, title: 'Visit Our Store', desc: 'Jerry House, near Juja Posta, Shop No. 12' },
+              { icon: Shield, title: 'Quality Assured', desc: 'Explore products from independent marketplace sellers' },
+              { icon: Truck, title: 'Fast Delivery', desc: 'Delivery options provided by each seller' },
+              { icon: Clock, title: 'Easy Returns', desc: 'Clear product and seller information before checkout' },
+              { icon: MapPin, title: 'Independent Sellers', desc: 'Discover different brands and sellers in one marketplace' },
             ].map((item, i) => (
               <div key={i} className="text-center">
                 <div className="w-12 h-12 bg-white border border-neutral-200 rounded-xl flex items-center justify-center mx-auto mb-3">
@@ -316,7 +316,7 @@ export default function Home() {
           <div className="max-w-2xl">
             <h2 className="text-2xl font-bold mb-3">Visit Our Store</h2>
             <p className="text-neutral-300 mb-6 leading-relaxed">
-              Come see our collection in person. We are located in Juja Town and happy to help you find the perfect pair.
+              HerStep brings independent fashion and lifestyle sellers together in one marketplace. Explore different styles, compare products and shop from sellers across Kenya.
             </p>
             <div className="space-y-2 text-sm text-neutral-400">
               <p>Jerry House, near Juja Posta</p>
