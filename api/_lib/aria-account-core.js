@@ -66,6 +66,7 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
     }
   }
 
+  const now = Date.now();
   if (intent === 'rewards') {
     const [configSnap, accountSnap, ledgerSnap, sellerSnap] = await Promise.all([
       db.collection('rewardsConfig').doc('current').get(),
@@ -74,7 +75,6 @@ export async function resolveAriaAccountIntent({ db, user, message, sendVerifica
       db.collection('sellers').doc(user.uid).get(),
     ]);
     const config = configSnap.data() || {};
-    const now = Date.now();
     const entries = ledgerSnap.docs.map(doc => {
       const e = doc.data() || {};
       const expiry = e.expiresAt?.toMillis?.() ?? e.expiresAt?.toDate?.()?.getTime?.() ?? (e.expiresAt instanceof Date ? e.expiresAt.getTime() : null);
