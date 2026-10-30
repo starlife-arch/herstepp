@@ -86,12 +86,18 @@ export default function Contact() {
           <h3 className="font-semibold text-neutral-900 text-sm mb-1">WhatsApp</h3>
           <a href="https://wa.me/254106624924" target="_blank" rel="noopener noreferrer" className="text-sm text-neutral-600 hover:text-neutral-900">+254 106 624 924</a>
         </Card>
-        <Card className="p-6 text-center">
+        <Card className="p-6 text-center lg:col-span-3">
           <div className="w-12 h-12 bg-neutral-100 rounded-xl flex items-center justify-center mx-auto mb-3">
             <Mail className="w-5 h-5 text-neutral-700" />
           </div>
-          <h3 className="font-semibold text-neutral-900 text-sm mb-1">Email</h3>
-          <a href="mailto:herstepcollection@gmail.com" className="text-sm text-neutral-600 hover:text-neutral-900">herstepcollection@gmail.com</a>
+          <h3 className="font-semibold text-neutral-900 text-sm mb-1">Email the right team</h3>
+          <p className="text-xs text-neutral-500 mb-4">Choose the address that matches your enquiry so it reaches the right team.</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-left">
+            <div><a href="mailto:support@herstepcollection.shop" className="text-sm font-semibold text-neutral-900 hover:underline">support@herstepcollection.shop</a><p className="text-xs text-neutral-500 mt-1">Customer complaints, general questions, help and support tickets.</p></div>
+            <div><a href="mailto:marketplace@herstepcollection.shop" className="text-sm font-semibold text-neutral-900 hover:underline">marketplace@herstepcollection.shop</a><p className="text-xs text-neutral-500 mt-1">Seller applications, seller account questions and marketplace matters.</p></div>
+            <div><a href="mailto:orders@herstepcollection.shop" className="text-sm font-semibold text-neutral-900 hover:underline">orders@herstepcollection.shop</a><p className="text-xs text-neutral-500 mt-1">Order status, delivery, collection and order-related enquiries.</p></div>
+            <div><a href="mailto:partnerships@herstepcollection.shop" className="text-sm font-semibold text-neutral-900 hover:underline">partnerships@herstepcollection.shop</a><p className="text-xs text-neutral-500 mt-1">Business partnerships, brand collaborations and commercial proposals.</p></div>
+          </div>
         </Card>
       </div>
 
