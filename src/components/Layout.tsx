@@ -170,7 +170,7 @@ export function Footer() {
               <p>Jerry House, near Juja Posta</p>
               <p>Outside Shop No. 12</p>
               <p className="pt-2"><a href="tel:+254799021089" className="hover:text-white">+254 799 021 089</a></p>
-              <p><a href="mailto:herstepcollection@gmail.com" className="hover:text-white">herstepcollection@gmail.com</a></p>
+              <p><a href="mailto:support@herstepcollection.shop" className="hover:text-white">support@herstepcollection.shop</a></p>
             </div>
           </div>
         </div>
@@ -227,9 +227,9 @@ function WhatsAppButton() {
               <span className="flex-1"><span className="block text-sm font-medium">WhatsApp</span><span className="block text-xs text-neutral-500">Chat with our team</span></span>
               <ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
             </a>
-            <a href="mailto:herstepcollection@gmail.com" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
+            <a href="mailto:support@herstepcollection.shop" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
               <Mail className="w-5 h-5 shrink-0 text-neutral-700" aria-hidden="true" />
-              <span className="flex-1"><span className="block text-sm font-medium">Email us</span><span className="block text-xs text-neutral-500">herstepcollection@gmail.com</span></span>
+              <span className="flex-1"><span className="block text-sm font-medium">Email us</span><span className="block text-xs text-neutral-500">support@herstepcollection.shop</span></span>
               <ArrowUpRight className="w-4 h-4 text-neutral-400" aria-hidden="true" />
             </a>
             <a href="https://www.facebook.com/herstepcollections" target="_blank" rel="noopener noreferrer" onClick={close} className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400">
