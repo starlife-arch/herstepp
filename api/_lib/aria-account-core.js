@@ -4,6 +4,10 @@ export function detectAriaAccountIntent(message) {
   const text = String(message || '').toLowerCase().replace(/[^a-z0-9@._\s-]/g, ' ').replace(/\s+/g, ' ').trim();
   if (/\b(password|reset password|forgot password|forgot my password|change password)\b/.test(text)) return null;
   if (/\b(verify|verification|verified|verification code|resend.*code|send.*code|confirm.*code|codes?|otp|one time password)\b/.test(text) || /\b(email|account)\b.*\b(confirm|verify|verified|code)\b/.test(text) || /^(verify|verification|code|codes|otp|email verification)$/.test(text) || /\b(?:i have|i've|ive|already)\s+(?:received|got)\s+(?:it|one|the code)\b/.test(text)) return 'verification';
+  if (/\b(points?|rewards?|loyalty|redeem|redemption)\b/.test(text)) return 'rewards';
+  if (/\b(promotion wallet|promotions wallet|wallet balance|promoted products|campaigns?|promotions?)\b/.test(text)) return 'promotions';
+  if (/\b(seller plan|subscription|seller subscription|plan expiry|product limit|verified badge)\b/.test(text)) return 'seller_plan';
+  if (/\b(seller orders?|orders? from my shop|my shop orders|my sales|seller earnings|marketplace seller)\b/.test(text)) return 'seller_orders';
   if (/\b(invoice|invoices|bill|bills|download.*invoice|my invoice|send.*invoice|email.*invoice)\b/.test(text) || /^invoices?$/.test(text)) return 'invoice';
   if (/\b(payment|payments|paid|pay|mpesa|m-pesa|transaction|charged|money (?:was )?deducted|money taken|money sent|refund|receipt)\b/.test(text)) return 'payment';
   if (/\b(order|orders|delivery|deliveries|tracking|track|parcel|package|purchase|shipment|shipping)\b/.test(text) || /\bHS-\d{4}-\d{6}\b/i.test(text)) return 'order';
