@@ -87,7 +87,7 @@ async function analyzeImage(imageUrl) {
   const rawSizes = Array.isArray(item.sizes) ? item.sizes : item.size == null ? [] : String(item.size).replace(/[,;&+]/g, '/').split('/');
   // AI may return a paired size such as '35/36' as one string even when
   // the prompt asks for an array. Split paired/list values before validation.
-  const sizes = [...new Set(rawSizes.flatMap(v => String(v).split(/[\\/,;&+]+/)).map(v => v.trim()).filter(v => ALLOWED_SIZES.has(v)))];
+  const sizes = [...new Set(rawSizes.flatMap(v => String(v).split(/[\/,;&+]+/)).map(v => v.trim()).filter(v => ALLOWED_SIZES.has(v)))];
   const categoryName = categories.includes(item.category) ? item.category : DEFAULT_CATEGORIES.includes(item.category) ? item.category : 'Sandals';
   const categoryDoc = snapshot.docs.find(d => String(d.data().name || '').trim() === categoryName);
   const fallbackCategory = snapshot.docs.find(d => String(d.data().name || '').trim().toLowerCase() === 'sandals') || snapshot.docs[0];
