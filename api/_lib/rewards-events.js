@@ -77,7 +77,12 @@ export async function awardMarketplaceDeliveryRewards(orderDocumentId, sellerUid
     if (entrySnap.exists) return;
     const config = configSnap.data() || {};
     if (config.enabled !== true || config.buyer?.enabled === false) return;
-    const spend = items.reduce((sum, item) => sum + lineAmount(item), 0);
+    // Buyer rewards apply only to independent-seller marketplace items.
+    // First-party HerStep Collection items in a mixed order must not increase
+    // the buyer's eligible spend.
+    const marketplaceItems = items.filter(item => sellerOf(item));
+    if (!marketplaceItems.length) return;
+    const spend = marketplaceItems.reduce((sum, item) => sum + lineAmount(item), 0);
     const requestedPoints = safePoints(spend, config.pointsPerKes, config.buyer?.maxPointsPerOrder);
     const outstandingKes = calculateOutstandingLiability(ledgerSnap.docs.map(doc => doc.data()), config.pointValueKes);
     const points = pointsAllowedUnderLiabilityCap(requestedPoints, config.maxLiabilityKes, outstandingKes, config.pointValueKes);
