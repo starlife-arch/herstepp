@@ -7,6 +7,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { adminDb, requireAdmin } from '../firebase-admin.js';
 import { clientError, methodNotAllowed } from '../http.js';
 import { sendEmail } from '../email-service.js';
+import { restockAlertEmail } from '../email-templates.js';
 
 const statuses = ['DRAFT', 'ACTIVE', 'ARCHIVED'];
 const sizes = new Set([...Array.from({ length: 16 }, (_, i) => String(i + 30)), 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'One Size', 'Free Size']);
@@ -111,11 +112,9 @@ export async function productUpdate(req, res) {
       for (const sub of subs.docs) {
         const subscription = sub.data();
         try {
-          const safeName = String(data.name).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
           const url = 'https://www.herstepcollection.shop/product/' + encodeURIComponent(id);
-          await sendEmail({ purpose: 'orders', to: subscription.email,
-            subject: data.name + ' — size ' + item.size + ' is back in stock',
-            htmlContent: '<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>Good news from HerStep Collection</h2><p>' + safeName + ', size ' + item.size + ', is back in stock.</p><p><a href="' + url + '">View product</a></p></div>',
+          const email = restockAlertEmail({ productName: data.name, size: item.size, productUrl: url });
+          await sendEmail({ purpose: 'orders', to: subscription.email, ...email,
             textContent: data.name + ', size ' + item.size + ', is back in stock. View: ' + url });
           await sub.ref.update({ status: 'SENT', notifiedAt: FieldValue.serverTimestamp() });
         } catch (emailError) { console.error('[restock-alert] email failed:', emailError?.message || emailError); }
