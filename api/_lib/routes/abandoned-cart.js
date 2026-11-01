@@ -79,7 +79,7 @@ export async function snapshot(req, res) {
     uid,
     email,
     emailVerified,
-    marketingOptIn: profileData.marketingOptIn === true,
+    marketingConsent: profileData.marketingConsent === true || profileData.marketingOptIn === true,
     items,
     status: 'ACTIVE',
     lastActivityAt: FieldValue.serverTimestamp(),
@@ -114,7 +114,7 @@ export async function processAbandonedCarts(req, res) {
   for (const cartDoc of snap.docs) {
     const cart = cartDoc.data() || {};
     const uid = cartDoc.id;
-    if (millis(cart.lastActivityAt) > cutoff || cart.reminderSentAt || !cart.marketingOptIn
+    if (millis(cart.lastActivityAt) > cutoff || cart.reminderSentAt || !(cart.marketingConsent === true || cart.marketingOptIn === true)
       || !cart.emailVerified || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(cart.email || ''))
       || !Array.isArray(cart.items) || !cart.items.length) {
       skipped += 1;
@@ -141,7 +141,7 @@ export async function processAbandonedCarts(req, res) {
     const currentProfile = await adminDb.collection('users').doc(uid).get().catch(() => null);
     const profile = currentProfile?.exists ? currentProfile.data() || {} : {};
     // Recheck consent and email status at send time in case the customer opted out.
-    if (profile.marketingOptIn !== true || profile.emailVerified !== true) {
+    if (!(profile.marketingConsent === true || profile.marketingOptIn === true) || profile.emailVerified !== true) {
       skipped += 1;
       continue;
     }
@@ -162,7 +162,7 @@ export async function processAbandonedCarts(req, res) {
         const fresh = await tx.get(cartDoc.ref);
         const data = fresh.exists ? fresh.data() || {} : {};
         if (!fresh.exists || data.status !== 'ACTIVE' || data.reminderSentAt
-          || millis(data.lastActivityAt) !== lastActivity || data.marketingOptIn !== true) return;
+          || millis(data.lastActivityAt) !== lastActivity || !(data.marketingConsent === true || data.marketingOptIn === true)) return;
         queueEmail(tx, adminDb, { key, purpose: 'promotions', to: cart.email, subject, htmlContent });
         tx.update(cartDoc.ref, {
           reminderSentAt: FieldValue.serverTimestamp(),
