@@ -223,7 +223,7 @@ export function queueOrderStatusEmail(tx, db, { orderDocumentId, order, orderSta
     const message = firstParty
       ? `Hi ${order.delivery?.fullName || order.customerName || 'there'},\n\nThe HerStep Collection items in order ${order.orderId} are now ${st.replace(/_/g, ' ').toLowerCase()}.`
       : `Hi ${order.delivery?.fullName || order.customerName || 'there'},\n\n${line}`;
-    const { htmlContent } = buildEmail(subject, message, { ctaLabel: 'View your order', ctaUrl: `${siteUrl()}/dashboard` });
+    const { htmlContent } = buildEmail(subject, message, { ctaLabel: 'View your order', ctaUrl: `${siteUrl()}/track?order=${encodeURIComponent(order.orderId)}` });
     const key = `${orderDocumentId}-${firstParty ? 'FIRST-PARTY-ORDER' : 'ORDER'}-${st}`;
     queueEmail(tx, db, { key, purpose: 'orders', to: order.customerEmail, subject, htmlContent });
   } catch (error) {
@@ -308,8 +308,8 @@ export function queuePaymentSms(tx, db, { orderDocumentId, order, payment, statu
     const phone = payment?.phone || order?.customerPhone || order?.delivery?.phone;
     if (!phone || !order?.orderId) return null;
     const base = siteUrl();
-    const orderUrl = `${base}/dashboard`;
-    const invoiceUrl = `${base}/dashboard`;
+    const orderUrl = `${base}/track?order=${encodeURIComponent(order.orderId)}`;
+    const invoiceUrl = orderUrl;
     const attempt = String(payment?.paymentId || payment?.id || st).replace(/[^A-Za-z0-9_-]/g, '_');
     let message;
     if (st === 'PAID') {
@@ -342,8 +342,8 @@ export function queueOrderStatusSms(tx, db, { orderDocumentId, order, orderStatu
     queueSms(tx, db, {
       key, to: phone,
       message: firstParty
-        ? `HerStep items in order ${order.orderId} are now ${st.replace(/_/g, ' ').toLowerCase()}. Details: ${siteUrl()}/dashboard`
-        : `HerStep order ${order.orderId}: ${line} Details: ${siteUrl()}/dashboard`,
+        ? `HerStep items in order ${order.orderId} are now ${st.replace(/_/g, ' ').toLowerCase()}. Details: ${siteUrl()}/track?order=${encodeURIComponent(order.orderId)}`
+        : `HerStep order ${order.orderId}: ${line} Details: ${siteUrl()}/track?order=${encodeURIComponent(order.orderId)}`,
     });
     return key;
   } catch (error) {
@@ -358,7 +358,7 @@ export function queueTipThankYouSms(tx, db, { tip, receiptNumber }) {
     const key = `${tip.tipId}-TIP-THANKYOU-SMS`;
     queueSms(tx, db, {
       key, to: tip.phone,
-      message: `HerStep: Thank you for your KSh ${Number(tip.amount || 0).toLocaleString('en-KE')} tip! Receipt ${receiptNumber || tip.receiptNumber || tip.tipId}. Details: ${siteUrl()}/dashboard`,
+      message: `HerStep: Thank you for your KSh ${Number(tip.amount || 0).toLocaleString('en-KE')} tip! Receipt ${receiptNumber || tip.receiptNumber || tip.tipId}. Details: ${siteUrl()}/tip`,
     });
     return key;
   } catch (error) {
