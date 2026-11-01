@@ -204,7 +204,7 @@ export function orderReceiptEmail(order, status) {
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:20px;">${totalRows}</table>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
     <td align="center" style="padding:4px 6px;">
-      <a href="${escapeHtml(`${siteUrl()}/dashboard`)}" target="_blank" rel="noopener" style="display:inline-block;background:${BRAND_NAVY};color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:6px;">View your order</a>
+      <a href="${escapeHtml(`${siteUrl()}/track?order=${encodeURIComponent(orderId)}`)}" target="_blank" rel="noopener" style="display:inline-block;background:${BRAND_NAVY};color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:6px;">View your order</a>
     </td>
     ${!paid && o.id ? `<td align="center" style="padding:4px 6px;">
       <a href="${escapeHtml(`${siteUrl()}/checkout?order=${encodeURIComponent(o.id)}`)}" target="_blank" rel="noopener" style="display:inline-block;background:${BRAND_ACCENT};color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:6px;">Pay now</a>
@@ -359,7 +359,7 @@ export function invoiceEmail(order) {
   ${row('M-Pesa receipt', o.receiptNumber || o.paymentReference || '—')}
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
     <td align="center" style="padding:16px 6px 4px;">
-      <a href="${escapeHtml(`${siteUrl()}/dashboard`)}" target="_blank" rel="noopener" style="display:inline-block;background:${BRAND_NAVY};color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:6px;">View your order</a>
+      <a href="${escapeHtml(`${siteUrl()}/track?order=${encodeURIComponent(orderId)}`)}" target="_blank" rel="noopener" style="display:inline-block;background:${BRAND_NAVY};color:#fff;text-decoration:none;font-family:Arial,sans-serif;font-size:14px;font-weight:bold;padding:11px 22px;border-radius:6px;">View your order</a>
     </td>
   </tr></table>
 </td></tr>
