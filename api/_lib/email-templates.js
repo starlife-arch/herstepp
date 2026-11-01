@@ -60,6 +60,31 @@ export function buildEmail(title, body, options = {}) {
   return { subject: String(title), htmlContent: emailHtml(title, body, options) };
 }
 
+// Branded back-in-stock notice with a clear product/size panel and CTA.
+export function restockAlertEmail({ productName, size, productUrl }) {
+  const name = escapeHtml(productName || 'Your selected item');
+  const safeSize = escapeHtml(size);
+  const body = `
+    <p style="margin:0 0 16px;">The size you asked us to watch is available again.</p>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e6e8ec;border-radius:10px;background:#f8fafc;margin:18px 0;">
+      <tr><td style="padding:18px 20px;">
+        <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:bold;letter-spacing:1.5px;color:#8a93a2;text-transform:uppercase;">BACK IN STOCK</div>
+        <div style="font-family:Arial,sans-serif;font-size:17px;font-weight:bold;line-height:1.4;color:${BRAND_NAVY};margin-top:7px;">${name}</div>
+        <div style="display:inline-block;margin-top:12px;padding:7px 13px;border-radius:20px;background:#eaf2ee;color:#1f6a53;font-family:Arial,sans-serif;font-size:13px;font-weight:bold;">Your size: ${safeSize}</div>
+      </td></tr>
+    </table>
+    <p style="margin:0;">Stock can change, so visit the product page if you would like to check availability.</p>
+  `;
+  return {
+    subject: `${productName || 'Your item'} — size ${size} is back in stock`,
+    htmlContent: emailHtml('Your size is back!', body, {
+      rawBody: true,
+      ctaLabel: 'Shop this item',
+      ctaUrl: productUrl,
+    }),
+  };
+}
+
 // 6-digit email-verification code email. Deliberately has NO links and NO CTA
 // button (the branded shell is reused without ctaLabel/ctaUrl) — a phishing
 // email copy would be useless. The code is rendered as large spaced digits;
