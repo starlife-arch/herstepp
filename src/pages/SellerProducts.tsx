@@ -46,9 +46,7 @@ export default function SellerProducts() {
   const [sku, setSku] = useState('');
   const [price, setPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
-  const [size, setSize] = useState('One Size');
-  const [quantity, setQuantity] = useState('1');
-  const [costPrice, setCostPrice] = useState('');
+  const [inventoryRows, setInventoryRows] = useState<{ size: string; quantity: string; costPrice: string }[]>([{ size: 'One Size', quantity: '1', costPrice: '' }]);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -233,7 +231,8 @@ export default function SellerProducts() {
           name, description, categoryId, sku: sku.toUpperCase(),
           price: Number(price),
           salePrice: salePrice.trim() ? Number(salePrice) : null,
-          inventory: [{ size, quantity: Number(quantity), costPrice: costPrice.trim() ? Number(costPrice) : null }],
+          inventory: inventoryRows.map(row => ({ size: row.size, quantity: Number(row.quantity), costPrice: row.costPrice.trim() ? Number(row.costPrice) : null })),
+
           images,
         }),
       });
@@ -246,7 +245,7 @@ export default function SellerProducts() {
       }
       setEditingId(null); setEditingPublished(false);
       setName(''); setDescription(''); setSku(''); setPrice(''); setSalePrice('');
-      setQuantity('1'); setCostPrice(''); setImages([]);
+      setInventoryRows([{ size: 'One Size', quantity: '1', costPrice: '' }]); setImages([]);
       setMessage(editingPublished ? 'Published listing updated successfully.' : editingId ? 'Private draft updated.' : 'Draft saved privately. It is not visible in the public shop.');
     } catch (err: any) {
       setError(err?.message || 'Could not save product draft.');
@@ -365,19 +364,19 @@ export default function SellerProducts() {
               <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-price">Price (KSh)</label><input id="seller-product-price" className={fieldClass} type="number" min="0" step="1" value={price} onChange={e => setPrice(e.target.value)} required /></div>
               <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-sale-price">Sale price (optional)</label><input id="seller-product-sale-price" className={fieldClass} type="number" min="0" step="1" value={salePrice} onChange={e => setSalePrice(e.target.value)} /></div>
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-size">Size / variant</label><select id="seller-product-size" className={fieldClass} value={size} onChange={e => {
-                const nextSize = e.target.value;
-                setSize(nextSize);
-                if (editingPublished && editingId) {
-                  const currentProduct = drafts.find(item => item.id === editingId);
-                  const variant = currentProduct?.inventory?.find(item => item.size === nextSize);
-                  setQuantity(String(variant?.quantity ?? 1));
-                  setCostPrice(variant?.costPrice == null ? '' : String(variant.costPrice));
-                }
-              }}>{sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}</select>{editingPublished && <p className="text-xs text-neutral-500 mt-1">Choose an existing size to edit its stock, or choose a new size to add a variant.</p>}</div>
-              <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-quantity">Quantity</label><input id="seller-product-quantity" className={fieldClass} type="number" min="0" step="1" value={quantity} onChange={e => setQuantity(e.target.value)} required /></div>
-              <div><label className="block text-sm font-medium mb-1.5" htmlFor="seller-product-cost">Cost (optional)</label><input id="seller-product-cost" className={fieldClass} type="number" min="0" step="1" value={costPrice} onChange={e => setCostPrice(e.target.value)} /></div>
+            <div className="rounded-lg border border-neutral-200 p-4 space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <div><h3 className="text-sm font-semibold text-neutral-900">Sizes / variants and stock</h3><p className="text-xs text-neutral-500 mt-1">Add every size this product comes in. Each size has its own stock quantity and optional cost.</p></div>
+                <Button type="button" variant="outline" size="sm" disabled={inventoryRows.length >= 40} onClick={() => setInventoryRows(rows => [...rows, { size: sizeOptions.find(option => !rows.some(row => row.size === option)) || '', quantity: '0', costPrice: '' }])}>Add size</Button>
+              </div>
+              {inventoryRows.map((row, index) => (
+                <div key={index} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end rounded-lg bg-neutral-50 p-3">
+                  <div><label className="block text-xs font-medium mb-1" htmlFor={`seller-product-size-${index}`}>Size / variant</label><select id={`seller-product-size-${index}`} className={fieldClass} value={row.size} onChange={e => setInventoryRows(rows => rows.map((item, i) => i === index ? { ...item, size: e.target.value } : item))} required><option value="">Choose size</option>{sizeOptions.map(option => <option key={option} value={option} disabled={inventoryRows.some((item, i) => i !== index && item.size === option)}>{option}</option>)}</select></div>
+                  <div><label className="block text-xs font-medium mb-1" htmlFor={`seller-product-quantity-${index}`}>Quantity</label><input id={`seller-product-quantity-${index}`} className={fieldClass} type="number" min="0" step="1" value={row.quantity} onChange={e => setInventoryRows(rows => rows.map((item, i) => i === index ? { ...item, quantity: e.target.value } : item))} required /></div>
+                  <div><label className="block text-xs font-medium mb-1" htmlFor={`seller-product-cost-${index}`}>Cost per item (optional)</label><input id={`seller-product-cost-${index}`} className={fieldClass} type="number" min="0" step="1" value={row.costPrice} onChange={e => setInventoryRows(rows => rows.map((item, i) => i === index ? { ...item, costPrice: e.target.value } : item))} /></div>
+                </div>
+              ))}
+              <p className="text-xs text-neutral-500">Up to 40 unique sizes or variants per product. Existing sizes are loaded when editing; use Add size to include more.</p>
             </div>
             <div>
               <div className="flex items-center justify-between gap-3 mb-2"><label className="block text-sm font-medium">Product images (up to 8)</label><span className="text-xs text-neutral-500">{images.length}/8 uploaded</span></div>
@@ -389,14 +388,14 @@ export default function SellerProducts() {
               {images.length > 0 && <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">{images.map((image, index) => <div key={image.publicId} className="relative"><img src={image.url} alt={`Product upload ${index + 1}`} className="aspect-square w-full object-cover rounded-lg border" /><button type="button" onClick={() => setImages(old => old.filter((_, i) => i !== index))} className="absolute top-1 right-1 rounded-full bg-white p-1 shadow" aria-label="Remove image"><Trash2 className="w-4 h-4 text-red-600" /></button></div>)}</div>}
             </div>
             <Button type="submit" disabled={saving || uploading || !images.length || !categories.length} className="w-full"><Save className="w-4 h-4 mr-2" />{saving ? 'Saving…' : editingPublished ? 'Update published product' : editingId ? 'Update private draft' : 'Save private draft'}</Button>
-            {editingId && <Button type="button" variant="outline" className="w-full" onClick={() => { setEditingId(null); setEditingPublished(false); setName(''); setDescription(''); setSku(''); setPrice(''); setSalePrice(''); setQuantity('1'); setCostPrice(''); setImages([]); }}>Cancel editing</Button>}
+            {editingId && <Button type="button" variant="outline" className="w-full" onClick={() => { setEditingId(null); setEditingPublished(false); setName(''); setDescription(''); setSku(''); setPrice(''); setSalePrice(''); setInventoryRows([{ size: 'One Size', quantity: '1', costPrice: '' }]); setImages([]); }}>Cancel editing</Button>}
           </form>
         </Card>
 
         <section className="lg:col-span-2">
           <Card className="p-5 sm:p-6">
             <div className="flex items-center justify-between gap-3 mb-4"><h2 className="text-lg font-semibold">My saved drafts</h2><span className="text-xs rounded-full bg-neutral-100 px-2.5 py-1">{drafts.length}</span></div>
-            {loading ? <p className="text-sm text-neutral-500 py-6 text-center">Loading drafts…</p> : drafts.length === 0 ? <div className="text-center py-8 text-sm text-neutral-500"><Store className="w-8 h-8 mx-auto mb-2 opacity-50" />No products or drafts yet.</div> : <div className="space-y-3">{drafts.map(draft => <div key={draft.id} className="flex items-start gap-3 rounded-lg border border-neutral-200 p-3"><div className="rounded-lg bg-neutral-100 p-2"><PackagePlus className="w-5 h-5 text-neutral-600" /></div><div className="min-w-0 flex-1"><p className="font-medium text-sm break-words">{draft.name}</p><p className="text-xs text-neutral-500 mt-1">{money(draft.price)} · Seller listing</p><p className="text-xs text-neutral-500 mt-1">Status: {draft.status === 'PENDING_REVIEW' ? 'Legacy listing awaiting review' : draft.status === 'APPROVED' ? 'Approved — awaiting publication' : draft.status === 'PUBLISHED' ? 'Published' : draft.status === 'REJECTED' ? 'Changes requested' : 'Private draft'}</p>{draft.status === 'REJECTED' && <p className="text-xs text-red-700 mt-1">Reason: {(draft as any).moderationReason || 'Please review and update your listing.'}</p>}<div className="flex flex-wrap gap-3 mt-2"><button type="button" className="text-sm font-medium underline" disabled={['PENDING_REVIEW','APPROVED'].includes(draft.status) || (draft.status === 'PUBLISHED' && !publishingEnabled)} onClick={() => { setEditingId(draft.id); setEditingPublished(draft.status === 'PUBLISHED'); setName(draft.name); setDescription(draft.description || ''); setCategoryId(draft.categoryId); setSku(draft.sku || ''); setPrice(String(draft.price)); setSalePrice(draft.salePrice == null ? '' : String(draft.salePrice)); const first = draft.inventory?.[0]; setSize(first?.size || 'One Size'); setQuantity(String(first?.quantity ?? 1)); setCostPrice(first?.costPrice == null ? '' : String(first.costPrice)); setImages(draft.images || []); setError(''); setMessage(draft.status === 'PUBLISHED' ? 'Editing a live marketplace listing.' : 'Editing a private draft.'); }}>{draft.status === 'PUBLISHED' ? 'Edit published product' : 'Edit draft'}</button>{['DRAFT','REJECTED'].includes(draft.status) && <Button size="sm" disabled={!publishingEnabled || publishingIds.includes(draft.id)} onClick={() => void submitForReview(draft)}>{publishingIds.includes(draft.id) ? 'Publishing…' : 'Publish listing'}</Button>}</div></div></div>)}</div>}
+            {loading ? <p className="text-sm text-neutral-500 py-6 text-center">Loading drafts…</p> : drafts.length === 0 ? <div className="text-center py-8 text-sm text-neutral-500"><Store className="w-8 h-8 mx-auto mb-2 opacity-50" />No products or drafts yet.</div> : <div className="space-y-3">{drafts.map(draft => <div key={draft.id} className="flex items-start gap-3 rounded-lg border border-neutral-200 p-3"><div className="rounded-lg bg-neutral-100 p-2"><PackagePlus className="w-5 h-5 text-neutral-600" /></div><div className="min-w-0 flex-1"><p className="font-medium text-sm break-words">{draft.name}</p><p className="text-xs text-neutral-500 mt-1">{money(draft.price)} · Seller listing</p><p className="text-xs text-neutral-500 mt-1">Status: {draft.status === 'PENDING_REVIEW' ? 'Legacy listing awaiting review' : draft.status === 'APPROVED' ? 'Approved — awaiting publication' : draft.status === 'PUBLISHED' ? 'Published' : draft.status === 'REJECTED' ? 'Changes requested' : 'Private draft'}</p>{draft.status === 'REJECTED' && <p className="text-xs text-red-700 mt-1">Reason: {(draft as any).moderationReason || 'Please review and update your listing.'}</p>}<div className="flex flex-wrap gap-3 mt-2"><button type="button" className="text-sm font-medium underline" disabled={['PENDING_REVIEW','APPROVED'].includes(draft.status) || (draft.status === 'PUBLISHED' && !publishingEnabled)} onClick={() => { setEditingId(draft.id); setEditingPublished(draft.status === 'PUBLISHED'); setName(draft.name); setDescription(draft.description || ''); setCategoryId(draft.categoryId); setSku(draft.sku || ''); setPrice(String(draft.price)); setSalePrice(draft.salePrice == null ? '' : String(draft.salePrice)); setInventoryRows(draft.inventory?.length ? draft.inventory.map(item => ({ size: item.size, quantity: String(item.quantity ?? 0), costPrice: item.costPrice == null ? '' : String(item.costPrice) })) : [{ size: 'One Size', quantity: '1', costPrice: '' }]); setImages(draft.images || []); setError(''); setMessage(draft.status === 'PUBLISHED' ? 'Editing a live marketplace listing.' : 'Editing a private draft.'); }}>{draft.status === 'PUBLISHED' ? 'Edit published product' : 'Edit draft'}</button>{['DRAFT','REJECTED'].includes(draft.status) && <Button size="sm" disabled={!publishingEnabled || publishingIds.includes(draft.id)} onClick={() => void submitForReview(draft)}>{publishingIds.includes(draft.id) ? 'Publishing…' : 'Publish listing'}</Button>}</div></div></div>)}</div>}
           </Card>
           <p className="text-xs text-neutral-500 mt-3">AI bulk upload creates private drafts. Product editing, stock management, moderation and publishing remain separate guarded steps.</p>
         </section>
