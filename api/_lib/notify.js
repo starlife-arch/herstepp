@@ -268,7 +268,7 @@ export function queueTipThankYouEmail(tx, db, { key, tip, receiptNumber }) {
     const { subject, htmlContent } = buildEmail(
       'Thank you for treating the HerStep team!',
       `Hi ${tip.customerName || 'there'},\n\nYour KSh ${(Number(tip.amount) || 0).toLocaleString('en-KE')} ${label} just made the whole team smile. Thank you so much for supporting HerStep Collection!\n\nReceipt: ${receiptNumber || '—'}${tip.message ? `\n\nYour message: "${tip.message}"` : ''}\n\nWith gratitude,\nThe HerStep team`,
-      { ctaLabel: 'Shop with us', ctaUrl: `${siteUrl()}/shop` },
+      { ctaLabel: 'View tips', ctaUrl: `${siteUrl()}/tip` },
     );
     queueEmail(tx, db, { key, purpose: 'tips', to: tip.customerEmail, subject, htmlContent });
   } catch (error) {
