@@ -17,7 +17,7 @@ function refundStatus(order) {
   return String(order.refundStatus || (order.paymentStatus === 'REFUNDED' ? 'CONFIRMED' : 'NONE')).toUpperCase();
 }
 
-function notifyRefundSellers(tx, order, refundRecordId, status, amount, reason, now) {
+function notifyRefundSellers(tx, order, orderDocumentId, refundRecordId, status, amount, reason, now) {
   const sellerIds = [...new Set((Array.isArray(order?.items) ? order.items : [])
     .map(item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim())
     .filter(Boolean))];
@@ -31,7 +31,7 @@ function notifyRefundSellers(tx, order, refundRecordId, status, amount, reason, 
     const id = Buffer.from(`refund-${refundRecordId}-${status}-${sellerId}`).toString('base64url').slice(0, 140);
     tx.set(adminDb.collection('notifications').doc(id), {
       customerId: sellerId, type: 'MARKETPLACE_REFUND_' + status,
-      title, body, orderDocumentId: order?.id || null,
+      title, body, orderDocumentId,
       refundRecordId, amount: Number(amount) || 0, reason: String(reason || '').slice(0, 300),
       readAt: null, createdAt: now,
     }, { merge: true });
@@ -112,7 +112,7 @@ export async function adminRefunds(req, res) {
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_CONFIRMED', entityType: 'ORDER', entityId: orderDocumentId, amount, reason, providerReference, createdAt: now });
       tx.set(adminDb.collection('orderStatusHistory').doc(), { orderId: freshOrder.data().orderId || orderDocumentId, orderDocumentId, customerId: freshOrder.data().customerId || null, eventType: 'REFUND_CONFIRMED', previousStatus: freshOrder.data().paymentStatus, newStatus: isFullRefund ? 'REFUNDED' : 'PARTIALLY_REFUNDED', paymentStatus: isFullRefund ? 'REFUNDED' : freshOrder.data().paymentStatus, note: reason, source: 'ADMIN', createdAt: now });
       const freshData = freshOrder.data();
-      notifyRefundSellers(tx, freshData, refundRecordId, 'CONFIRMED', amount, reason, now);
+      notifyRefundSellers(tx, freshData, orderDocumentId, refundRecordId, 'CONFIRMED', amount, reason, now);
       const customerEmail = cleanText(freshData.customerEmail || freshData.email || freshData.delivery?.email, 254).toLowerCase();
       const customerPhone = freshData.delivery?.phone || freshData.phone || '';
       const orderNumber = cleanText(freshData.orderId || orderDocumentId, 80);
@@ -159,7 +159,7 @@ export async function adminRefunds(req, res) {
       const refund = freshRefund.data();
       if (refund.status !== 'REQUESTED') throw clientError('Only a pending refund request can be approved.', 409);
       const freshData = freshOrder.data();
-      notifyRefundSellers(tx, freshData, refundRecordId, 'APPROVED', refund.amount, reason, now);
+      notifyRefundSellers(tx, freshData, orderDocumentId, refundRecordId, 'APPROVED', refund.amount, reason, now);
       tx.update(refundRef, { status: 'APPROVED', approvalNote: reason, approvedBy: admin.uid, approvedAt: now, updatedAt: now });
       tx.update(orderRef, { refundStatus: 'APPROVED', refundApprovedAt: now, refundApprovalNote: reason, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_APPROVED', entityType: 'ORDER', entityId: orderDocumentId, refundRecordId, amount: refund.amount, reason, createdAt: now });
@@ -202,7 +202,7 @@ export async function adminRefunds(req, res) {
       const refund = freshRefund.data();
       if (refund.status !== 'REQUESTED') throw clientError('Only a pending refund request can be rejected.', 409);
       const freshData = freshOrder.data();
-      notifyRefundSellers(tx, freshData, refundRecordId, 'REJECTED', refund.amount, reason, now);
+      notifyRefundSellers(tx, freshData, orderDocumentId, refundRecordId, 'REJECTED', refund.amount, reason, now);
       tx.update(refundRef, { status: 'REJECTED', rejectionReason: reason, rejectedBy: admin.uid, rejectedAt: now, updatedAt: now });
       tx.update(orderRef, { refundStatus: 'REJECTED', refundRejectedReason: reason, refundRejectedAt: now, updatedAt: now });
       tx.set(adminDb.collection('auditLogs').doc(), { actorUid: admin.uid, action: 'REFUND_REJECTED', entityType: 'ORDER', entityId: orderDocumentId, refundRecordId, amount: refund.amount, reason, createdAt: now });
