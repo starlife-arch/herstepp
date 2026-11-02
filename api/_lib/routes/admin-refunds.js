@@ -7,6 +7,7 @@ import { buildEmail } from '../email-templates.js';
 import { queueSms, deliverQueuedSms } from '../sms-service.js';
 import { sendTelegramMessage } from '../telegram.js';
 import { siteUrl } from '../site-url.js';
+import { reverseMarketplaceOrderRewards } from '../rewards-refunds.js';
 
 const iso = value => value?.toDate ? value.toDate().toISOString() : value || null;
 const cleanText = (value, max = 500) => typeof value === 'string' ? value.trim().slice(0, max) : '';
@@ -111,6 +112,13 @@ export async function adminRefunds(req, res) {
       });
       return { emailKey, smsQueued, customerEmail, customerName: freshData.customerName || freshData.delivery?.fullName || 'Customer', orderNumber, amount, providerReference, isFullRefund };
     });
+    // Reward points are reversed only after the refund has been confirmed
+    // as completed. The existing ledger reversal is idempotent per order.
+    if (notification.isFullRefund) {
+      waitUntil(reverseMarketplaceOrderRewards(orderDocumentId).catch(error => {
+        console.error('[admin-refunds] reward reversal failed after confirmed full refund:', error?.message || error);
+      }));
+    }
     waitUntil(Promise.all([
       notification.emailKey ? deliverQueuedEmailInline(adminDb, notification.emailKey) : Promise.resolve(null),
       notification.smsQueued ? deliverQueuedSms(adminDb, `${refundRecordId}-REFUND-CONFIRMED-SMS`) : Promise.resolve(null),
