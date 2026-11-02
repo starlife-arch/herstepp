@@ -84,6 +84,11 @@ export async function customerRefunds(req, res) {
     if (amount > Number(order.total || 0) - alreadyRefunded) {
       throw clientError('The requested amount exceeds the remaining refundable balance.');
     }
+    const sellerIds = [...new Set((Array.isArray(order.items) ? order.items : [])
+      .map(item => String(item?.sellerId || item?.sellerSnapshot?.sellerId || '').trim())
+      .filter(Boolean))];
+    const sellerRefs = sellerIds.map(id => adminDb.collection('sellers').doc(id));
+    const sellerSnaps = sellerRefs.length ? await tx.getAll(...sellerRefs) : [];
     const status = String(order.refundStatus || 'NONE').toUpperCase();
     if (['REQUESTED', 'APPROVED', 'CONFIRMED'].includes(status)) {
       throw clientError('A refund request already exists for this order. Please check its status or contact support.', 409);
@@ -103,6 +108,24 @@ export async function customerRefunds(req, res) {
       actorUid: user.uid, actorType: 'CUSTOMER', action: 'REFUND_REQUESTED',
       entityType: 'ORDER', entityId: orderDocumentId, amount, reason, createdAt: now,
     });
+    // Tell every independent seller affected by this order. This is an
+    // operational in-app alert; it does not approve the refund or debit funds.
+    for (let index = 0; index < sellerSnaps.length; index += 1) {
+      const sellerSnap = sellerSnaps[index];
+      if (!sellerSnap.exists) continue;
+      const sellerId = sellerIds[index];
+      const noticeId = Buffer.from(`marketplace-refund-request:${refundRef.id}:${sellerId}`).toString('base64url');
+      tx.set(adminDb.collection('notifications').doc(noticeId), {
+        customerId: sellerId,
+        orderDocumentId,
+        refundRecordId: refundRef.id,
+        event: 'MARKETPLACE_REFUND_REQUESTED',
+        title: 'Refund requested for your order',
+        body: `A customer requested a refund of KSh ${amount.toLocaleString('en-KE')} for order ${cleanText(order.orderId || orderDocumentId, 80)}. The case is under review; no seller funds have been debited.`,
+        readAt: null,
+        createdAt: now,
+      });
+    }
 
     // Queue best-effort customer and refund-team notifications in the same
     // transaction as the request. Delivery happens only after commit.
